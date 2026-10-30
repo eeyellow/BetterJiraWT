@@ -409,6 +409,103 @@ html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog
 }
 
 /* =========================================================
+   待辦事項卡片雙列排版 (加大高度為原本兩列、第一列放標題資訊、第二列放其他欄位)
+   適用於所有主題 (預設 Default / Bootstrap / MaterialDesign)
+   ========================================================= */
+
+/* 1. 外層卡片列本體：加大高度為兩列 (約 68px ~ 74px)，解除單列高度限制 */
+html[data-betterjira-layout="two-column"] [data-testid*="software-backlog.card-list.card"],
+html[data-betterjira-layout="two-column"] [data-testid*="issue-card"],
+html[data-betterjira-layout="two-column"] .js-issue,
+html[data-betterjira-layout="two-column"] .ghx-issue-compact,
+html[data-betterjira-layout="two-column"] .sprint-card {
+  min-height: 68px !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* 2. 卡片內部內容容器：改為縱向 flex (垂直堆疊兩列) */
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents.card-container"],
+html[data-betterjira-layout="two-column"] [data-testid*="software-backlog.card-list.card"] [data-testid*="card-contents"],
+html[data-betterjira-layout="two-column"] [data-testid*="issue-card"] [data-testid*="card-contents"],
+html[data-betterjira-layout="two-column"] .ghx-issue-compact .ghx-issue-content,
+html[data-betterjira-layout="two-column"] .js-issue .ghx-issue-content {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: stretch !important;
+  min-height: 68px !important;
+  height: auto !important;
+  max-height: none !important;
+  padding: 8px 12px !important;
+  gap: 6px !important;
+  box-sizing: border-box !important;
+}
+
+/* 3. 第一列：只放卡片類型 Icon、卡片編號、卡片標題 (佔滿整列 100% 寬度) */
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:has(a[href*="/browse/"]),
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:has([data-testid*="accessible-card-key"]),
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:has([data-testid*="key"]),
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:first-child:not([class*="drag"]):not([class*="handle"]):not([class*="grip"]),
+html[data-betterjira-layout="two-column"] .ghx-issue-compact .ghx-summary,
+html[data-betterjira-layout="two-column"] .js-issue .ghx-summary {
+  width: 100% !important;
+  max-width: 100% !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  margin: 0 !important;
+}
+
+/* 4. 第一列標題 (Summary)：享受 100% 整列寬度完整呈現，標題不再被過早壓縮截斷 */
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] [data-testid*="summary"],
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] a[href*="/browse/"] ~ span,
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] [role="link"],
+html[data-betterjira-layout="two-column"] .ghx-issue-compact .ghx-inner,
+html[data-betterjira-layout="two-column"] .js-issue .ghx-inner {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+/* 滑鼠懸停於卡片時，標題若特長可解除 nowrap 進行自動換行展開 */
+html[data-betterjira-layout="two-column"] [data-testid*="software-backlog.card-list.card"]:hover [data-testid*="summary"],
+html[data-betterjira-layout="two-column"] [data-testid*="issue-card"]:hover [data-testid*="summary"] {
+  white-space: normal !important;
+  word-break: break-word !important;
+}
+
+/* 5. 第二列：放其他的欄位 (狀態、到期日、點數、優先順序、指派人、Epic 等) */
+/* 透過 justify-content: flex-end 維持原本右側欄位一欄一欄的垂直對齊線 */
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:has([data-testid*="status"]),
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:has([data-testid*="estimate"]),
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:has([data-testid*="priority"]),
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:has([data-testid*="assignee"]),
+html[data-betterjira-layout="two-column"] [data-testid*="card-contents"] > div:last-child:not(:first-child),
+html[data-betterjira-layout="two-column"] .ghx-issue-compact .ghx-stat-fields,
+html[data-betterjira-layout="two-column"] .js-issue .ghx-stat-fields {
+  width: 100% !important;
+  max-width: 100% !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  flex: 0 0 auto !important;
+  margin-top: 2px !important;
+  box-sizing: border-box !important;
+}
+
+/* =========================================================
    樣式 1：預設 (Default) - 保持原本 Jira 的樣式
    ========================================================= */
 
@@ -1113,13 +1210,17 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
 
 .bjwt-history-card {
   display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 12px !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: stretch !important;
+  min-height: 68px !important;
+  height: auto !important;
+  gap: 6px !important;
   padding: 8px 12px !important;
   background: var(--ds-surface, #1d2125) !important;
   border-bottom: 1px solid var(--ds-border, #2c333a) !important;
   cursor: pointer !important;
+  box-sizing: border-box !important;
   transition: background-color 0.12s ease !important;
 }
 
@@ -1132,11 +1233,14 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
 }
 
 .bjwt-history-card-left {
+  width: 100% !important;
+  max-width: 100% !important;
   display: flex !important;
   align-items: center !important;
   gap: 10px !important;
   min-width: 0 !important;
   flex: 1 1 auto !important;
+  margin: 0 !important;
 }
 
 .bjwt-history-issuetype-icon {
@@ -1172,13 +1276,25 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.bjwt-history-card:hover .bjwt-history-card-summary {
+  white-space: normal !important;
+  word-break: break-word !important;
 }
 
 .bjwt-history-card-right {
+  width: 100% !important;
+  max-width: 100% !important;
   display: flex !important;
   align-items: center !important;
+  justify-content: flex-end !important;
   gap: 10px !important;
-  flex-shrink: 0 !important;
+  flex: 0 0 auto !important;
+  margin-top: 2px !important;
+  box-sizing: border-box !important;
 }
 
 .bjwt-history-parent-badge {
