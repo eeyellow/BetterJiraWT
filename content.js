@@ -69,6 +69,7 @@
 
   let activeSprintKey = null;
   let activeSprintIndex = 0;
+  let isSidebarCollapsed = false;
   let layoutRafId = null;
 
   function normalizeUrl(rawUrl) {
@@ -471,6 +472,12 @@
       sidebar.id = SIDEBAR_ID;
     }
 
+    sprintsHost.setAttribute(
+      'data-bjwt-sidebar-collapsed',
+      isSidebarCollapsed ? 'true' : 'false'
+    );
+    sidebar.setAttribute('data-bjwt-collapsed', isSidebarCollapsed ? 'true' : 'false');
+
     const firstTarget = sprintBranches[0].headerPartner || sprintBranches[0].branch;
     if (sidebar.parentElement !== sprintsHost || sidebar.nextElementSibling !== firstTarget) {
       sprintsHost.insertBefore(sidebar, firstTarget);
@@ -522,12 +529,49 @@
     const prevScrollTop = prevList ? prevList.scrollTop : 0;
 
     sidebar.innerHTML = `
+      <button
+        type="button"
+        class="bjwt-sidebar-expand-btn"
+        title="展開衝刺清單"
+        aria-label="展開衝刺清單"
+        aria-expanded="false"
+      >
+        <span class="bjwt-sidebar-expand-icon" aria-hidden="true">»</span>
+        <span class="bjwt-sidebar-expand-text">衝刺清單</span>
+      </button>
       <div class="bjwt-sidebar-header">
-        <span class="bjwt-sidebar-title">衝刺清單</span>
-        <span class="bjwt-sidebar-count">${sprintBranches.length}</span>
+        <div class="bjwt-sidebar-title-wrap">
+          <span class="bjwt-sidebar-title">衝刺清單</span>
+          <span class="bjwt-sidebar-count">${sprintBranches.length}</span>
+        </div>
+        <button
+          type="button"
+          class="bjwt-sidebar-collapse-btn"
+          title="收合衝刺清單"
+          aria-label="收合衝刺清單"
+          aria-expanded="true"
+        >
+          <span aria-hidden="true">«</span>
+        </button>
       </div>
       <div class="bjwt-sprint-list" role="tablist" aria-label="衝刺切換清單"></div>
     `;
+
+    const collapseBtn = sidebar.querySelector('.bjwt-sidebar-collapse-btn');
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', () => {
+        isSidebarCollapsed = true;
+        applyTwoColumnBacklogLayout();
+      });
+    }
+
+    const expandBtn = sidebar.querySelector('.bjwt-sidebar-expand-btn');
+    if (expandBtn) {
+      expandBtn.addEventListener('click', () => {
+        isSidebarCollapsed = false;
+        applyTwoColumnBacklogLayout();
+      });
+    }
 
     const listEl = sidebar.querySelector('.bjwt-sprint-list');
 
@@ -754,6 +798,7 @@
 
     document.querySelectorAll('[data-bjwt-layout-host]').forEach((el) => {
       el.removeAttribute('data-bjwt-layout-host');
+      el.removeAttribute('data-bjwt-sidebar-collapsed');
     });
 
     document.querySelectorAll('[data-bjwt-sprint-branch]').forEach((el) => {

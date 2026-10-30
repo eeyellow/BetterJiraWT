@@ -46,12 +46,26 @@ html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
   border-bottom: 1px solid var(--ds-border, #dfe1e6);
   background: var(--ds-surface-sunken, #f4f5f7);
   font-size: 12px;
   font-weight: 700;
   color: var(--ds-text-subtle, #42526e);
+}
+
+.bjwt-sidebar-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bjwt-sidebar-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bjwt-sidebar-count {
@@ -66,6 +80,93 @@ html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar {
   font-weight: 700;
   background: var(--ds-background-neutral, #dfe1e6);
   color: var(--ds-text, #172b4d);
+}
+
+.bjwt-sidebar-collapse-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ds-text-subtle, #42526e);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.bjwt-sidebar-collapse-btn:hover {
+  background: var(--ds-background-neutral-hovered, #dfe1e6);
+  color: var(--ds-text, #172b4d);
+}
+
+/* 收合後的展開按鈕 (預設隱藏，僅在左欄收合時顯示) */
+.bjwt-sidebar-expand-btn {
+  display: none !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 36px;
+  padding: 10px 4px;
+  border: 1px solid var(--ds-border, #dfe1e6);
+  border-radius: 6px;
+  background: var(--ds-surface-raised, #ffffff);
+  color: var(--ds-text, #172b4d);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(9, 30, 66, 0.12);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bjwt-sidebar-expand-btn:hover {
+  background: var(--ds-background-selected, #e9f2ff);
+  color: var(--ds-text-selected, #0c66e4);
+  border-color: var(--ds-border-selected, #0c66e4);
+}
+
+.bjwt-sidebar-expand-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.bjwt-sidebar-expand-text {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  letter-spacing: 2px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* 當左欄處於收合狀態時：隱藏原本清單並縮減為展開按鈕，右欄自動放大專注於當前衝刺 */
+html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar[data-bjwt-collapsed="true"] {
+  flex: 0 0 36px !important;
+  width: 36px !important;
+  max-width: 36px !important;
+  min-width: 36px !important;
+  height: auto !important;
+  max-height: none !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar[data-bjwt-collapsed="true"] .bjwt-sidebar-header,
+html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar[data-bjwt-collapsed="true"] .bjwt-sprint-list {
+  display: none !important;
+}
+
+html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar[data-bjwt-collapsed="true"] .bjwt-sidebar-expand-btn {
+  display: flex !important;
 }
 
 .bjwt-sprint-list {
@@ -193,6 +294,14 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true
   margin-left: auto !important;
 }
 
+/* 左欄收合時，右欄衝刺區域自動擴展填滿剩餘寬度 */
+html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"][data-bjwt-sidebar-collapsed="true"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="true"],
+html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"][data-bjwt-sidebar-collapsed="true"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="true"] {
+  flex: 1 1 calc(100% - 52px) !important;
+  width: calc(100% - 52px) !important;
+  max-width: calc(100% - 52px) !important;
+}
+
 /* 隱藏所有未選取的衝刺與其標頭 */
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="false"],
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="false"] {
@@ -294,6 +403,31 @@ html[data-betterjira-theme="Bootstrap"] .bjwt-sidebar-header {
   color: var(--bjwt-bs-text);
 }
 
+html[data-betterjira-theme="Bootstrap"] .bjwt-sidebar-collapse-btn {
+  color: var(--bjwt-bs-secondary);
+  border-radius: 0.25rem;
+}
+
+html[data-betterjira-theme="Bootstrap"] .bjwt-sidebar-collapse-btn:hover {
+  background: var(--bjwt-bs-primary-subtle);
+  color: var(--bjwt-bs-primary);
+}
+
+html[data-betterjira-theme="Bootstrap"] .bjwt-sidebar-expand-btn {
+  background: var(--bjwt-bs-surface);
+  border: 1px solid var(--bjwt-bs-border);
+  border-top: 3px solid var(--bjwt-bs-primary);
+  border-radius: 0.375rem;
+  color: var(--bjwt-bs-text);
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+html[data-betterjira-theme="Bootstrap"] .bjwt-sidebar-expand-btn:hover {
+  background: var(--bjwt-bs-primary-subtle);
+  color: var(--bjwt-bs-primary);
+  border-color: var(--bjwt-bs-primary);
+}
+
 html[data-betterjira-theme="Bootstrap"] .bjwt-sprint-tab {
   border-bottom: 1px solid var(--bjwt-bs-border);
   color: var(--bjwt-bs-text);
@@ -379,6 +513,29 @@ html[data-betterjira-theme="MaterialDesign"] .bjwt-sidebar-header {
   border-bottom: 1px solid rgba(98, 0, 238, 0.1);
   color: var(--bjwt-md-primary);
   padding: 10px 12px;
+}
+
+html[data-betterjira-theme="MaterialDesign"] .bjwt-sidebar-collapse-btn {
+  color: var(--bjwt-md-primary);
+  border-radius: 999px;
+}
+
+html[data-betterjira-theme="MaterialDesign"] .bjwt-sidebar-collapse-btn:hover {
+  background: rgba(98, 0, 238, 0.12);
+  color: var(--bjwt-md-primary);
+}
+
+html[data-betterjira-theme="MaterialDesign"] .bjwt-sidebar-expand-btn {
+  background: var(--bjwt-md-surface);
+  border: none;
+  border-radius: 16px;
+  color: var(--bjwt-md-primary);
+  box-shadow: 0 2px 6px rgba(98, 0, 238, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+html[data-betterjira-theme="MaterialDesign"] .bjwt-sidebar-expand-btn:hover {
+  background: #faf8ff;
+  box-shadow: 0 4px 12px rgba(98, 0, 238, 0.2);
 }
 
 html[data-betterjira-theme="MaterialDesign"] .bjwt-sprint-tab {
