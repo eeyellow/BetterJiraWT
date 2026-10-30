@@ -1,3 +1,9 @@
+/**
+ * @fileoverview BetterJiraWT Popup 選單邏輯
+ * 提供待辦事項網址設定、樣式切換 (Default / Bootstrap / MaterialDesign) 與跨頁面設定同步。
+ * @module popup
+ */
+
 document.addEventListener('DOMContentLoaded', async () => {
   const settingsToggleBtn = document.getElementById('settingsToggleBtn');
   const settingsSubmenu = document.getElementById('settingsSubmenu');

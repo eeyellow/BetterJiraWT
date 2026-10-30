@@ -1,23 +1,36 @@
 /**
- * BetterJiraWT IndexedDB & Storage Helper
+ * @fileoverview BetterJiraWT IndexedDB & Storage Helper
  * 將設定儲存於前端 IndexedDB，並同步至 chrome.storage.local 以跨 Popup 與 Jira 頁面共享。
+ * @module db
  */
 const BetterJiraDB = (() => {
   const DB_NAME = 'BetterJiraWT_DB';
   const DB_VERSION = 1;
   const STORE_NAME = 'settings';
 
+  /**
+   * 樣式對應中文標籤
+   * @type {Record<string, string>}
+   */
   const STYLE_LABELS = {
     Default: '預設',
     Bootstrap: 'Bootstrap',
     MaterialDesign: 'MaterialDesign'
   };
 
+  /**
+   * 預設擴充功能設定物件
+   * @type {{backlogUrl: string, themeStyle: string}}
+   */
   const DEFAULT_SETTINGS = {
     backlogUrl: '',
     themeStyle: 'Default' // 'Default' | 'Bootstrap' | 'MaterialDesign'
   };
 
+  /**
+   * 開啟或升級 IndexedDB 資料庫連線
+   * @returns {Promise<IDBDatabase>}
+   */
   function openDB() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -39,6 +52,11 @@ const BetterJiraDB = (() => {
     });
   }
 
+  /**
+   * 從 IndexedDB 讀取指定鍵值
+   * @param {string} key - 設定鍵名
+   * @returns {Promise<*|undefined>} 儲存之數值
+   */
   async function idbGet(key) {
     try {
       const db = await openDB();
@@ -55,6 +73,12 @@ const BetterJiraDB = (() => {
     }
   }
 
+  /**
+   * 寫入鍵值至 IndexedDB
+   * @param {string} key - 設定鍵名
+   * @param {*} value - 設定數值
+   * @returns {Promise<void>}
+   */
   async function idbSet(key, value) {
     try {
       const db = await openDB();
@@ -70,6 +94,11 @@ const BetterJiraDB = (() => {
     }
   }
 
+  /**
+   * 從 chrome.storage.local 讀取鍵值
+   * @param {string|string[]} keys - 設定鍵名或鍵名清單
+   * @returns {Promise<Object>}
+   */
   function storageGet(keys) {
     return new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
@@ -80,6 +109,11 @@ const BetterJiraDB = (() => {
     });
   }
 
+  /**
+   * 寫入設定至 chrome.storage.local
+   * @param {Object} obj - 設定物件鍵值組
+   * @returns {Promise<void>}
+   */
   function storageSet(obj) {
     return new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
@@ -90,6 +124,10 @@ const BetterJiraDB = (() => {
     });
   }
 
+  /**
+   * 整合讀取 IndexedDB 與 chrome.storage.local 的目前設定
+   * @returns {Promise<{backlogUrl: string, themeStyle: string}>}
+   */
   async function getSettings() {
     const [idbBacklogUrl, idbThemeStyle, extStorage] = await Promise.all([
       idbGet('backlogUrl'),
@@ -122,6 +160,12 @@ const BetterJiraDB = (() => {
     return { backlogUrl, themeStyle };
   }
 
+  /**
+   * 儲存單一設定值並同步至 IndexedDB 與 chrome.storage.local
+   * @param {string} key - 設定鍵名
+   * @param {*} value - 設定數值
+   * @returns {Promise<{backlogUrl: string, themeStyle: string}>} 更新後之全域設定
+   */
   async function saveSetting(key, value) {
     await Promise.all([
       idbSet(key, value),
@@ -130,6 +174,11 @@ const BetterJiraDB = (() => {
     return getSettings();
   }
 
+  /**
+   * 從物件批次同步設定至 IndexedDB
+   * @param {Object} settingsObj - 設定物件
+   * @returns {Promise<void>}
+   */
   async function syncFromObject(settingsObj) {
     const tasks = [];
     if (settingsObj.backlogUrl !== undefined) {
@@ -141,6 +190,11 @@ const BetterJiraDB = (() => {
     await Promise.all(tasks);
   }
 
+  /**
+   * 取得指定樣式識別碼的中文標籤
+   * @param {string} styleKey - 樣式鍵值 (Default / Bootstrap / MaterialDesign)
+   * @returns {string} 樣式中文顯示名稱
+   */
   function getStyleLabel(styleKey) {
     return STYLE_LABELS[styleKey] || styleKey || '預設';
   }
