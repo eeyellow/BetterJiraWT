@@ -920,33 +920,33 @@
           <span class="bjwt-sidebar-title">衝刺清單</span>
           <span class="bjwt-sidebar-count">${sprintBranches.length}</span>
         </div>
-        <button
-          type="button"
-          class="bjwt-sidebar-collapse-btn"
-          title="收合左欄衝刺清單，專注於右側當前衝刺"
-          aria-label="收合左欄衝刺清單"
-          aria-expanded="true"
-        >
-          <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3" y="3" width="18" height="18" rx="3" ry="3"></rect>
-            <line x1="9" y1="3" x2="9" y2="21"></line>
-            <polyline points="16 15 13 12 16 9"></polyline>
-          </svg>
-          <span class="bjwt-collapse-btn-label">收合</span>
-        </button>
-      </div>
-      <div class="bjwt-sidebar-actions">
-        <button
-          type="button"
-          class="bjwt-history-trigger-btn"
-          title="透過 Jira API 載入已結束的歷史 Sprint"
-        >
-          <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="9"></circle>
-            <polyline points="12 7 12 12 15 15"></polyline>
-          </svg>
-          <span>＋ 歷史 Sprint</span>
-        </button>
+        <div class="bjwt-sidebar-header-actions">
+          <button
+            type="button"
+            class="bjwt-history-trigger-btn"
+            title="載入已結束的歷史 Sprint"
+            aria-label="載入已結束的歷史 Sprint"
+          >
+            <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"></circle>
+              <polyline points="12 7 12 12 15 15"></polyline>
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="bjwt-sidebar-collapse-btn"
+            title="收合左欄衝刺清單，專注於右側當前衝刺"
+            aria-label="收合左欄衝刺清單"
+            aria-expanded="true"
+          >
+            <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="3" ry="3"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+              <polyline points="16 15 13 12 16 9"></polyline>
+            </svg>
+            <span class="bjwt-collapse-btn-label">收合</span>
+          </button>
+        </div>
       </div>
       <div class="bjwt-sprint-list" role="tablist" aria-label="衝刺切換清單"></div>
     `;
@@ -1171,7 +1171,6 @@
         overflow: visible !important;
       }
       html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar[data-bjwt-collapsed="true"] .bjwt-sidebar-header,
-      html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar[data-bjwt-collapsed="true"] .bjwt-sidebar-actions,
       html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar[data-bjwt-collapsed="true"] .bjwt-sprint-list {
         display: none !important;
       }
@@ -1184,31 +1183,34 @@
         width: calc(100% - 54px) !important;
         max-width: calc(100% - 54px) !important;
       }
-      .bjwt-sidebar-actions {
-        padding: 8px 10px !important;
-        border-bottom: 1px solid var(--ds-border, #dfe1e6) !important;
-        background: var(--ds-surface-raised, #ffffff) !important;
+      .bjwt-sidebar-header-actions {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        flex: 0 0 auto !important;
       }
       .bjwt-history-trigger-btn {
-        width: 100% !important;
+        flex: 0 0 auto !important;
         display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
-        gap: 6px !important;
-        padding: 7px 10px !important;
-        border: 1px dashed #f59e0b !important;
-        border-radius: 6px !important;
-        background: rgba(245, 158, 11, 0.12) !important;
-        color: #f59e0b !important;
+        width: 26px !important;
+        height: 26px !important;
+        padding: 0 !important;
+        border: 1px solid var(--ds-border-warning, #f59e0b) !important;
+        border-radius: 5px !important;
+        background: var(--ds-background-warning-subtle, rgba(245, 158, 11, 0.12)) !important;
+        color: var(--ds-text-warning, #f59e0b) !important;
         font-size: 12px !important;
         font-weight: 700 !important;
         cursor: pointer !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16) !important;
         transition: all 0.15s ease !important;
       }
       .bjwt-history-trigger-btn:hover {
-        background: rgba(245, 158, 11, 0.22) !important;
-        border-style: solid !important;
-        border-color: #f59e0b !important;
+        background: var(--ds-background-warning-hovered, rgba(245, 158, 11, 0.25)) !important;
+        border-color: var(--ds-border-warning-hovered, #fbbf24) !important;
+        color: var(--ds-text-warning-hovered, #fbbf24) !important;
       }
       .bjwt-sprint-section-header {
         display: flex !important;
@@ -1312,6 +1314,311 @@
         height: 16px !important;
         max-width: 16px !important;
         max-height: 16px !important;
+      }
+      #bjwt-history-issue-modal {
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden !important;
+        background: var(--ds-surface-overlay, #1d2125) !important;
+        border: 1px solid var(--ds-border, #38414a) !important;
+      }
+      .bjwt-history-issue-modal-header {
+        flex: 0 0 auto !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 12px !important;
+        padding: 10px 16px !important;
+        background: var(--ds-surface-raised, #22272b) !important;
+        border-bottom: 1px solid var(--ds-border, #38414a) !important;
+      }
+      .bjwt-history-issue-modal-title {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        min-width: 0 !important;
+      }
+      .bjwt-history-modal-key-badge {
+        padding: 3px 8px !important;
+        border-radius: 4px !important;
+        background: rgba(12, 102, 228, 0.2) !important;
+        color: #579dff !important;
+        font-size: 12px !important;
+        font-weight: 700 !important;
+        flex-shrink: 0 !important;
+      }
+      .bjwt-history-modal-summary-text {
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        color: var(--ds-text, #dee4ea) !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+      .bjwt-history-issue-modal-actions {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        flex-shrink: 0 !important;
+      }
+      .bjwt-history-modal-open-tab {
+        padding: 4px 10px !important;
+        border-radius: 4px !important;
+        background: rgba(12, 102, 228, 0.2) !important;
+        color: #579dff !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        text-decoration: none !important;
+      }
+      .bjwt-history-modal-open-tab:hover {
+        background: rgba(12, 102, 228, 0.35) !important;
+      }
+      .bjwt-history-modal-close-btn {
+        width: 28px !important;
+        height: 28px !important;
+        border-radius: 4px !important;
+        border: none !important;
+        background: transparent !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+        font-size: 15px !important;
+        cursor: pointer !important;
+      }
+      .bjwt-history-modal-close-btn:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+      }
+      .bjwt-rich-detail-body {
+        display: flex !important;
+        flex-direction: row !important;
+        width: 100% !important;
+        height: calc(100% - 50px) !important;
+        overflow: hidden !important;
+        background: var(--ds-surface, #1d2125) !important;
+        color: var(--ds-text, #dee4ea) !important;
+      }
+      .bjwt-detail-main-col {
+        flex: 1 1 68% !important;
+        min-width: 0 !important;
+        height: 100% !important;
+        overflow-y: auto !important;
+        padding: 24px 28px !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-detail-side-col {
+        flex: 0 0 320px !important;
+        width: 320px !important;
+        height: 100% !important;
+        overflow-y: auto !important;
+        padding: 24px 20px !important;
+        background: var(--ds-surface-sunken, rgba(0, 0, 0, 0.2)) !important;
+        border-left: 1px solid var(--ds-border, #2c333a) !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-detail-summary {
+        font-size: 20px !important;
+        font-weight: 700 !important;
+        line-height: 1.35 !important;
+        margin: 0 0 20px 0 !important;
+        color: var(--ds-text, #ffffff) !important;
+        word-break: break-word !important;
+      }
+      .bjwt-detail-section {
+        margin-bottom: 24px !important;
+      }
+      .bjwt-detail-section-title {
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+        margin: 0 0 10px 0 !important;
+        border-bottom: 1px solid var(--ds-border, rgba(255, 255, 255, 0.1)) !important;
+        padding-bottom: 6px !important;
+      }
+      .bjwt-detail-description-content {
+        font-size: 14px !important;
+        line-height: 1.6 !important;
+        color: var(--ds-text, #dee4ea) !important;
+        word-break: break-word !important;
+      }
+      .bjwt-detail-description-content p {
+        margin: 0 0 10px 0 !important;
+      }
+      .bjwt-detail-description-content pre {
+        background: rgba(0, 0, 0, 0.3) !important;
+        padding: 10px 14px !important;
+        border-radius: 6px !important;
+        overflow-x: auto !important;
+        font-family: monospace !important;
+      }
+      .bjwt-detail-description-content a {
+        color: #579dff !important;
+        text-decoration: underline !important;
+      }
+      .bjwt-detail-empty-desc {
+        font-size: 13px !important;
+        color: var(--ds-text-subtle, #8c9bab) !important;
+        font-style: italic !important;
+        padding: 8px 0 !important;
+      }
+      .bjwt-detail-loading-spinner {
+        display: inline-block !important;
+        width: 14px !important;
+        height: 14px !important;
+        border: 2px solid rgba(255, 255, 255, 0.2) !important;
+        border-top-color: #579dff !important;
+        border-radius: 50% !important;
+        animation: bjwt-spin 0.8s linear infinite !important;
+        vertical-align: middle !important;
+        margin-right: 6px !important;
+      }
+      @keyframes bjwt-spin {
+        to { transform: rotate(360deg); }
+      }
+      .bjwt-detail-field-group {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 16px !important;
+      }
+      .bjwt-detail-field {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 5px !important;
+      }
+      .bjwt-detail-field-label {
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+      }
+      .bjwt-detail-field-value {
+        font-size: 13px !important;
+        color: var(--ds-text, #dee4ea) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+      .bjwt-user-cell {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+      .bjwt-user-cell img {
+        width: 22px !important;
+        height: 22px !important;
+        border-radius: 50% !important;
+      }
+      .bjwt-user-avatar-placeholder {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 22px !important;
+        height: 22px !important;
+        border-radius: 50% !important;
+        background: rgba(255, 255, 255, 0.1) !important;
+        font-size: 12px !important;
+      }
+      .bjwt-detail-label-tag {
+        display: inline-block !important;
+        padding: 2px 7px !important;
+        border-radius: 4px !important;
+        background: var(--ds-surface-sunken, rgba(255, 255, 255, 0.08)) !important;
+        border: 1px solid var(--ds-border, #38414a) !important;
+        font-size: 11px !important;
+        color: var(--ds-text, #dee4ea) !important;
+        margin: 2px 4px 2px 0 !important;
+      }
+      .bjwt-detail-labels-container {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 4px !important;
+      }
+      .bjwt-mention {
+        padding: 1px 5px !important;
+        border-radius: 3px !important;
+        background: rgba(87, 157, 255, 0.18) !important;
+        color: #579dff !important;
+        font-weight: 600 !important;
+      }
+      .bjwt-table-wrap {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        margin: 12px 0 !important;
+      }
+      .bjwt-table-wrap table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+      }
+      .bjwt-table-wrap th,
+      .bjwt-table-wrap td {
+        border: 1px solid var(--ds-border, #38414a) !important;
+        padding: 6px 10px !important;
+        font-size: 13px !important;
+      }
+      .bjwt-table-wrap th {
+        background: var(--ds-surface-raised, rgba(255, 255, 255, 0.06)) !important;
+        font-weight: 600 !important;
+      }
+      .bjwt-comment-list {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 14px !important;
+      }
+      .bjwt-comment-item {
+        padding: 12px 14px !important;
+        border-radius: 8px !important;
+        background: var(--ds-surface-raised, rgba(255, 255, 255, 0.04)) !important;
+        border: 1px solid var(--ds-border, #2c333a) !important;
+      }
+      .bjwt-comment-header {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        margin-bottom: 8px !important;
+      }
+      .bjwt-comment-author {
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: var(--ds-text, #dee4ea) !important;
+      }
+      .bjwt-comment-date {
+        font-size: 11px !important;
+        color: var(--ds-text-subtle, #8c9bab) !important;
+      }
+      .bjwt-comment-body {
+        font-size: 13px !important;
+        line-height: 1.5 !important;
+        color: var(--ds-text, #cbd5e1) !important;
+      }
+      .bjwt-subtask-list {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 6px !important;
+      }
+      .bjwt-subtask-item {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        padding: 8px 12px !important;
+        border-radius: 6px !important;
+        background: var(--ds-surface-raised, rgba(255, 255, 255, 0.03)) !important;
+        border: 1px solid var(--ds-border, #2c333a) !important;
+        font-size: 13px !important;
+        cursor: pointer !important;
+        transition: background 0.15s ease !important;
+      }
+      .bjwt-subtask-item:hover {
+        background: var(--ds-surface-hovered, rgba(255, 255, 255, 0.08)) !important;
+      }
+      .bjwt-subtask-key {
+        font-weight: 600 !important;
+        color: #579dff !important;
+        text-decoration: none !important;
+      }
+      .bjwt-subtask-summary {
+        flex: 1 1 auto !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
       }
     `;
     (document.head || document.documentElement).appendChild(styleEl);
@@ -2684,7 +2991,168 @@
   }
 
   /**
-   * 點擊歷史 Sprint 的卡片時，以置中 Modal 彈窗預覽完整卡片詳情 (與現有卡片點擊行為一致)
+   * 透過 Jira REST API 取得單一工作項目的完整欄位與渲染後內容 (說明、留言、子任務等)
+   */
+  async function fetchIssueDetails(issueKey) {
+    if (!issueKey) return null;
+    const endpoints = [
+      `/rest/api/2/issue/${encodeURIComponent(issueKey)}?expand=renderedFields,names`,
+      `/rest/api/3/issue/${encodeURIComponent(issueKey)}?expand=renderedFields,names`
+    ];
+
+    for (const ep of endpoints) {
+      try {
+        const res = await fetch(`${window.location.origin}${ep}`, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && (data.fields || data.renderedFields)) {
+            return data;
+          }
+        }
+      } catch {
+        // try next endpoint
+      }
+    }
+    return null;
+  }
+
+  function formatShortDateTime(isoStr) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${y}-${m}-${day} ${hh}:${mm}`;
+    } catch {
+      return isoStr;
+    }
+  }
+
+  function adfToHtml(node) {
+    if (!node) return '';
+    if (typeof node === 'string') return escapeHtml(node);
+    if (Array.isArray(node)) {
+      return node.map(adfToHtml).join('');
+    }
+
+    const { type, text, marks, content, attrs } = node;
+
+    if (type === 'text') {
+      let result = escapeHtml(text || '');
+      if (Array.isArray(marks)) {
+        for (const mark of marks) {
+          if (mark.type === 'strong') result = `<strong>${result}</strong>`;
+          else if (mark.type === 'em') result = `<em>${result}</em>`;
+          else if (mark.type === 'code') result = `<code>${result}</code>`;
+          else if (mark.type === 'strike') result = `<s>${result}</s>`;
+          else if (mark.type === 'underline') result = `<u>${result}</u>`;
+          else if (mark.type === 'link' && mark.attrs && mark.attrs.href) {
+            const href = escapeHtml(mark.attrs.href);
+            result = `<a href="${href}" target="_blank" rel="noopener noreferrer">${result}</a>`;
+          }
+        }
+      }
+      return result;
+    }
+
+    const innerHtml = Array.isArray(content) ? content.map(adfToHtml).join('') : '';
+
+    switch (type) {
+      case 'doc':
+        return innerHtml;
+      case 'paragraph':
+        return innerHtml ? `<p>${innerHtml}</p>` : '<p><br /></p>';
+      case 'heading': {
+        const level = (attrs && attrs.level) || 3;
+        const validLevel = Math.min(Math.max(level, 1), 6);
+        return `<h${validLevel}>${innerHtml}</h${validLevel}>`;
+      }
+      case 'bulletList':
+        return `<ul>${innerHtml}</ul>`;
+      case 'orderedList':
+        return `<ol>${innerHtml}</ol>`;
+      case 'listItem':
+        return `<li>${innerHtml}</li>`;
+      case 'codeBlock': {
+        const lang = attrs && attrs.language ? ` class="language-${escapeHtml(attrs.language)}"` : '';
+        return `<pre><code${lang}>${innerHtml}</code></pre>`;
+      }
+      case 'blockquote':
+        return `<blockquote>${innerHtml}</blockquote>`;
+      case 'rule':
+        return '<hr />';
+      case 'hardBreak':
+        return '<br />';
+      case 'mention': {
+        const name = (attrs && (attrs.text || attrs.id)) || '';
+        return `<span class="bjwt-mention">@${escapeHtml(name)}</span>`;
+      }
+      case 'inlineCard': {
+        const url = (attrs && attrs.url) || '#';
+        return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`;
+      }
+      case 'table':
+        return `<div class="bjwt-table-wrap"><table>${innerHtml}</table></div>`;
+      case 'tableRow':
+        return `<tr>${innerHtml}</tr>`;
+      case 'tableHeader':
+        return `<th>${innerHtml}</th>`;
+      case 'tableCell':
+        return `<td>${innerHtml}</td>`;
+      default:
+        return innerHtml;
+    }
+  }
+
+  function formatDescriptionHtml(rawDesc, renderedDesc) {
+    if (renderedDesc && typeof renderedDesc === 'string' && renderedDesc.trim()) {
+      return renderedDesc;
+    }
+    if (!rawDesc) {
+      return '<div class="bjwt-detail-empty-desc">此工作項目沒有提供詳細說明。</div>';
+    }
+    if (typeof rawDesc === 'object' && rawDesc.type === 'doc') {
+      const html = adfToHtml(rawDesc);
+      return html || '<div class="bjwt-detail-empty-desc">此工作項目沒有提供詳細說明。</div>';
+    }
+    if (typeof rawDesc === 'string') {
+      const trimmed = rawDesc.trim();
+      if (!trimmed) {
+        return '<div class="bjwt-detail-empty-desc">此工作項目沒有提供詳細說明。</div>';
+      }
+      return trimmed
+        .split(/\n{2,}/)
+        .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br />')}</p>`)
+        .join('');
+    }
+    return '<div class="bjwt-detail-empty-desc">此工作項目沒有提供詳細說明。</div>';
+  }
+
+  function formatCommentBody(comment) {
+    if (comment.renderedBody && typeof comment.renderedBody === 'string') {
+      return comment.renderedBody;
+    }
+    const body = comment.body;
+    if (!body) return '';
+    if (typeof body === 'object' && body.type === 'doc') {
+      return adfToHtml(body);
+    }
+    if (typeof body === 'string') {
+      return escapeHtml(body).replace(/\n/g, '<br />');
+    }
+    return '';
+  }
+
+  /**
+   * 點擊卡片時，以置中豐富 Modal 彈窗預覽完整卡片詳情
+   * 先即時呈現 fallback 既有欄位 (0ms)，隨後透過 Jira REST API 非同步載入詳細說明、留言、子任務
    */
   function openHistoricalIssueDetailModal(issueKey, fallbackIssue = null) {
     ensureRuntimeCriticalStyles();
@@ -2701,15 +3169,42 @@
     modalEl.setAttribute('aria-modal', 'true');
 
     const browseUrl = `${window.location.origin}/browse/${encodeURIComponent(issueKey)}`;
-    const initialTitle = fallbackIssue ? `${issueKey} — ${fallbackIssue.summary}` : issueKey;
+    const displaySummary = fallbackIssue ? fallbackIssue.summary : issueKey;
+
+    const isDone = fallbackIssue && fallbackIssue.statusCategory === 'done';
+    const initialStatusClass = isDone
+      ? 'status-done'
+      : fallbackIssue && fallbackIssue.statusCategory === 'indeterminate'
+      ? 'status-inprogress'
+      : '';
+    const initialStatusName = (fallbackIssue && fallbackIssue.statusName) || '載入中...';
+    const initialAssigneeName = (fallbackIssue && fallbackIssue.assigneeName) || '未指派';
+    const initialAssigneeAvatar = (fallbackIssue && fallbackIssue.assigneeAvatar) || '';
+    const initialPriorityName = (fallbackIssue && fallbackIssue.priorityName) || '';
+    const initialPriorityIcon = (fallbackIssue && fallbackIssue.priorityIcon) || '';
+    const initialPrioritySvg = (fallbackIssue && fallbackIssue.prioritySvg) || '';
+    const initialPoints =
+      fallbackIssue && fallbackIssue.storyPoints !== null && fallbackIssue.storyPoints !== undefined
+        ? fallbackIssue.storyPoints
+        : '-';
+    const initialDueDate = (fallbackIssue && fallbackIssue.dueDate) || '';
+    const initialParentText =
+      fallbackIssue && (fallbackIssue.parentSummary || fallbackIssue.parentKey)
+        ? fallbackIssue.parentSummary || fallbackIssue.parentKey
+        : '';
+    const initialTypeIcon = (fallbackIssue && fallbackIssue.issueTypeIcon) || '';
+    const initialTypeName = (fallbackIssue && fallbackIssue.issueTypeName) || '工作項目';
 
     modalEl.innerHTML = `
       <div class="bjwt-history-issue-modal-header">
         <div class="bjwt-history-issue-modal-title">
+          ${
+            initialTypeIcon
+              ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(initialTypeIcon)}" alt="${escapeHtml(initialTypeName)}" title="${escapeHtml(initialTypeName)}" style="width: 16px; height: 16px;" />`
+              : ''
+          }
           <span class="bjwt-history-modal-key-badge">${escapeHtml(issueKey)}</span>
-          <span class="bjwt-history-modal-summary-text">${escapeHtml(
-            fallbackIssue ? fallbackIssue.summary : '載入卡片詳情中...'
-          )}</span>
+          <span class="bjwt-history-modal-summary-text" id="bjwt-history-modal-header-summary" title="${escapeHtml(displaySummary)}">${escapeHtml(displaySummary)}</span>
         </div>
         <div class="bjwt-history-issue-modal-actions">
           <a
@@ -2731,13 +3226,107 @@
           </button>
         </div>
       </div>
-      <div class="bjwt-history-issue-modal-body">
-        <div class="bjwt-history-iframe-loading">正在載入 ${escapeHtml(initialTitle)} 完整內容...</div>
-        <iframe
-          class="bjwt-history-issue-iframe"
-          src="${escapeHtml(browseUrl)}"
-          title="${escapeHtml(initialTitle)}"
-        ></iframe>
+      <div class="bjwt-rich-detail-body">
+        <!-- 左欄 68%：主要內容 (標題、詳細說明、子任務、活動留言) -->
+        <div class="bjwt-detail-main-col">
+          <h1 class="bjwt-detail-summary" id="bjwt-detail-main-title">${escapeHtml(displaySummary)}</h1>
+
+          <div class="bjwt-detail-section">
+            <div class="bjwt-detail-section-title">說明</div>
+            <div class="bjwt-detail-description-content" id="bjwt-detail-description-body">
+              <span class="bjwt-detail-loading-spinner"></span> 正在載入詳細說明...
+            </div>
+          </div>
+
+          <div class="bjwt-detail-section" id="bjwt-detail-subtasks-container" style="display: none;">
+            <div class="bjwt-detail-section-title">子任務 (<span id="bjwt-detail-subtasks-count">0</span>)</div>
+            <div class="bjwt-subtask-list" id="bjwt-detail-subtasks-list"></div>
+          </div>
+
+          <div class="bjwt-detail-section" id="bjwt-detail-comments-container" style="display: none;">
+            <div class="bjwt-detail-section-title">活動與留言 (<span id="bjwt-detail-comments-count">0</span>)</div>
+            <div class="bjwt-comment-list" id="bjwt-detail-comments-list"></div>
+          </div>
+        </div>
+
+        <!-- 右欄 320px：卡片欄位屬性 (狀態、經辦人、報告者、優先順序、Story Points、Epic、到期日、標籤、日期) -->
+        <div class="bjwt-detail-side-col">
+          <div class="bjwt-detail-section-title">詳細資訊</div>
+          <div class="bjwt-detail-field-group">
+            <div class="bjwt-detail-field">
+              <div class="bjwt-detail-field-label">狀態</div>
+              <div class="bjwt-detail-field-value" id="bjwt-detail-val-status">
+                <span class="bjwt-history-status-badge ${initialStatusClass}">${escapeHtml(initialStatusName)}</span>
+              </div>
+            </div>
+
+            <div class="bjwt-detail-field">
+              <div class="bjwt-detail-field-label">經辦人</div>
+              <div class="bjwt-detail-field-value" id="bjwt-detail-val-assignee">
+                <div class="bjwt-user-cell">
+                  ${
+                    initialAssigneeAvatar
+                      ? `<img src="${escapeHtml(initialAssigneeAvatar)}" alt="" />`
+                      : `<span class="bjwt-user-avatar-placeholder">👤</span>`
+                  }
+                  <span>${escapeHtml(initialAssigneeName)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="bjwt-detail-field" id="bjwt-detail-row-reporter" style="display: none;">
+              <div class="bjwt-detail-field-label">報告者</div>
+              <div class="bjwt-detail-field-value" id="bjwt-detail-val-reporter">-</div>
+            </div>
+
+            <div class="bjwt-detail-field">
+              <div class="bjwt-detail-field-label">優先順序</div>
+              <div class="bjwt-detail-field-value" id="bjwt-detail-val-priority">
+                ${
+                  initialPriorityIcon
+                    ? `<img src="${escapeHtml(initialPriorityIcon)}" width="16" height="16" alt="" />`
+                    : initialPrioritySvg || ''
+                }
+                <span>${escapeHtml(initialPriorityName || '未指定')}</span>
+              </div>
+            </div>
+
+            <div class="bjwt-detail-field">
+              <div class="bjwt-detail-field-label">Story Points</div>
+              <div class="bjwt-detail-field-value" id="bjwt-detail-val-points">
+                <span class="bjwt-history-points-badge">${escapeHtml(String(initialPoints))}</span>
+              </div>
+            </div>
+
+            <div class="bjwt-detail-field" id="bjwt-detail-row-parent" style="${initialParentText ? '' : 'display: none;'}">
+              <div class="bjwt-detail-field-label">上層項目</div>
+              <div class="bjwt-detail-field-value" id="bjwt-detail-val-parent">
+                ${
+                  initialParentText
+                    ? `<span class="bjwt-history-parent-badge"><span class="bjwt-parent-dot"></span>${escapeHtml(initialParentText)}</span>`
+                    : '-'
+                }
+              </div>
+            </div>
+
+            <div class="bjwt-detail-field" id="bjwt-detail-row-due" style="${initialDueDate ? '' : 'display: none;'}">
+              <div class="bjwt-detail-field-label">到期日</div>
+              <div class="bjwt-detail-field-value" id="bjwt-detail-val-due">
+                <span class="bjwt-history-duedate-badge">${escapeHtml(initialDueDate)}</span>
+              </div>
+            </div>
+
+            <div class="bjwt-detail-field" id="bjwt-detail-row-labels" style="display: none;">
+              <div class="bjwt-detail-field-label">標籤</div>
+              <div class="bjwt-detail-field-value bjwt-detail-labels-container" id="bjwt-detail-val-labels"></div>
+            </div>
+
+            <div class="bjwt-detail-field" id="bjwt-detail-row-dates" style="display: none;">
+              <div class="bjwt-detail-field-label">日期</div>
+              <div class="bjwt-detail-field-value" id="bjwt-detail-val-dates" style="font-size: 11px; color: var(--ds-text-subtle, #9fadbc); line-height: 1.5;"></div>
+            </div>
+          </div>
+        </div>
       </div>
     `;
 
@@ -2751,41 +3340,203 @@
       });
     }
 
-    const iframeEl = modalEl.querySelector('.bjwt-history-issue-iframe');
-    const loadingEl = modalEl.querySelector('.bjwt-history-iframe-loading');
+    // 非同步從 Jira API 取得完整卡片資訊並平滑補齊內容
+    (async () => {
+      try {
+        const issueData = await fetchIssueDetails(issueKey);
+        if (!modalEl.isConnected) return; // 使用者已關閉 Modal
 
-    if (iframeEl) {
-      iframeEl.addEventListener('load', () => {
-        if (loadingEl) {
-          loadingEl.style.display = 'none';
-        }
-        try {
-          const iframeDoc = iframeEl.contentDocument;
-          if (iframeDoc && iframeDoc.head) {
-            const cleanStyle = iframeDoc.createElement('style');
-            cleanStyle.textContent = `
-              [data-testid="atlassian-navigation"],
-              header[role="banner"],
-              [data-testid="page-layout.sidebar"],
-              [data-testid="software-SideNav"],
-              #ak-side-navigation {
-                display: none !important;
-              }
-              [data-testid="page-layout.main"],
-              main {
-                margin: 0 !important;
-                padding: 0 !important;
-                width: 100% !important;
-                max-width: 100% !important;
-              }
-            `;
-            iframeDoc.head.appendChild(cleanStyle);
+        if (!issueData || !issueData.fields) {
+          const descEl = modalEl.querySelector('#bjwt-detail-description-body');
+          if (descEl) {
+            descEl.innerHTML = '<div class="bjwt-detail-empty-desc">無法從 Jira API 取得卡片完整說明。您可以點擊右上角「在新分頁開啟 ↗」直接檢視。</div>';
           }
-        } catch {
-          // ignore cross-frame style error if any
+          return;
         }
-      });
-    }
+
+        const fields = issueData.fields;
+        const renderedFields = issueData.renderedFields || {};
+
+        // 1. 更新標題
+        if (fields.summary) {
+          const cleanSummary = cleanSummaryText(fields.summary.trim());
+          const headerSummary = modalEl.querySelector('#bjwt-history-modal-header-summary');
+          if (headerSummary) {
+            headerSummary.textContent = cleanSummary;
+            headerSummary.title = cleanSummary;
+          }
+          const mainTitle = modalEl.querySelector('#bjwt-detail-main-title');
+          if (mainTitle) mainTitle.textContent = cleanSummary;
+        }
+
+        // 2. 說明欄位
+        const descEl = modalEl.querySelector('#bjwt-detail-description-body');
+        if (descEl) {
+          descEl.innerHTML = formatDescriptionHtml(fields.description, renderedFields.description);
+        }
+
+        // 3. 子任務清單
+        const subtasks = Array.isArray(fields.subtasks) ? fields.subtasks : [];
+        const subtasksContainer = modalEl.querySelector('#bjwt-detail-subtasks-container');
+        const subtasksList = modalEl.querySelector('#bjwt-detail-subtasks-list');
+        const subtasksCount = modalEl.querySelector('#bjwt-detail-subtasks-count');
+        if (subtasksContainer && subtasksList && subtasks.length > 0) {
+          subtasksContainer.style.display = 'block';
+          if (subtasksCount) subtasksCount.textContent = String(subtasks.length);
+          subtasksList.innerHTML = subtasks
+            .map((sub) => {
+              const subFields = sub.fields || {};
+              const subStatus = subFields.status || {};
+              const subType = subFields.issuetype || {};
+              const isSubDone = subStatus.statusCategory && subStatus.statusCategory.key === 'done';
+              const subStatusClass = isSubDone
+                ? 'status-done'
+                : subStatus.statusCategory && subStatus.statusCategory.key === 'indeterminate'
+                ? 'status-inprogress'
+                : '';
+              return `
+                <div class="bjwt-subtask-item" data-bjwt-subtask-key="${escapeHtml(sub.key)}">
+                  ${
+                    subType.iconUrl
+                      ? `<img src="${escapeHtml(subType.iconUrl)}" alt="" width="14" height="14" />`
+                      : ''
+                  }
+                  <a href="${escapeHtml(`${window.location.origin}/browse/${sub.key}`)}" class="bjwt-subtask-key">${escapeHtml(sub.key)}</a>
+                  <span class="bjwt-subtask-summary" title="${escapeHtml(subFields.summary || '')}">${escapeHtml(subFields.summary || '')}</span>
+                  <span class="bjwt-history-status-badge ${subStatusClass}">${escapeHtml(subStatus.name || '')}</span>
+                </div>
+              `;
+            })
+            .join('');
+
+          subtasksList.querySelectorAll('.bjwt-subtask-item').forEach((itemEl) => {
+            const subKey = itemEl.getAttribute('data-bjwt-subtask-key');
+            const subRaw = subtasks.find((s) => s.key === subKey);
+            if (subKey && subRaw) {
+              itemEl.addEventListener('click', (e) => {
+                e.preventDefault();
+                openHistoricalIssueDetailModal(subKey, normalizeJiraIssue(subRaw));
+              });
+            }
+          });
+        }
+
+        // 4. 留言清單
+        const rawComments =
+          (renderedFields.comment && renderedFields.comment.comments) ||
+          (fields.comment && fields.comment.comments) ||
+          [];
+        const commentsContainer = modalEl.querySelector('#bjwt-detail-comments-container');
+        const commentsList = modalEl.querySelector('#bjwt-detail-comments-list');
+        const commentsCount = modalEl.querySelector('#bjwt-detail-comments-count');
+        if (commentsContainer && commentsList && rawComments.length > 0) {
+          commentsContainer.style.display = 'block';
+          if (commentsCount) commentsCount.textContent = String(rawComments.length);
+          commentsList.innerHTML = rawComments
+            .map((comm) => {
+              const author = comm.author || {};
+              const authorName = author.displayName || author.name || '未知使用者';
+              const avatar =
+                author.avatarUrls && (author.avatarUrls['24x24'] || author.avatarUrls['48x48']);
+              const dateStr = formatShortDateTime(comm.created);
+              const bodyHtml = formatCommentBody(comm);
+              return `
+                <div class="bjwt-comment-item">
+                  <div class="bjwt-comment-header">
+                    <div class="bjwt-user-cell">
+                      ${
+                        avatar
+                          ? `<img src="${escapeHtml(avatar)}" alt="" />`
+                          : `<span class="bjwt-user-avatar-placeholder">👤</span>`
+                      }
+                      <span class="bjwt-comment-author">${escapeHtml(authorName)}</span>
+                    </div>
+                    <span class="bjwt-comment-date">${escapeHtml(dateStr)}</span>
+                  </div>
+                  <div class="bjwt-comment-body">${bodyHtml}</div>
+                </div>
+              `;
+            })
+            .join('');
+        }
+
+        // 5. 報告者
+        if (fields.reporter) {
+          const rep = fields.reporter;
+          const repRow = modalEl.querySelector('#bjwt-detail-row-reporter');
+          const repVal = modalEl.querySelector('#bjwt-detail-val-reporter');
+          if (repRow && repVal) {
+            repRow.style.display = 'flex';
+            const repAvatar =
+              rep.avatarUrls && (rep.avatarUrls['24x24'] || rep.avatarUrls['48x48']);
+            repVal.innerHTML = `
+              <div class="bjwt-user-cell">
+                ${
+                  repAvatar
+                    ? `<img src="${escapeHtml(repAvatar)}" alt="" />`
+                    : `<span class="bjwt-user-avatar-placeholder">👤</span>`
+                }
+                <span>${escapeHtml(rep.displayName || rep.name || '未指定')}</span>
+              </div>
+            `;
+          }
+        }
+
+        // 6. 標籤
+        if (Array.isArray(fields.labels) && fields.labels.length > 0) {
+          const labelsRow = modalEl.querySelector('#bjwt-detail-row-labels');
+          const labelsVal = modalEl.querySelector('#bjwt-detail-val-labels');
+          if (labelsRow && labelsVal) {
+            labelsRow.style.display = 'flex';
+            labelsVal.innerHTML = fields.labels
+              .map((lbl) => `<span class="bjwt-detail-label-tag">${escapeHtml(lbl)}</span>`)
+              .join('');
+          }
+        }
+
+        // 7. 建立與更新日期
+        if (fields.created || fields.updated) {
+          const datesRow = modalEl.querySelector('#bjwt-detail-row-dates');
+          const datesVal = modalEl.querySelector('#bjwt-detail-val-dates');
+          if (datesRow && datesVal) {
+            datesRow.style.display = 'flex';
+            const createdStr = formatShortDateTime(fields.created);
+            const updatedStr = formatShortDateTime(fields.updated);
+            datesVal.innerHTML = `
+              ${createdStr ? `<div>建立：${escapeHtml(createdStr)}</div>` : ''}
+              ${updatedStr ? `<div>更新：${escapeHtml(updatedStr)}</div>` : ''}
+            `;
+          }
+        }
+
+        // 8. 重新校準精確狀態與 Story Points (透過 normalizeJiraIssue)
+        const normalized = normalizeJiraIssue(issueData);
+        if (normalized) {
+          const statusVal = modalEl.querySelector('#bjwt-detail-val-status');
+          if (statusVal && normalized.statusName) {
+            const isNormDone = normalized.statusCategory === 'done';
+            const normStatusClass = isNormDone
+              ? 'status-done'
+              : normalized.statusCategory === 'indeterminate'
+              ? 'status-inprogress'
+              : '';
+            statusVal.innerHTML = `<span class="bjwt-history-status-badge ${normStatusClass}">${escapeHtml(normalized.statusName)}</span>`;
+          }
+          if (normalized.storyPoints !== null && normalized.storyPoints !== undefined) {
+            const pointsVal = modalEl.querySelector('#bjwt-detail-val-points');
+            if (pointsVal) {
+              pointsVal.innerHTML = `<span class="bjwt-history-points-badge">${normalized.storyPoints}</span>`;
+            }
+          }
+        }
+      } catch {
+        if (!modalEl.isConnected) return;
+        const descEl = modalEl.querySelector('#bjwt-detail-description-body');
+        if (descEl) {
+          descEl.innerHTML = '<div class="bjwt-detail-empty-desc">無法從 Jira API 取得卡片完整說明。您可以點擊右上角「在新分頁開啟 ↗」直接檢視。</div>';
+        }
+      }
+    })();
   }
 
   /**
