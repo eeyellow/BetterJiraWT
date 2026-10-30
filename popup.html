@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BetterJiraWT 選單</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app-container" id="appContainer">
+    <!-- 頂部標題列 -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-logo">WT</span>
+        <div class="brand-text">
+          <h1>BetterJiraWT</h1>
+          <p>Jira 擴充與版面美化工具</p>
+        </div>
+      </div>
+      <span class="theme-badge" id="currentStyleBadge">Bootstrap</span>
+    </header>
+
+    <!-- 主選單區塊 -->
+    <main class="menu-container">
+      <div class="menu-section">
+        <button class="menu-group-header expanded" id="settingsToggleBtn" type="button">
+          <span class="menu-icon">⚙️</span>
+          <span class="menu-title">1. 設定</span>
+          <span class="chevron" id="settingsChevron">▾</span>
+        </button>
+
+        <div class="submenu-list" id="settingsSubmenu">
+          <!-- 1.1 待辦事項網址 -->
+          <button class="submenu-item" id="openBacklogModalBtn" type="button">
+            <div class="submenu-item-main">
+              <span class="submenu-index">1.1</span>
+              <div class="submenu-text">
+                <span class="submenu-label">待辦事項網址</span>
+                <span class="submenu-preview" id="backlogUrlPreview">尚未設定網址</span>
+              </div>
+            </div>
+            <span class="submenu-arrow">›</span>
+          </button>
+
+          <!-- 1.2 樣式 -->
+          <button class="submenu-item" id="openStyleModalBtn" type="button">
+            <div class="submenu-item-main">
+              <span class="submenu-index">1.2</span>
+              <div class="submenu-text">
+                <span class="submenu-label">樣式</span>
+                <span class="submenu-preview" id="stylePreviewText">目前：Bootstrap</span>
+              </div>
+            </div>
+            <span class="submenu-arrow">›</span>
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- 狀態列 -->
+    <footer class="status-bar" id="statusBar">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-text" id="statusText">已載入 IndexedDB 設定</span>
+    </footer>
+
+    <!-- 彈出視窗 1.1：設定 - 待辦事項網址 -->
+    <div class="modal-overlay hidden" id="backlogModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>設定 - 待辦事項網址</h2>
+          <button class="close-btn" id="closeBacklogModalBtn" type="button" aria-label="關閉">✕</button>
+        </div>
+        <div class="modal-body">
+          <label for="backlogUrlInput" class="input-label">請輸入「待辦事項 (Backlog)」頁面的網址：</label>
+          <input
+            type="url"
+            id="backlogUrlInput"
+            class="url-input"
+            placeholder="https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog"
+            autocomplete="off"
+          />
+          <div class="quick-actions">
+            <button type="button" class="link-btn" id="useCurrentTabUrlBtn">
+              📌 帶入目前分頁網址
+            </button>
+            <button type="button" class="link-btn" id="useExampleUrlBtn">
+              💡 填入範例網址
+            </button>
+          </div>
+          <p class="helper-text">
+            設定儲存於前端 IndexedDB，瀏覽器關閉重啟後仍會保留，且符合此網址的頁面將自動套用樣式與後續設定。
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelBacklogBtn">取消</button>
+          <button type="button" class="btn btn-primary" id="saveBacklogBtn">儲存設定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 彈出視窗 1.2：設定 - 樣式 -->
+    <div class="modal-overlay hidden" id="styleModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>設定 - 樣式</h2>
+          <button class="close-btn" id="closeStyleModalBtn" type="button" aria-label="關閉">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="input-label">選擇套用於待辦事項頁面的預設樣式：</p>
+          <div class="style-options" id="styleOptionsList">
+            <!-- Bootstrap 選項 -->
+            <label class="style-option-card" data-style="Bootstrap">
+              <input type="radio" name="themeStyle" value="Bootstrap" />
+              <div class="style-option-info">
+                <div class="style-option-title">
+                  <span class="style-swatch swatch-bootstrap">B</span>
+                  <strong>Bootstrap</strong>
+                </div>
+                <p class="style-option-desc">經典 Bootstrap 5 色彩系統、圓角卡片、清晰邊框與標籤徽章風格。</p>
+              </div>
+            </label>
+
+            <!-- MaterialDesign 選項 -->
+            <label class="style-option-card" data-style="MaterialDesign">
+              <input type="radio" name="themeStyle" value="MaterialDesign" />
+              <div class="style-option-info">
+                <div class="style-option-title">
+                  <span class="style-swatch swatch-material">M</span>
+                  <strong>MaterialDesign</strong>
+                </div>
+                <p class="style-option-desc">Google Material Design 層次陰影 (Elevation)、圓潤膠囊按鈕與現代化排版。</p>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelStyleBtn">關閉</button>
+          <button type="button" class="btn btn-primary" id="saveStyleBtn">套用樣式</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="db.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
