@@ -94,6 +94,18 @@
   let cachedClosedSprints = null;
   let cachedBoardId = null;
 
+  /**
+   * 未結束衝刺自定義卡片快取
+   * key: string -> {
+   *   key: string,
+   *   sprintId?: string | number,
+   *   title: string,
+   *   issues: Array<Object>,
+   *   filterKeyword: string
+   * }
+   */
+  const activeSprintCache = new Map();
+
   function normalizeUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     try {
@@ -536,6 +548,11 @@
       item.sprintEl.setAttribute('data-bjwt-sprint-active', activeVal);
       if (item.headerPartner) {
         item.headerPartner.setAttribute('data-bjwt-sprint-active', activeVal);
+      }
+
+      // 未結束衝刺：改用自定義卡片檢視 (與歷史衝刺一體呈現)
+      if (isSelected && !item.meta.isHistorical) {
+        renderActiveSprintBranch(item);
       }
     });
 
@@ -1462,6 +1479,541 @@
   }
 
   /**
+   * 產出加大高度的雙列卡片 HTML
+   * 第一列：只放卡片類型Icon，卡片編號，卡片標題 (佔滿整列寬度)
+   * 第二列：放其他的欄位 (靠右一欄一欄整齊對齊)
+   */
+  function renderIssueCardHtml(iss) {
+    const isDone = iss.statusCategory === 'done';
+    const statusClass = isDone
+      ? 'status-done'
+      : iss.statusCategory === 'indeterminate'
+      ? 'status-inprogress'
+      : 'status-todo';
+    const initials = (iss.assigneeName || '?').slice(0, 2).toUpperCase();
+    const parentLabel = iss.parentSummary || iss.parentKey || '';
+    const pointsDisplay =
+      iss.storyPoints !== null && iss.storyPoints !== ''
+        ? String(iss.storyPoints)
+        : '-';
+
+    return `
+      <div
+        class="bjwt-history-card sprint-card bjwt-two-row-card"
+        data-bjwt-history-issue-key="${escapeHtml(iss.key)}"
+        role="button"
+        tabindex="0"
+        title="點擊以置中 Modal 預覽 ${escapeHtml(iss.key)} 詳細內容"
+      >
+        <!-- 第一列：卡片類型Icon，卡片編號，卡片標題 -->
+        <div class="bjwt-card-row-top">
+          ${
+            iss.issueTypeIcon
+              ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(iss.issueTypeIcon)}" alt="${escapeHtml(iss.issueTypeName)}" title="${escapeHtml(iss.issueTypeName)}" />`
+              : `<span class="bjwt-history-issuetype-dot"></span>`
+          }
+          <span class="bjwt-history-card-key ${isDone ? 'is-done' : ''}">${escapeHtml(iss.key)}</span>
+          <span class="bjwt-history-card-summary" title="${escapeHtml(iss.summary)}">${escapeHtml(iss.summary)}</span>
+        </div>
+
+        <!-- 第二列：放其他的欄位 -->
+        <div class="bjwt-card-row-bottom">
+          ${
+            parentLabel
+              ? `<span class="bjwt-history-parent-badge" title="${escapeHtml(iss.parentKey ? `${iss.parentKey}: ${iss.parentSummary}` : parentLabel)}"><span class="bjwt-parent-dot"></span>${escapeHtml(parentLabel)}</span>`
+              : ''
+          }
+          <span class="bjwt-history-status-badge ${statusClass}">
+            ${escapeHtml(iss.statusName)}
+          </span>
+          ${
+            iss.dueDate
+              ? `<span class="bjwt-history-duedate-badge" title="到期日：${escapeHtml(iss.dueDate)}">${escapeHtml(iss.dueDate)}</span>`
+              : ''
+          }
+          <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
+          ${
+            iss.priorityIcon
+              ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" title="優先順序：${escapeHtml(iss.priorityName)}" />`
+              : ''
+          }
+          <span class="bjwt-history-assignee" title="負責人：${escapeHtml(iss.assigneeName)}">
+            ${
+              iss.assigneeAvatar
+                ? `<img class="bjwt-history-avatar" src="${escapeHtml(iss.assigneeAvatar)}" alt="${escapeHtml(iss.assigneeName)}" />`
+                : `<span class="bjwt-history-avatar-fallback">${escapeHtml(initials)}</span>`
+            }
+          </span>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 從原生 Jira DOM 卡片節點解析卡片欄位資料
+   */
+  function parseIssueFromDomCard(cardEl) {
+    if (!cardEl || !(cardEl instanceof Element)) return null;
+
+    let key = '';
+    let isDone = false;
+    const keyLink =
+      cardEl.querySelector('a[href*="/browse/"]') ||
+      cardEl.querySelector('[data-testid*="accessible-card-key"]') ||
+      cardEl.querySelector('[data-testid*="key"]');
+
+    if (keyLink) {
+      key = (keyLink.textContent || '').trim();
+      const style = window.getComputedStyle(keyLink);
+      if (
+        (style && style.textDecorationLine && style.textDecorationLine.includes('line-through')) ||
+        keyLink.closest('del, s, strike') ||
+        keyLink.classList.contains('is-done')
+      ) {
+        isDone = true;
+      }
+    }
+
+    if (!key) {
+      const match = (cardEl.textContent || '').match(/([A-Z][A-Z0-9]+-\d+)/);
+      if (match) {
+        key = match[1];
+      }
+    }
+
+    if (!key) return null;
+
+    let issueTypeIcon = '';
+    let issueTypeName = '任務';
+    const typeImg =
+      cardEl.querySelector('img[src*="issuetype"], img[src*="avatar/type"], [data-testid*="issue-type"] img, img:first-of-type');
+    if (typeImg && typeImg.src) {
+      issueTypeIcon = typeImg.src;
+      issueTypeName = typeImg.alt || typeImg.title || '任務';
+    }
+
+    let statusName = '';
+    let statusCategory = isDone ? 'done' : 'new';
+    const statusEl =
+      cardEl.querySelector('[data-testid*="status"], [data-testid*="lozenge"]') ||
+      cardEl.querySelector('button[id*="status"], [role="button"]:has(svg)');
+
+    if (statusEl) {
+      statusName = (statusEl.textContent || '').trim().replace(/\s+/g, ' ');
+    }
+
+    if (!statusName) {
+      const candidates = Array.from(cardEl.querySelectorAll('button, [role="button"], span'));
+      for (const c of candidates) {
+        const txt = (c.textContent || '').trim();
+        if (/^(待辦事項|進行中|完成|local testing|DEV Verify|To Do|In Progress|Done|Closed|Resolved)/i.test(txt)) {
+          statusName = txt;
+          break;
+        }
+      }
+    }
+
+    if (!statusName) {
+      statusName = isDone ? '完成' : '待辦事項';
+    }
+
+    const lowerStatus = statusName.toLowerCase();
+    if (isDone || /完成|done|closed|resolved/i.test(lowerStatus)) {
+      statusCategory = 'done';
+    } else if (/進行中|in progress|testing|verify|wait/i.test(lowerStatus)) {
+      statusCategory = 'indeterminate';
+    } else {
+      statusCategory = 'new';
+    }
+
+    let storyPoints = null;
+    const pointEl =
+      cardEl.querySelector('[data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="points"]');
+    if (pointEl) {
+      const pt = (pointEl.textContent || '').trim();
+      if (pt) storyPoints = pt;
+    }
+
+    if (storyPoints === null) {
+      const spans = Array.from(cardEl.querySelectorAll('span, div'));
+      for (const s of spans) {
+        if (s.children.length === 0) {
+          const txt = (s.textContent || '').trim();
+          if (/^\d{1,3}(\.\d)?$/.test(txt) && s.closest('[data-testid*="badge"], [class*="badge"], [class*="estimate"]')) {
+            storyPoints = txt;
+            break;
+          }
+        }
+      }
+    }
+
+    let priorityName = '';
+    let priorityIcon = '';
+    const prioImg = cardEl.querySelector(
+      'img[src*="priority"], [data-testid*="priority"] img, svg[data-testid*="priority"]'
+    );
+    if (prioImg) {
+      if (prioImg.tagName === 'IMG') {
+        priorityIcon = prioImg.src;
+        priorityName = prioImg.alt || prioImg.title || '';
+      } else {
+        priorityName = prioImg.getAttribute('aria-label') || '';
+      }
+    }
+
+    let assigneeName = '未指派';
+    let assigneeAvatar = '';
+    const avatarEl = cardEl.querySelector(
+      '[data-testid*="assignee"] img, img[src*="avatar"], [data-testid*="assignee"]'
+    );
+    if (avatarEl) {
+      if (avatarEl.tagName === 'IMG') {
+        assigneeAvatar = avatarEl.src;
+        assigneeName = avatarEl.alt || avatarEl.title || '';
+      } else {
+        const innerImg = avatarEl.querySelector('img');
+        if (innerImg) {
+          assigneeAvatar = innerImg.src;
+          assigneeName = innerImg.alt || innerImg.title || '';
+        } else {
+          assigneeName = (avatarEl.textContent || '').trim();
+        }
+      }
+    }
+
+    let parentKey = '';
+    let parentSummary = '';
+    const epicEl = cardEl.querySelector(
+      '[data-testid*="epic"], [data-testid*="parent"], [data-testid*="lozenge-epic"], [class*="lozenge"]'
+    );
+    if (epicEl && epicEl !== statusEl) {
+      const epicText = (epicEl.textContent || '').trim();
+      if (epicText && epicText !== statusName && !epicText.includes(key)) {
+        parentSummary = epicText;
+      }
+    }
+
+    let dueDate = '';
+    const dueEl = cardEl.querySelector('[data-testid*="due-date"], [data-testid*="duedate"]');
+    if (dueEl) {
+      dueDate = (dueEl.textContent || '').trim();
+    } else {
+      const dateMatch = (cardEl.textContent || '').match(/(\d{1,2}月\d{1,2}日|\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) {
+        dueDate = dateMatch[1];
+      }
+    }
+
+    let summary = '';
+    const summaryEl =
+      cardEl.querySelector('[data-testid*="summary"], [data-testid*="card-title"]');
+    if (summaryEl) {
+      summary = (summaryEl.textContent || '').trim();
+    }
+
+    if (!summary || summary === key) {
+      const allText = (cardEl.innerText || cardEl.textContent || '').replace(/\s+/g, ' ');
+      let stripped = allText.replace(key, '').trim();
+      if (statusName) stripped = stripped.replace(statusName, '').trim();
+      if (assigneeName && assigneeName !== '未指派') stripped = stripped.replace(assigneeName, '').trim();
+      if (parentSummary) stripped = stripped.replace(parentSummary, '').trim();
+      if (dueDate) stripped = stripped.replace(dueDate, '').trim();
+      summary = stripped || '(無標題)';
+    }
+
+    return {
+      id: key,
+      key,
+      summary,
+      statusName,
+      statusCategory,
+      issueTypeName,
+      issueTypeIcon,
+      priorityName,
+      priorityIcon,
+      assigneeName,
+      assigneeAvatar,
+      parentKey,
+      parentSummary,
+      dueDate,
+      storyPoints
+    };
+  }
+
+  /**
+   * 從未結束衝刺的原生 DOM 中提取所有卡片
+   */
+  function parseIssuesFromBranch(branchEl, sprintEl) {
+    const root = branchEl || sprintEl;
+    if (!root) return [];
+
+    const foundCards = [];
+    for (const sel of CARD_SELECTORS) {
+      const nodes = Array.from(root.querySelectorAll(sel));
+      const filtered = nodes.filter(
+        (c) =>
+          !c.classList.contains('bjwt-history-card') &&
+          !c.closest('[data-bjwt-custom-view]') &&
+          !nodes.some((other) => other !== c && other.contains(c))
+      );
+      if (filtered.length > 0) {
+        foundCards.push(...filtered);
+        break;
+      }
+    }
+
+    const issues = [];
+    const seenKeys = new Set();
+    foundCards.forEach((cardEl) => {
+      const iss = parseIssueFromDomCard(cardEl);
+      if (iss && iss.key && !seenKeys.has(iss.key)) {
+        seenKeys.add(iss.key);
+        issues.push(iss);
+      }
+    });
+
+    return issues;
+  }
+
+  /**
+   * 透過 Jira Agile REST API 抓取未結束衝刺的完整卡片資料
+   */
+  async function fetchSprintIssuesForActive(item) {
+    const { boardId } = await detectJiraContext();
+    const sprintId = item.meta.sprintId || (item.sprintEl && item.sprintEl.getAttribute('data-sprint-id'));
+    const title = item.meta.title;
+    const fieldsParam = 'summary,status,issuetype,priority,assignee,parent,duedate,customfield_10016,customfield_10026';
+
+    if (sprintId) {
+      try {
+        const res = await fetch(
+          `${window.location.origin}/rest/agile/1.0/sprint/${encodeURIComponent(sprintId)}/issue?maxResults=200&fields=${fieldsParam}`,
+          { credentials: 'include', headers: { Accept: 'application/json' } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.issues)) {
+            return data.issues.map(normalizeJiraIssue);
+          }
+        }
+      } catch {}
+    }
+
+    if (title) {
+      const escaped = title.replace(/"/g, '\\"');
+      const jql = `sprint = "${escaped}" ORDER BY key ASC`;
+      try {
+        const res = await fetch(
+          `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`,
+          { credentials: 'include', headers: { Accept: 'application/json' } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.issues) && data.issues.length > 0) {
+            return data.issues.map(normalizeJiraIssue);
+          }
+        }
+      } catch {}
+    }
+
+    if (/backlog/i.test(title) && boardId) {
+      try {
+        const res = await fetch(
+          `${window.location.origin}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/backlog?maxResults=200&fields=${fieldsParam}`,
+          { credentials: 'include', headers: { Accept: 'application/json' } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.issues)) {
+            return data.issues.map(normalizeJiraIssue);
+          }
+        }
+      } catch {}
+    }
+
+    return [];
+  }
+
+  /**
+   * 非同步同步未結束衝刺的卡片資料，並於完成時自動更新畫面
+   */
+  async function syncActiveSprintIssuesFromApi(item) {
+    const key = item.meta.key;
+    try {
+      const apiIssues = await fetchSprintIssuesForActive(item);
+      if (apiIssues && apiIssues.length > 0) {
+        let cached = activeSprintCache.get(key);
+        if (!cached) {
+          cached = {
+            key,
+            title: item.meta.title,
+            issues: apiIssues,
+            filterKeyword: ''
+          };
+        } else {
+          cached.issues = apiIssues;
+        }
+        activeSprintCache.set(key, cached);
+
+        if (activeSprintKey === key) {
+          renderActiveSprintBranch(item);
+        }
+      }
+    } catch {}
+  }
+
+  /**
+   * 渲染未結束衝刺的自定義卡片檢視 (與歷史衝刺一體呈現)
+   */
+  function renderActiveSprintBranch(item) {
+    const branchEl = item.branch;
+    if (!branchEl) return;
+
+    const key = item.meta.key;
+
+    // 1. 若快取中無資料，先從原生 DOM 即時解析
+    let sprintData = activeSprintCache.get(key);
+    if (!sprintData) {
+      const domIssues = parseIssuesFromBranch(branchEl, item.sprintEl);
+      sprintData = {
+        key,
+        title: item.meta.title,
+        issues: domIssues,
+        filterKeyword: ''
+      };
+      activeSprintCache.set(key, sprintData);
+
+      // 非同步發起 API 補充更完整資料
+      syncActiveSprintIssuesFromApi(item);
+    }
+
+    // 2. 建立或取得自定義容器
+    let customView = branchEl.querySelector('.bjwt-active-sprint-custom-view');
+    if (!customView) {
+      customView = document.createElement('div');
+      customView.className = 'bjwt-active-sprint-custom-view';
+      customView.setAttribute('data-bjwt-custom-view', 'true');
+      branchEl.appendChild(customView);
+    }
+
+    // 3. 根據關鍵字篩選卡片
+    const filterKw = (sprintData.filterKeyword || '').trim().toLowerCase();
+    const visibleIssues = filterKw
+      ? sprintData.issues.filter(
+          (iss) =>
+            iss.key.toLowerCase().includes(filterKw) ||
+            iss.summary.toLowerCase().includes(filterKw) ||
+            iss.assigneeName.toLowerCase().includes(filterKw) ||
+            iss.statusName.toLowerCase().includes(filterKw) ||
+            (iss.parentSummary && iss.parentSummary.toLowerCase().includes(filterKw))
+        )
+      : sprintData.issues;
+
+    const doneCount = sprintData.issues.filter((i) => i.statusCategory === 'done').length;
+    const inProgressCount = sprintData.issues.filter(
+      (i) => i.statusCategory === 'indeterminate'
+    ).length;
+    const todoCount = Math.max(0, sprintData.issues.length - doneCount - inProgressCount);
+
+    const sig = JSON.stringify({
+      key,
+      count: sprintData.issues.length,
+      filterKw,
+      theme: currentSettings.themeStyle
+    });
+
+    if (customView.getAttribute('data-bjwt-render-sig') === sig) {
+      return;
+    }
+    customView.setAttribute('data-bjwt-render-sig', sig);
+
+    customView.innerHTML = `
+      <div class="bjwt-active-sprint-container sprint-container">
+        <div class="bjwt-active-sprint-controls">
+          <div class="bjwt-active-controls-left">
+            <span class="bjwt-history-status-counters" title="待辦 / 進行中 / 完成">
+              <span class="bjwt-counter-pill counter-todo">${todoCount}</span>
+              <span class="bjwt-counter-pill counter-inprogress">${inProgressCount}</span>
+              <span class="bjwt-counter-pill counter-done">${doneCount}</span>
+            </span>
+            <span class="bjwt-active-sprint-stat">(${sprintData.issues.length} 個工作項目)</span>
+          </div>
+          <div class="bjwt-active-controls-right">
+            <input
+              type="search"
+              class="bjwt-history-card-filter"
+              placeholder="篩選卡片 (Key / 標題 / 負責人)..."
+              value="${escapeHtml(sprintData.filterKeyword || '')}"
+            />
+            <button type="button" class="bjwt-active-refresh-btn" title="從 Jira 重新同步此衝刺">
+              ↻ 重新整理
+            </button>
+          </div>
+        </div>
+        <div class="bjwt-history-card-list">
+          ${
+            visibleIssues.length === 0
+              ? `<div class="bjwt-history-empty-cards">目前沒有符合條件的卡片。</div>`
+              : visibleIssues.map(renderIssueCardHtml).join('')
+          }
+        </div>
+      </div>
+    `;
+
+    // 綁定篩選搜尋事件
+    const filterInput = customView.querySelector('.bjwt-history-card-filter');
+    if (filterInput) {
+      filterInput.addEventListener('input', (e) => {
+        const cursorPos = e.target.selectionStart;
+        sprintData.filterKeyword = e.target.value;
+        renderActiveSprintBranch(item);
+        const newInput = customView.querySelector('.bjwt-history-card-filter');
+        if (newInput) {
+          newInput.focus();
+          try {
+            newInput.setSelectionRange(cursorPos, cursorPos);
+          } catch {}
+        }
+      });
+    }
+
+    // 綁定重新整理按鈕
+    const refreshBtn = customView.querySelector('.bjwt-active-refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = '同步中...';
+        const domIssues = parseIssuesFromBranch(branchEl, item.sprintEl);
+        if (domIssues.length > 0) {
+          sprintData.issues = domIssues;
+        }
+        await syncActiveSprintIssuesFromApi(item);
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '↻ 重新整理';
+      });
+    }
+
+    // 綁定卡片點擊事件以置中 Modal 預覽
+    customView.querySelectorAll('.bjwt-history-card').forEach((cardEl) => {
+      const issueKey = cardEl.getAttribute('data-bjwt-history-issue-key');
+      const issueObj = sprintData.issues.find((i) => i.key === issueKey);
+      const handleActivate = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (issueKey) {
+          openHistoricalIssueDetailModal(issueKey, issueObj);
+        }
+      };
+      cardEl.addEventListener('click', handleActivate);
+      cardEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          handleActivate(e);
+        }
+      });
+    });
+  }
+
+  /**
    * 渲染右欄 80% 中的「歷史 Sprint (已結束)」卡片區塊
    */
   function renderHistoricalSprintBranch(branchEl, histItem) {
@@ -1472,7 +2024,8 @@
             iss.key.toLowerCase().includes(filterKw) ||
             iss.summary.toLowerCase().includes(filterKw) ||
             iss.assigneeName.toLowerCase().includes(filterKw) ||
-            iss.statusName.toLowerCase().includes(filterKw)
+            iss.statusName.toLowerCase().includes(filterKw) ||
+            (iss.parentSummary && iss.parentSummary.toLowerCase().includes(filterKw))
         )
       : histItem.issues;
 
@@ -1547,69 +2100,7 @@
           ${
             visibleIssues.length === 0
               ? `<div class="bjwt-history-empty-cards">此歷史衝刺中沒有符合條件的卡片。</div>`
-              : visibleIssues
-                  .map((iss) => {
-                    const isDone = iss.statusCategory === 'done';
-                    const statusClass = isDone
-                      ? 'status-done'
-                      : iss.statusCategory === 'indeterminate'
-                      ? 'status-inprogress'
-                      : 'status-todo';
-                    const initials = (iss.assigneeName || '?').slice(0, 2).toUpperCase();
-                    const parentLabel = iss.parentSummary || iss.parentKey || '';
-                    const pointsDisplay =
-                      iss.storyPoints !== null && iss.storyPoints !== ''
-                        ? String(iss.storyPoints)
-                        : '-';
-                    return `
-                      <div
-                        class="bjwt-history-card sprint-card"
-                        data-bjwt-history-issue-key="${escapeHtml(iss.key)}"
-                        role="button"
-                        tabindex="0"
-                        title="點擊以置中 Modal 預覽 ${escapeHtml(iss.key)} 詳細內容"
-                      >
-                        <div class="bjwt-history-card-left">
-                          ${
-                            iss.issueTypeIcon
-                              ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(iss.issueTypeIcon)}" alt="${escapeHtml(iss.issueTypeName)}" />`
-                              : `<span class="bjwt-history-issuetype-dot"></span>`
-                          }
-                          <span class="bjwt-history-card-key ${isDone ? 'is-done' : ''}">${escapeHtml(iss.key)}</span>
-                          <span class="bjwt-history-card-summary">${escapeHtml(iss.summary)}</span>
-                        </div>
-                        <div class="bjwt-history-card-right">
-                          ${
-                            parentLabel
-                              ? `<span class="bjwt-history-parent-badge" title="${escapeHtml(iss.parentKey ? `${iss.parentKey}: ${iss.parentSummary}` : parentLabel)}"><span class="bjwt-parent-dot"></span>${escapeHtml(parentLabel)}</span>`
-                              : ''
-                          }
-                          <span class="bjwt-history-status-badge ${statusClass}">
-                            ${escapeHtml(iss.statusName)}
-                          </span>
-                          ${
-                            iss.dueDate
-                              ? `<span class="bjwt-history-duedate-badge" title="到期日：${escapeHtml(iss.dueDate)}">${escapeHtml(iss.dueDate)}</span>`
-                              : ''
-                          }
-                          <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
-                          ${
-                            iss.priorityIcon
-                              ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" title="優先順序：${escapeHtml(iss.priorityName)}" />`
-                              : ''
-                          }
-                          <span class="bjwt-history-assignee" title="負責人：${escapeHtml(iss.assigneeName)}">
-                            ${
-                              iss.assigneeAvatar
-                                ? `<img class="bjwt-history-avatar" src="${escapeHtml(iss.assigneeAvatar)}" alt="${escapeHtml(iss.assigneeName)}" />`
-                                : `<span class="bjwt-history-avatar-fallback">${escapeHtml(initials)}</span>`
-                            }
-                          </span>
-                        </div>
-                      </div>
-                    `;
-                  })
-                  .join('')
+              : visibleIssues.map(renderIssueCardHtml).join('')
           }
         </div>
       </div>
@@ -1997,6 +2488,10 @@
       el.remove();
     });
 
+    document.querySelectorAll('.bjwt-active-sprint-custom-view').forEach((el) => {
+      el.remove();
+    });
+
     cleanupIssueModalAttributes();
 
     document.querySelectorAll('[data-bjwt-backlog-pane]').forEach((el) => {
@@ -2169,7 +2664,8 @@
         !target.closest(`#${MODAL_BACKDROP_ID}`) &&
         !target.closest(`#${HISTORY_PICKER_MODAL_ID}`) &&
         !target.closest(`#${HISTORY_ISSUE_MODAL_ID}`) &&
-        !target.closest('[data-bjwt-history-branch="true"]')
+        !target.closest('[data-bjwt-history-branch="true"]') &&
+        !target.closest('[data-bjwt-custom-view]')
       );
     });
 

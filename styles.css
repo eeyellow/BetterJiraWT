@@ -1066,6 +1066,85 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
   padding: 10px !important;
 }
 
+/* 隱藏未結束衝刺內的原生 Jira 卡片清單，改用自定義雙列卡片檢視 (避免原生跑版) */
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) [data-testid*="software-backlog.card-list.card"],
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) [data-testid*="issue-card"],
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) .ghx-issues,
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) .js-issue,
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) .ghx-issue-compact,
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) .sprint-card:not(.bjwt-history-card) {
+  display: none !important;
+}
+
+/* 未結束衝刺自定義檢視容器與控制列樣式 */
+.bjwt-active-sprint-custom-view {
+  width: 100% !important;
+  display: block !important;
+}
+
+.bjwt-active-sprint-container {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  margin-top: 8px !important;
+  box-sizing: border-box !important;
+}
+
+.bjwt-active-sprint-controls {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 8px 12px !important;
+  background: var(--ds-surface-raised, #22272b) !important;
+  border: 1px solid var(--ds-border, #2c333a) !important;
+  border-bottom: none !important;
+  border-radius: 6px 6px 0 0 !important;
+  box-sizing: border-box !important;
+}
+
+.bjwt-active-controls-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+}
+
+.bjwt-active-sprint-stat {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+  white-space: nowrap !important;
+}
+
+.bjwt-active-controls-right {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.bjwt-active-refresh-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  height: 28px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--ds-border, #475569) !important;
+  border-radius: 5px !important;
+  background: var(--ds-surface, #1d2125) !important;
+  color: var(--ds-text, #dee4ea) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.bjwt-active-refresh-btn:hover {
+  background: var(--ds-surface-hovered, #2c333a) !important;
+  border-color: #3b82f6 !important;
+  color: #60a5fa !important;
+}
+
 .bjwt-history-sprint-banner {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -1232,6 +1311,7 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
   background: var(--ds-surface-hovered, rgba(255, 255, 255, 0.05)) !important;
 }
 
+.bjwt-card-row-top,
 .bjwt-history-card-left {
   width: 100% !important;
   max-width: 100% !important;
@@ -1285,6 +1365,7 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
   word-break: break-word !important;
 }
 
+.bjwt-card-row-bottom,
 .bjwt-history-card-right {
   width: 100% !important;
   max-width: 100% !important;
