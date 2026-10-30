@@ -1212,6 +1212,15 @@
         border-color: var(--ds-border-warning-hovered, #fbbf24) !important;
         color: var(--ds-text-warning-hovered, #fbbf24) !important;
       }
+      .bjwt-history-sprint-container {
+        border: 1px solid var(--ds-border, #dfe1e6) !important;
+        border-top: 1px solid var(--ds-border, #dfe1e6) !important;
+        border-radius: 6px !important;
+      }
+      .bjwt-history-sprint-banner {
+        border: 1px solid var(--ds-border, #dfe1e6) !important;
+        border-radius: 6px !important;
+      }
       .bjwt-sprint-section-header {
         display: flex !important;
         align-items: center !important;
