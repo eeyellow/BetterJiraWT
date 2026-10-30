@@ -184,13 +184,15 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-container="true"][da
 /* =========================================================
    點擊卡片後：改以置中 Modal 彈出完整卡片內容，防止右欄被切半
    ========================================================= */
-html[data-betterjira-layout="two-column"] [data-bjwt-backlog-pane="true"] {
+html[data-betterjira-layout="two-column"] [data-bjwt-backlog-pane="true"],
+html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.scrollable-container"] {
   width: 100% !important;
   max-width: 100% !important;
   flex: 1 1 100% !important;
 }
 
-html[data-betterjira-layout="two-column"] [data-bjwt-resizer-hide="true"] {
+html[data-betterjira-layout="two-column"] [data-bjwt-resizer-hide="true"],
+html[data-betterjira-layout="two-column"] [data-testid*="backlog-content"] [role="separator"] {
   display: none !important;
 }
 
@@ -203,7 +205,9 @@ html[data-betterjira-layout="two-column"] [data-bjwt-resizer-hide="true"] {
   cursor: pointer !important;
 }
 
-html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] {
+html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"],
+html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"],
+html[data-betterjira-layout="two-column"] #ghx-detail-view {
   position: fixed !important;
   top: 50% !important;
   left: 50% !important;
@@ -222,7 +226,8 @@ html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] {
   border: 1px solid var(--ds-border, #dfe1e6) !important;
 }
 
-html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] > * {
+html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] > *,
+html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"] > * {
   width: 100% !important;
   max-width: 100% !important;
 }

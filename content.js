@@ -1,11 +1,11 @@
 /**
  * BetterJiraWT Content Script
  * 1. 偵測當前網址是否符合設定的「待辦事項網址」
- * 2. 套用選定樣式：預設 (Default) / Bootstrap / MaterialDesign (透過 Extension Icon 呈現狀態，不在右下角顯示徽章)
+ * 2. 套用選定樣式：預設 (Default) / Bootstrap / MaterialDesign (透過 Extension Icon 呈現狀態)
  * 3. 將「待辦事項」頁面改為左右兩欄排版：
  *    - 左欄約 20%：放置衝刺 (Sprints) 清單，顯示真實衝刺名稱，支援長清單捲動，每次只能切換一個衝刺
  *    - 右欄約 80%：顯示目前選取衝刺中的卡片
- * 4. 點擊右欄卡片時，不將右欄切半，改以置中 Modal 彈出視窗完整呈現卡片詳細內容
+ * 4. 點擊右欄卡片時，鎖定右欄不切半，並立即以置中 Modal 彈出視窗顯示卡片詳細內容
  */
 (() => {
   const THEME_ATTR = 'data-betterjira-theme';
@@ -33,11 +33,12 @@
   ];
 
   const ISSUE_DETAIL_SELECTORS = [
+    '[data-testid="software-backlog.backlog-content.issue-detail-wrapper"]',
+    '[data-testid*="backlog-content.issue-detail"]',
     '[data-testid="issue.views.issue-details.issue-layout.issue-view"]',
     '[data-testid*="issue.views.issue-details.issue-layout"]',
     '[data-testid*="issue.views.issue-base.foundation.summary"]',
     '[data-testid*="issue-view-layout-templates"]',
-    '[data-testid*="backlog-content.issue-detail"]',
     '[data-testid*="issue-detail"]',
     '#jira-issue-header',
     '#ghx-detail-view',
@@ -68,7 +69,6 @@
 
   let activeSprintKey = null;
   let activeSprintIndex = 0;
-  let isMutatingInternal = false;
   let layoutRafId = null;
 
   function normalizeUrl(rawUrl) {
@@ -146,7 +146,7 @@
   }
 
   /**
-   * 檢查元素是否位於某張卡片內部 (避免誤把卡片標題當成衝刺名稱)
+   * 檢查元素是否位於某張卡片內部
    */
   function isInsideCard(el) {
     if (!el || !(el instanceof Element)) return false;
@@ -164,11 +164,9 @@
     const cleaned = text.replace(/\s+/g, ' ').trim();
     if (!cleaned || cleaned.length < 2) return false;
     if (IGNORED_BUTTON_TEXTS.has(cleaned.toLowerCase())) return false;
-    // 過濾純問題數，如 "12 個問題"、"(5 issues)"、"0 張卡片"
     if (/^\(?(\d+)\s*(個問題|issues?|張卡片|cards?|items?|點|points?)\)?$/i.test(cleaned)) {
       return false;
     }
-    // 過濾純數字或純符號
     if (/^[\d\s.,()\-+/]+$/.test(cleaned)) {
       return false;
     }
@@ -176,43 +174,45 @@
   }
 
   /**
-   * 確保被選取的衝刺若是折疊狀態 (風琴夾收合)，自動將其展開以顯示內部卡片
+   * 僅在使用者於左欄手動點擊切換衝刺時，檢查該衝刺標頭是否處於收合狀態；
+   * 絕不在 MutationObserver 中自動觸發任何 click，避免誤觸「+ 建立問題」按鈕。
    */
-  function ensureSprintExpanded(branchEl, sprintEl, headerPartner) {
-    const roots = [headerPartner, branchEl, sprintEl].filter(Boolean);
-    const visited = new Set();
-
-    roots.forEach((root) => {
-      // 1. Jira Cloud 風琴夾按鈕通常帶有 aria-expanded="false"
-      const collapsedBtns = root.querySelectorAll('[aria-expanded="false"]');
-      collapsedBtns.forEach((btn) => {
-        if (visited.has(btn)) return;
-        visited.add(btn);
-        if (!btn.hasAttribute('aria-haspopup') && !isInsideCard(btn)) {
-          btn.click();
-        }
-      });
-
-      // 2. Jira Server / Data Center 折疊樣式 (.ghx-closed)
-      if (root.classList && root.classList.contains('ghx-closed')) {
-        const expander = root.querySelector('.ghx-expander, .js-expander');
-        if (expander) {
-          expander.click();
-        } else {
-          root.classList.remove('ghx-closed');
-        }
+  function expandSprintHeaderOnUserSelect(branchEl, sprintEl, headerPartner) {
+    // 若該衝刺內已經有可見的卡片，代表已經是展開狀態，不需點擊任何按鈕
+    for (const sel of CARD_SELECTORS) {
+      const existingCard = (branchEl || sprintEl).querySelector(sel);
+      if (existingCard && existingCard.offsetParent !== null) {
+        return;
       }
+    }
 
-      // 3. 原生 <details> 風琴夾
-      if (root.tagName === 'DETAILS' && !root.open) {
-        root.open = true;
+    // 僅尋找衝刺標頭列 (Header) 內的風琴夾展開按鈕，嚴格排除底部新增卡片區域
+    const headerCandidates = [
+      headerPartner,
+      branchEl && branchEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header'),
+      sprintEl && sprintEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header')
+    ].filter(Boolean);
+
+    for (const hdr of headerCandidates) {
+      const toggleBtn = hdr.querySelector('[aria-expanded="false"]');
+      if (
+        toggleBtn &&
+        !toggleBtn.hasAttribute('aria-haspopup') &&
+        !isInsideCard(toggleBtn)
+      ) {
+        toggleBtn.click();
+        return;
       }
-    });
+    }
+
+    if (sprintEl && sprintEl.classList && sprintEl.classList.contains('ghx-closed')) {
+      const expander = sprintEl.querySelector('.ghx-expander, .js-expander');
+      if (expander) expander.click();
+    }
   }
 
   /**
    * 擷取衝刺的真實名稱與卡片數量
-   * 同時搜尋整個衝刺分支 (branch)、標頭兄弟節點 (headerPartner) 與容器 (sprintEl)
    */
   function extractSprintMeta(branchEl, sprintEl, headerPartner, index) {
     const searchRoots = [headerPartner, branchEl, sprintEl, sprintEl.parentElement].filter(Boolean);
@@ -362,6 +362,21 @@
   }
 
   /**
+   * 預先將從 sprintsHost 往上到 <main> 之間的祖先鏈鎖定為 100% 寬度，
+   * 確保點擊卡片的瞬間，右欄絕對不會被 Jira 的分割面板切成兩半。
+   */
+  function lockBacklogAncestorWidths(sprintsHost) {
+    if (!sprintsHost) return;
+    const mainBoundary =
+      sprintsHost.closest('main, [role="main"]') || document.body;
+    let curr = sprintsHost;
+    while (curr && curr !== mainBoundary && curr !== document.body) {
+      curr.setAttribute('data-bjwt-backlog-pane', 'true');
+      curr = curr.parentElement;
+    }
+  }
+
+  /**
    * 建立或更新「左欄 20% 衝刺清單 + 右欄 80% 選取衝刺卡片」的雙欄排版
    */
   function applyTwoColumnBacklogLayout() {
@@ -373,105 +388,96 @@
     const sprintsHost = findLowestCommonAncestor(sprintContainers);
     if (!sprintsHost) return null;
 
-    isMutatingInternal = true;
-    try {
-      sprintsHost.setAttribute('data-bjwt-layout-host', 'true');
+    sprintsHost.setAttribute('data-bjwt-layout-host', 'true');
+    lockBacklogAncestorWidths(sprintsHost);
 
-      // 找出每個衝刺在 sprintsHost 下的直接子節點 (branch)
-      const branchSet = new Set();
-      const rawSprintItems = sprintContainers.map((sprintEl) => {
-        let branch = sprintEl;
-        while (branch.parentElement && branch.parentElement !== sprintsHost) {
-          branch = branch.parentElement;
-        }
-        branchSet.add(branch);
-        return { sprintEl, branch };
-      });
+    // 找出每個衝刺在 sprintsHost 下的直接子節點 (branch)
+    const branchSet = new Set();
+    const rawSprintItems = sprintContainers.map((sprintEl) => {
+      let branch = sprintEl;
+      while (branch.parentElement && branch.parentElement !== sprintsHost) {
+        branch = branch.parentElement;
+      }
+      branchSet.add(branch);
+      return { sprintEl, branch };
+    });
 
-      // 若某個衝刺的標頭是 branch 的前一個兄弟節點 (headerPartner)，將其配對關聯
-      const sprintBranches = rawSprintItems.map((item, idx) => {
-        const { sprintEl, branch } = item;
-        let headerPartner = null;
-        const prev = branch.previousElementSibling;
-        if (
-          prev &&
-          prev.id !== SIDEBAR_ID &&
-          !branchSet.has(prev) &&
-          (prev.matches('[data-testid*="header"], header, .ghx-backlog-header') ||
-            prev.querySelector('[data-testid*="header"], h2, h3, [role="heading"], [aria-expanded]'))
-        ) {
-          headerPartner = prev;
-          headerPartner.setAttribute('data-bjwt-sprint-header-partner', 'true');
-        }
+    // 若某個衝刺的標頭是 branch 的前一個兄弟節點 (headerPartner)，將其配對關聯
+    const sprintBranches = rawSprintItems.map((item, idx) => {
+      const { sprintEl, branch } = item;
+      let headerPartner = null;
+      const prev = branch.previousElementSibling;
+      if (
+        prev &&
+        prev.id !== SIDEBAR_ID &&
+        !branchSet.has(prev) &&
+        (prev.matches('[data-testid*="header"], header, .ghx-backlog-header') ||
+          prev.querySelector('[data-testid*="header"], h2, h3, [role="heading"], [aria-expanded]'))
+      ) {
+        headerPartner = prev;
+        headerPartner.setAttribute('data-bjwt-sprint-header-partner', 'true');
+      }
 
-        sprintEl.setAttribute('data-bjwt-sprint-container', 'true');
-        branch.setAttribute('data-bjwt-sprint-branch', 'true');
-        branch.setAttribute('data-bjwt-sprint-index', String(idx));
+      sprintEl.setAttribute('data-bjwt-sprint-container', 'true');
+      branch.setAttribute('data-bjwt-sprint-branch', 'true');
+      branch.setAttribute('data-bjwt-sprint-index', String(idx));
 
-        const meta = extractSprintMeta(branch, sprintEl, headerPartner, idx);
-        return { sprintEl, branch, headerPartner, meta };
-      });
+      const meta = extractSprintMeta(branch, sprintEl, headerPartner, idx);
+      return { sprintEl, branch, headerPartner, meta };
+    });
 
-      // 標記 sprintsHost 下非衝刺、也非側邊欄的其他直接子元素
-      Array.from(sprintsHost.children).forEach((child) => {
-        if (
-          child.id !== SIDEBAR_ID &&
-          !child.hasAttribute('data-bjwt-sprint-branch') &&
-          !child.hasAttribute('data-bjwt-sprint-header-partner')
-        ) {
-          child.setAttribute('data-bjwt-non-sprint-child', 'true');
-        }
-      });
+    // 標記 sprintsHost 下非衝刺、也非側邊欄的其他直接子元素
+    Array.from(sprintsHost.children).forEach((child) => {
+      if (
+        child.id !== SIDEBAR_ID &&
+        !child.hasAttribute('data-bjwt-sprint-branch') &&
+        !child.hasAttribute('data-bjwt-sprint-header-partner')
+      ) {
+        child.setAttribute('data-bjwt-non-sprint-child', 'true');
+      }
+    });
 
-      // 決定目前選取的衝刺索引 (每次只能切換一個衝刺)
-      let resolvedIndex = 0;
-      if (activeSprintKey !== null) {
-        const foundByKey = sprintBranches.findIndex((item) => item.meta.key === activeSprintKey);
-        if (foundByKey !== -1) {
-          resolvedIndex = foundByKey;
-        } else if (activeSprintIndex < sprintBranches.length) {
-          resolvedIndex = activeSprintIndex;
-        }
+    // 決定目前選取的衝刺索引 (每次只能切換一個衝刺)
+    let resolvedIndex = 0;
+    if (activeSprintKey !== null) {
+      const foundByKey = sprintBranches.findIndex((item) => item.meta.key === activeSprintKey);
+      if (foundByKey !== -1) {
+        resolvedIndex = foundByKey;
       } else if (activeSprintIndex < sprintBranches.length) {
         resolvedIndex = activeSprintIndex;
       }
-
-      activeSprintIndex = resolvedIndex;
-      activeSprintKey = sprintBranches[resolvedIndex].meta.key;
-
-      // 切換右欄 80%：只顯示目前選取的衝刺，其餘衝刺隱藏，並確保選取的衝刺展開卡片
-      sprintBranches.forEach((item, idx) => {
-        const isSelected = idx === resolvedIndex;
-        const activeVal = isSelected ? 'true' : 'false';
-        item.branch.setAttribute('data-bjwt-sprint-active', activeVal);
-        item.sprintEl.setAttribute('data-bjwt-sprint-active', activeVal);
-        if (item.headerPartner) {
-          item.headerPartner.setAttribute('data-bjwt-sprint-active', activeVal);
-        }
-        if (isSelected) {
-          ensureSprintExpanded(item.branch, item.sprintEl, item.headerPartner);
-        }
-      });
-
-      // 建立或更新左欄 20% 衝刺切換側邊欄
-      let sidebar = document.getElementById(SIDEBAR_ID);
-      if (!sidebar) {
-        sidebar = document.createElement('aside');
-        sidebar.id = SIDEBAR_ID;
-      }
-
-      const firstTarget = sprintBranches[0].headerPartner || sprintBranches[0].branch;
-      if (sidebar.parentElement !== sprintsHost || sidebar.nextElementSibling !== firstTarget) {
-        sprintsHost.insertBefore(sidebar, firstTarget);
-      }
-
-      updateSidebarMaxHeight(sidebar);
-      renderSidebarContents(sidebar, sprintBranches, resolvedIndex);
-    } finally {
-      setTimeout(() => {
-        isMutatingInternal = false;
-      }, 50);
+    } else if (activeSprintIndex < sprintBranches.length) {
+      resolvedIndex = activeSprintIndex;
     }
+
+    activeSprintIndex = resolvedIndex;
+    activeSprintKey = sprintBranches[resolvedIndex].meta.key;
+
+    // 切換右欄 80%：只顯示目前選取的衝刺，其餘衝刺隱藏
+    sprintBranches.forEach((item, idx) => {
+      const isSelected = idx === resolvedIndex;
+      const activeVal = isSelected ? 'true' : 'false';
+      item.branch.setAttribute('data-bjwt-sprint-active', activeVal);
+      item.sprintEl.setAttribute('data-bjwt-sprint-active', activeVal);
+      if (item.headerPartner) {
+        item.headerPartner.setAttribute('data-bjwt-sprint-active', activeVal);
+      }
+    });
+
+    // 建立或更新左欄 20% 衝刺切換側邊欄
+    let sidebar = document.getElementById(SIDEBAR_ID);
+    if (!sidebar) {
+      sidebar = document.createElement('aside');
+      sidebar.id = SIDEBAR_ID;
+    }
+
+    const firstTarget = sprintBranches[0].headerPartner || sprintBranches[0].branch;
+    if (sidebar.parentElement !== sprintsHost || sidebar.nextElementSibling !== firstTarget) {
+      sprintsHost.insertBefore(sidebar, firstTarget);
+    }
+
+    updateSidebarMaxHeight(sidebar);
+    renderSidebarContents(sidebar, sprintBranches, resolvedIndex);
 
     return sprintsHost;
   }
@@ -535,6 +541,8 @@
         activeSprintIndex = idx;
         activeSprintKey = item.meta.key;
         applyTwoColumnBacklogLayout();
+        // 僅在使用者主動點擊左欄衝刺時，若該衝刺原本是收合的，才展開其標頭
+        expandSprintHeaderOnUserSelect(item.branch, item.sprintEl, item.headerPartner);
       });
 
       listEl.appendChild(btn);
@@ -546,7 +554,70 @@
   }
 
   /**
-   * 將 Jira 點擊卡片後右側切半的詳細面板，轉換為置中彈出的 Modal 視窗
+   * 偵測右側卡片詳細面板 (支援載入骨架階段與完整載入階段)，立即轉為置中 Modal
+   */
+  function findIssueModalPane(host) {
+    // 方法 1：從 sprintsHost 往上檢查至 <main>，看是否有出現在右側的分割面板兄弟節點 (0ms 骨架階段即可命中)
+    const mainBoundary = host.closest('main, [role="main"]') || document.body;
+    let curr = host;
+    while (curr && curr !== mainBoundary && curr !== document.body) {
+      const parent = curr.parentElement;
+      if (parent) {
+        let sib = curr.nextElementSibling;
+        while (sib) {
+          if (
+            sib.id !== SIDEBAR_ID &&
+            sib.id !== MODAL_BACKDROP_ID &&
+            !sib.hasAttribute('data-bjwt-sprint-branch') &&
+            !sib.hasAttribute('data-bjwt-sprint-header-partner') &&
+            !sib.hasAttribute('data-bjwt-non-sprint-child')
+          ) {
+            const rect = sib.getBoundingClientRect();
+            const isResizer =
+              sib.getAttribute('role') === 'separator' ||
+              (sib.getAttribute('data-testid') || '').includes('resizer') ||
+              (rect.width > 0 && rect.width <= 24);
+
+            if (!isResizer && rect.width > 120 && rect.height > 120) {
+              return { modalPane: sib, splitContainer: parent };
+            }
+          }
+          sib = sib.nextElementSibling;
+        }
+      }
+      curr = curr.parentElement;
+    }
+
+    // 方法 2：透過明確的 ISSUE_DETAIL_SELECTORS 尋找
+    for (const sel of ISSUE_DETAIL_SELECTORS) {
+      const candidates = Array.from(document.querySelectorAll(sel));
+      const found = candidates.find(
+        (el) =>
+          !host.contains(el) &&
+          !el.closest('[role="dialog"]') &&
+          el.getBoundingClientRect().width > 50
+      );
+      if (found) {
+        let modalPane = found;
+        while (
+          modalPane.parentElement &&
+          modalPane.parentElement !== document.body &&
+          !modalPane.parentElement.contains(host)
+        ) {
+          modalPane = modalPane.parentElement;
+        }
+        const splitContainer = modalPane.parentElement;
+        if (splitContainer && splitContainer.contains(host)) {
+          return { modalPane, splitContainer };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 將 Jira 點擊卡片後右側的詳細面板，立即轉換為置中彈出的 Modal 視窗
    */
   function applyIssueDetailModalTransform(sprintsHost) {
     const host = sprintsHost || document.querySelector('[data-bjwt-layout-host="true"]');
@@ -555,77 +626,33 @@
       return;
     }
 
-    // 尋找不在 sprintsHost 內、也非原生 dialog 內的卡片詳細內容區塊
-    let issueInner = null;
-    for (const sel of ISSUE_DETAIL_SELECTORS) {
-      const candidates = Array.from(document.querySelectorAll(sel));
-      const found = candidates.find(
-        (el) =>
-          !host.contains(el) &&
-          !el.closest('[role="dialog"]') &&
-          el.offsetParent !== null
-      );
-      if (found) {
-        issueInner = found;
-        break;
-      }
-    }
-
-    if (!issueInner) {
+    const detected = findIssueModalPane(host);
+    if (!detected) {
       cleanupIssueModalAttributes();
       return;
     }
 
-    // 往上尋找與 sprintsHost 共享同一個父容器 (splitContainer) 的右側面板根節點
-    let modalPane = issueInner;
-    while (
-      modalPane.parentElement &&
-      modalPane.parentElement !== document.body &&
-      !modalPane.parentElement.contains(host)
-    ) {
-      modalPane = modalPane.parentElement;
-    }
+    const { modalPane, splitContainer } = detected;
 
-    const splitContainer = modalPane.parentElement;
-    if (!splitContainer || !splitContainer.contains(host)) {
-      cleanupIssueModalAttributes();
-      return;
-    }
+    document.querySelectorAll('[data-bjwt-issue-modal]').forEach((el) => {
+      if (el !== modalPane) el.removeAttribute('data-bjwt-issue-modal');
+    });
 
-    isMutatingInternal = true;
-    try {
-      // 清除舊標記但保留 backdrop
-      document.querySelectorAll('[data-bjwt-issue-modal]').forEach((el) => {
-        if (el !== modalPane) el.removeAttribute('data-bjwt-issue-modal');
-      });
+    splitContainer.setAttribute('data-bjwt-split-container', 'true');
+    modalPane.setAttribute('data-bjwt-issue-modal', 'true');
 
-      splitContainer.setAttribute('data-bjwt-split-container', 'true');
-      modalPane.setAttribute('data-bjwt-issue-modal', 'true');
-
-      // 將從 sprintsHost 到 splitContainer 之間的所有左側祖先鏈標記為 100% 寬度，防止右欄被切半
-      let chainNode = host;
-      while (chainNode && chainNode !== splitContainer && chainNode !== document.body) {
-        chainNode.setAttribute('data-bjwt-backlog-pane', 'true');
-        chainNode = chainNode.parentElement;
+    // 隱藏分割線 (resizer / separator)
+    Array.from(splitContainer.children).forEach((child) => {
+      if (
+        child !== modalPane &&
+        !child.contains(host) &&
+        child.id !== MODAL_BACKDROP_ID
+      ) {
+        child.setAttribute('data-bjwt-resizer-hide', 'true');
       }
+    });
 
-      // 隱藏分割線 (resizer / separator)
-      Array.from(splitContainer.children).forEach((child) => {
-        if (
-          child !== modalPane &&
-          !child.contains(host) &&
-          child.id !== MODAL_BACKDROP_ID
-        ) {
-          child.setAttribute('data-bjwt-resizer-hide', 'true');
-        }
-      });
-
-      ensureModalBackdrop(modalPane);
-    } finally {
-      setTimeout(() => {
-        isMutatingInternal = false;
-      }, 50);
-    }
+    ensureModalBackdrop(modalPane);
   }
 
   function ensureModalBackdrop(modalPane) {
@@ -687,9 +714,6 @@
     document.querySelectorAll('[data-bjwt-split-container]').forEach((el) => {
       el.removeAttribute('data-bjwt-split-container');
     });
-    document.querySelectorAll('[data-bjwt-backlog-pane]').forEach((el) => {
-      el.removeAttribute('data-bjwt-backlog-pane');
-    });
     document.querySelectorAll('[data-bjwt-resizer-hide]').forEach((el) => {
       el.removeAttribute('data-bjwt-resizer-hide');
     });
@@ -713,6 +737,10 @@
     }
 
     cleanupIssueModalAttributes();
+
+    document.querySelectorAll('[data-bjwt-backlog-pane]').forEach((el) => {
+      el.removeAttribute('data-bjwt-backlog-pane');
+    });
 
     document.querySelectorAll('[data-bjwt-layout-host]').forEach((el) => {
       el.removeAttribute('data-bjwt-layout-host');
@@ -779,6 +807,20 @@
     });
   }
 
+  // 當點擊卡片時，立即在同一個 frame 及後續微任務偵測右側面板並轉為 Modal (0 延遲)
+  document.addEventListener(
+    'click',
+    (e) => {
+      const target = e.target;
+      if (target && target instanceof Element && isInsideCard(target)) {
+        requestAnimationFrame(() => applyIssueDetailModalTransform());
+        setTimeout(() => applyIssueDetailModalTransform(), 16);
+        setTimeout(() => applyIssueDetailModalTransform(), 60);
+      }
+    },
+    true
+  );
+
   // 按下 ESC 鍵時可關閉卡片 Modal
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -841,10 +883,8 @@
     });
   }
 
-  // 監聽 Jira SPA 路由切換、非同步衝刺載入與點擊卡片開啟詳細區
+  // 監聽 Jira SPA 路由切換、非同步衝刺載入與點擊卡片開啟詳細區 (無 50ms 盲區)
   const observer = new MutationObserver((mutations) => {
-    if (isMutatingInternal) return;
-
     const isExternalChange = mutations.some((m) => {
       const target = m.target;
       if (!target || !(target instanceof Element)) return true;
