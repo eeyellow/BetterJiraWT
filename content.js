@@ -110,38 +110,128 @@
   let cachedBoardSprints = null;
 
   /**
-   * 清理卡片標題字串，徹底去除重複兩次的內容 (因 Jira DOM 同時包含可見文字與螢幕報讀 span)
+   * 判斷 shortStr 是否為 fullStr 的截斷重複合併版 (以 "..." 或 "…" 結尾，且前半段與完整標題一致)
    */
-  function cleanSummaryText(rawText) {
-    if (!rawText) return '';
-    let txt = rawText.replace(/\s+/g, ' ').trim();
-    if (!txt) return '';
+  function isTruncatedDuplicateOf(shortStr, fullStr) {
+    if (!shortStr || !fullStr) return false;
+    const s = shortStr.trim();
+    const f = fullStr.trim();
+    if (!s || !f) return false;
+    if (s === f) return true;
 
-    // 1. 若字串前半段與後半段完全相同 (無空格切分，如 "TitleTitle")
+    // 含有省略號 (... 或 …) 之截斷版
+    const hasEllipsis = /(\.{2,}|…)\s*$/.test(s);
+    const stripped = s.replace(/\s*(\.{2,}|…)+\s*$/, '').trim();
+    if (hasEllipsis && stripped.length >= 4 && f.length > stripped.length && f.startsWith(stripped)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 清理卡片標題字串，徹底去除各種重複兩次或多次的內容
+   * (處理：完全重複、空白分隔重複、截斷版+完整版重複、前後夾雜額外徽章之重複)
+   */
+  function cleanSummaryText(rawText, depth = 0) {
+    if (!rawText) return '';
+    let txt = String(rawText)
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!txt || depth > 3) return txt;
+
+    // 1. 檢查整個字串是否由同一個片段連續重複 2 次以上組成 (有無空白皆可)
+    const exactRepeatMatch = txt.match(/^(.{2,}?)\s*\1(?:\s*\1)*$/u);
+    if (exactRepeatMatch && exactRepeatMatch[1]) {
+      return cleanSummaryText(exactRepeatMatch[1].trim(), depth + 1);
+    }
+
+    // 2. 若字串前半段與後半段完全相同 (無空格切分，如 "TitleTitle")
     const len = txt.length;
     if (len >= 4 && len % 2 === 0) {
       const half = len / 2;
       if (txt.slice(0, half) === txt.slice(half)) {
-        return txt.slice(0, half).trim();
+        return cleanSummaryText(txt.slice(0, half).trim(), depth + 1);
       }
     }
 
-    // 2. 若字串長度為奇數且正中間為空格，兩側文字相同 (如 "Title Title")
+    // 3. 若字串長度為奇數且正中間為空格，兩側文字相同 (如 "Title Title")
     if (len >= 5 && len % 2 === 1) {
       const half = Math.floor(len / 2);
       if (txt[half] === ' ' && txt.slice(0, half) === txt.slice(half + 1)) {
-        return txt.slice(0, half).trim();
+        return cleanSummaryText(txt.slice(0, half).trim(), depth + 1);
       }
     }
 
-    // 3. 依單字數量切半檢查重複 (如 "Fix bug in login Fix bug in login")
+    // 4. 依單字數量切半檢查重複 (如 "Fix bug in login Fix bug in login")
     const words = txt.split(' ').filter(Boolean);
     if (words.length >= 2 && words.length % 2 === 0) {
       const halfW = words.length / 2;
       const firstW = words.slice(0, halfW).join(' ');
       const secondW = words.slice(halfW).join(' ');
       if (firstW === secondW) {
-        return firstW.trim();
+        return cleanSummaryText(firstW.trim(), depth + 1);
+      }
+    }
+
+    // 5. 檢查前綴第二次出現的位置 (解決「截斷版... + 完整版」、「完整版 + 截斷版...」或尾部夾帶點數/狀態殘留)
+    if (len >= 8) {
+      const candidatePrefixLens = Array.from(
+        new Set([Math.min(8, Math.floor(len / 2)), Math.min(5, Math.floor(len / 2)), 4])
+      ).filter((n) => n >= 3 && n < len);
+
+      for (const pLen of candidatePrefixLens) {
+        const prefix = txt.slice(0, pLen);
+        let searchFrom = pLen;
+        while (searchFrom < len) {
+          const idx = txt.indexOf(prefix, searchFrom);
+          if (idx === -1) break;
+
+          const firstPart = txt.slice(0, idx).trim();
+          const secondPart = txt.slice(idx).trim();
+
+          if (firstPart && secondPart) {
+            if (firstPart === secondPart) {
+              return cleanSummaryText(firstPart, depth + 1);
+            }
+            // 前半段為截斷版 (如 "【eMDM】CleanSheet... ")，後半段為完整版
+            if (isTruncatedDuplicateOf(firstPart, secondPart)) {
+              return cleanSummaryText(secondPart, depth + 1);
+            }
+            // 前半段為完整版，後半段為截斷版
+            if (isTruncatedDuplicateOf(secondPart, firstPart)) {
+              return cleanSummaryText(firstPart, depth + 1);
+            }
+            // 前半段為完整標題 (非省略號結尾)，後半段以完整標題開頭但尾部多出殘留徽章文字 (如 "Title Title 5 RAY")
+            if (
+              firstPart.length >= 6 &&
+              !/(\.{2,}|…)\s*$/.test(firstPart) &&
+              secondPart.startsWith(firstPart)
+            ) {
+              const tail = secondPart.slice(firstPart.length).trim();
+              if (tail.length > 0 && tail.length <= 20) {
+                return cleanSummaryText(firstPart, depth + 1);
+              }
+            }
+          }
+
+          searchFrom = idx + 1;
+        }
+      }
+    }
+
+    // 6. 檢查字串內部是否包含連續重複兩次的長子字串 (要求含中英數字元，避免誤傷純符號如 "======")
+    if (len >= 12) {
+      const innerRepeat = txt.match(/(.{6,}?)\s*\1/u);
+      if (
+        innerRepeat &&
+        innerRepeat[1] &&
+        /[A-Za-z0-9\u4e00-\u9fa5]/.test(innerRepeat[1]) &&
+        !/^[=\-*_~#\s]+$/.test(innerRepeat[1]) &&
+        innerRepeat[1].length >= Math.floor(len * 0.35)
+      ) {
+        return cleanSummaryText(innerRepeat[1].trim(), depth + 1);
       }
     }
 
@@ -149,28 +239,192 @@
   }
 
   /**
+   * 將多段從 DOM 節點取得的文字片段去重 (自動過濾相同文字與截斷重複版，保留最完整的一份)
+   */
+  function deduplicateSummaryChunks(chunks, issueKey = '') {
+    const deduped = [];
+    for (const rawChunk of chunks) {
+      let chunk = cleanSummaryText(rawChunk);
+      if (!chunk) continue;
+      if (issueKey && chunk === issueKey) continue;
+
+      let handled = false;
+      for (let i = 0; i < deduped.length; i++) {
+        const existing = deduped[i];
+        if (chunk === existing || isTruncatedDuplicateOf(chunk, existing)) {
+          // 目前片段與既有片段相同，或是既有片段的截斷版 -> 略過目前片段
+          handled = true;
+          break;
+        }
+        if (isTruncatedDuplicateOf(existing, chunk)) {
+          // 既有片段是目前片段的截斷版 -> 以更完整的目前片段取代既有片段
+          deduped[i] = chunk;
+          handled = true;
+          break;
+        }
+        if (chunk.length >= 6 && existing.includes(chunk)) {
+          handled = true;
+          break;
+        }
+        if (existing.length >= 6 && chunk.includes(existing)) {
+          deduped[i] = chunk;
+          handled = true;
+          break;
+        }
+      }
+
+      if (!handled) {
+        deduped.push(chunk);
+      }
+    }
+    return deduped;
+  }
+
+  /**
+   * 判斷 DOM 元素是否為螢幕報讀專用 (VisuallyHidden) 或隱藏節點
+   */
+  function isVisuallyHiddenOrIgnoredNode(el) {
+    if (!el || !(el instanceof Element)) return false;
+    if (
+      el.matches(
+        '[aria-hidden="true"], [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden], svg, img, style, script, noscript'
+      )
+    ) {
+      return true;
+    }
+    if (el.isConnected) {
+      try {
+        const style = window.getComputedStyle(el);
+        if (style) {
+          if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+            return true;
+          }
+          if (
+            (style.width === '1px' && style.height === '1px') ||
+            (style.clip && style.clip.includes('rect(1px')) ||
+            (style.clipPath && style.clipPath.includes('inset(50%)'))
+          ) {
+            return true;
+          }
+        }
+      } catch {}
+    }
+    return false;
+  }
+
+  /**
    * 從原生卡片 DOM 中提取乾淨且無重複的標題
    */
-  function extractCleanSummaryFromDom(cardEl) {
+  function extractCleanSummaryFromDom(cardEl, issueKey = '') {
     if (!cardEl) return '';
-    const summaryEl = cardEl.querySelector(
-      '[data-testid*="summary"], [data-testid*="card-title"], .ghx-summary'
-    );
-    if (!summaryEl) return '';
 
-    // 複製該節點並移除所有螢幕報讀/隱藏節點
-    const clone = summaryEl.cloneNode(true);
-    const hiddenEls = clone.querySelectorAll(
-      '[aria-hidden="true"], [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]'
-    );
-    hiddenEls.forEach((el) => el.remove());
+    const summarySelectors = [
+      '[data-testid="software-backlog.card-list.card.card-contents.summary"]',
+      '[data-testid*="card-contents.summary"]',
+      '[data-testid*="summary"]',
+      '[data-testid*="card-title"]',
+      '.ghx-summary .ghx-inner',
+      '.ghx-summary'
+    ];
 
-    let raw = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
-    if (!raw) {
-      raw = (summaryEl.textContent || '').replace(/\s+/g, ' ').trim();
+    let summaryEl = null;
+    for (const sel of summarySelectors) {
+      const found = cardEl.querySelector(sel);
+      if (found) {
+        summaryEl = found;
+        break;
+      }
     }
 
-    return cleanSummaryText(raw);
+    // 若無明確 summary data-testid，嘗試尋找卡片編號連結 (a[href*="/browse/"]) 後方的同層標題節點
+    if (!summaryEl) {
+      const keyAnchor =
+        cardEl.querySelector('a[href*="/browse/"]') ||
+        cardEl.querySelector('[data-testid*="accessible-card-key"]') ||
+        cardEl.querySelector('[data-testid*="key"]');
+      if (keyAnchor) {
+        let sib = keyAnchor.nextElementSibling;
+        while (sib) {
+          if (
+            !sib.matches(
+              '[data-testid*="status"], [data-testid*="estimate"], [data-testid*="priority"], [data-testid*="assignee"], [data-testid*="epic"], [data-testid*="parent"], [data-testid*="due"]'
+            )
+          ) {
+            const txt = (sib.textContent || '').trim();
+            if (txt && txt !== issueKey) {
+              summaryEl = sib;
+              break;
+            }
+          }
+          sib = sib.nextElementSibling;
+        }
+      }
+    }
+
+    if (!summaryEl) return '';
+
+    const nonSummaryFieldSelector =
+      'svg, img, style, script, button, [data-testid*="key"], [data-testid*="epic"], [data-testid*="parent"], [data-testid*="lozenge"], [data-testid*="status"], [data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="points"], [data-testid*="statistic"], [data-testid*="priority"], [data-testid*="assignee"], [data-testid*="avatar"], [data-testid*="due-date"], [data-testid*="duedate"], [data-testid*="subtask"], .ghx-key, .ghx-end, .ghx-stat-fields';
+
+    // 步驟 1：走訪活體 summaryEl 的文字節點，先在節點層級將重複或截斷的 span 去重，避免被 textContent 直接串接
+    const collectTextChunks = (ignoreHidden) => {
+      const chunks = [];
+      const walker = document.createTreeWalker(summaryEl, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          if (parent.closest(nonSummaryFieldSelector)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (ignoreHidden) {
+            let curr = parent;
+            while (curr && curr !== summaryEl) {
+              if (isVisuallyHiddenOrIgnoredNode(curr)) {
+                return NodeFilter.FILTER_REJECT;
+              }
+              curr = curr.parentElement;
+            }
+          }
+          const val = (node.nodeValue || '')
+            .replace(/[\u200B-\u200D\uFEFF]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          return val ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+        }
+      });
+
+      let currentNode = walker.nextNode();
+      while (currentNode) {
+        const val = (currentNode.nodeValue || '')
+          .replace(/[\u200B-\u200D\uFEFF]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (val && val !== issueKey) {
+          chunks.push(val);
+        }
+        currentNode = walker.nextNode();
+      }
+      return chunks;
+    };
+
+    let rawChunks = collectTextChunks(true);
+    if (rawChunks.length === 0) {
+      rawChunks = collectTextChunks(false);
+    }
+
+    if (rawChunks.length > 0) {
+      const deduped = deduplicateSummaryChunks(rawChunks, issueKey);
+      if (deduped.length === 1) {
+        return cleanSummaryText(deduped[0]);
+      }
+      if (deduped.length > 1) {
+        return cleanSummaryText(deduped.join(' '));
+      }
+    }
+
+    // 步驟 2：備援直接取 summaryEl 文字並交由 cleanSummaryText 深度去重
+    const fallbackRaw = (summaryEl.textContent || '').replace(/\s+/g, ' ').trim();
+    return cleanSummaryText(fallbackRaw);
   }
 
   /**
@@ -2159,6 +2413,30 @@
    * 第二列：放其他的欄位 (靠右一欄一欄整齊對齊)
    */
   function renderIssueCardHtml(iss) {
+    const rawKey = String(iss.key || '').trim();
+    const keyMatch = rawKey.match(/([A-Z][A-Z0-9_]*-\d+)/i);
+    const cleanKey = keyMatch ? keyMatch[1].toUpperCase() : rawKey;
+
+    let cleanSummary = cleanSummaryText(iss.summary || '');
+    if (cleanKey && rawKey.length > cleanKey.length) {
+      const escapedK = cleanKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const keyRemainder = cleanSummaryText(
+        rawKey.replace(new RegExp(`^${escapedK}\\s*[-:]?\\s*`, 'i'), '').trim()
+      );
+      if (
+        keyRemainder &&
+        (!cleanSummary || isTruncatedDuplicateOf(cleanSummary, keyRemainder))
+      ) {
+        cleanSummary = keyRemainder;
+      }
+    }
+    if (cleanKey && cleanSummary) {
+      const escapedK = cleanKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      cleanSummary = cleanSummaryText(
+        cleanSummary.replace(new RegExp(`^${escapedK}\\s*[-:]?\\s*`, 'i'), '').trim()
+      );
+    }
+
     const isDone = iss.statusCategory === 'done';
     const statusClass = isDone
       ? 'status-done'
@@ -2175,10 +2453,10 @@
     return `
       <div
         class="bjwt-history-card sprint-card bjwt-two-row-card"
-        data-bjwt-history-issue-key="${escapeHtml(iss.key)}"
+        data-bjwt-history-issue-key="${escapeHtml(cleanKey)}"
         role="button"
         tabindex="0"
-        title="點擊以置中 Modal 預覽 ${escapeHtml(iss.key)} 詳細內容"
+        title="點擊以置中 Modal 預覽 ${escapeHtml(cleanKey)} 詳細內容"
       >
         <!-- 第一列：卡片類型Icon，卡片編號，卡片標題 -->
         <div class="bjwt-card-row-top bjwt-history-card-left">
@@ -2187,8 +2465,8 @@
               ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(iss.issueTypeIcon)}" alt="${escapeHtml(iss.issueTypeName)}" title="${escapeHtml(iss.issueTypeName)}" />`
               : `<span class="bjwt-history-issuetype-dot"></span>`
           }
-          <span class="bjwt-history-card-key ${isDone ? 'is-done' : ''}">${escapeHtml(iss.key)}</span>
-          <span class="bjwt-history-card-summary" title="${escapeHtml(iss.summary)}">${escapeHtml(iss.summary)}</span>
+          <span class="bjwt-history-card-key ${isDone ? 'is-done' : ''}">${escapeHtml(cleanKey)}</span>
+          <span class="bjwt-history-card-summary" title="${escapeHtml(cleanSummary)}">${escapeHtml(cleanSummary)}</span>
         </div>
 
         <!-- 第二列：放其他的欄位 (Epic 標籤、狀態 Badge、到期日、Story Points、優先順序 Icon、負責人頭像) -->
@@ -2233,6 +2511,7 @@
     if (!cardEl || !(cardEl instanceof Element)) return null;
 
     let key = '';
+    let accessibleSummaryFromKey = '';
     let isDone = false;
     const keyLink =
       cardEl.querySelector('a[href*="/browse/"]') ||
@@ -2240,7 +2519,32 @@
       cardEl.querySelector('[data-testid*="key"]');
 
     if (keyLink) {
-      key = (keyLink.textContent || '').trim();
+      const rawKeyText = (keyLink.textContent || '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const hrefVal =
+        keyLink.getAttribute('href') ||
+        (keyLink.closest('a[href*="/browse/"]') &&
+          keyLink.closest('a[href*="/browse/"]').getAttribute('href')) ||
+        '';
+      const hrefKeyMatch = hrefVal.match(/\/browse\/([A-Z][A-Z0-9_]*-\d+)/i);
+      const textKeyMatch = rawKeyText.match(/([A-Z][A-Z0-9_]*-\d+)/i);
+
+      if (hrefKeyMatch) {
+        key = hrefKeyMatch[1].toUpperCase();
+      } else if (textKeyMatch) {
+        key = textKeyMatch[1].toUpperCase();
+      }
+
+      if (key && rawKeyText.length > key.length) {
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const remainder = rawKeyText.replace(new RegExp(`^${escapedKey}\\s*[-:]?\\s*`, 'i'), '').trim();
+        if (remainder && remainder.toUpperCase() !== key) {
+          accessibleSummaryFromKey = cleanSummaryText(remainder);
+        }
+      }
+
       const style = window.getComputedStyle(keyLink);
       if (
         (style && style.textDecorationLine && style.textDecorationLine.includes('line-through')) ||
@@ -2252,9 +2556,9 @@
     }
 
     if (!key) {
-      const match = (cardEl.textContent || '').match(/([A-Z][A-Z0-9]+-\d+)/);
+      const match = (cardEl.textContent || '').match(/([A-Z][A-Z0-9_]*-\d+)/);
       if (match) {
-        key = match[1];
+        key = match[1].toUpperCase();
       }
     }
 
@@ -2368,17 +2672,17 @@
     let assigneeName = '未指派';
     let assigneeAvatar = '';
     const avatarEl = cardEl.querySelector(
-      '[data-testid*="assignee"], img[src*="avatar"], [data-testid*="avatar"], .ghx-avatar'
+      '[data-testid*="assignee"], img[src*="avatar"]:not([src*="issuetype"]):not([src*="avatar/type"]), [data-testid*="avatar"], .ghx-avatar'
     );
-    if (avatarEl) {
-      const img = avatarEl.tagName === 'IMG' ? avatarEl : avatarEl.querySelector('img');
-      if (img && img.src) {
+    if (avatarEl && avatarEl !== typeImg) {
+      const img = avatarEl.tagName === 'IMG' ? avatarEl : avatarEl.querySelector('img:not([src*="issuetype"]):not([src*="avatar/type"])');
+      if (img && img.src && img !== typeImg) {
         assigneeAvatar = img.src;
         assigneeName = img.alt || img.title || avatarEl.getAttribute('aria-label') || '';
       } else {
         const bgImg = window.getComputedStyle(avatarEl).backgroundImage;
         const bgMatch = bgImg && bgImg.match(/url\(["']?([^"']+)["']?\)/);
-        if (bgMatch && !bgMatch[1].includes('none')) {
+        if (bgMatch && !bgMatch[1].includes('none') && !bgMatch[1].includes('issuetype')) {
           assigneeAvatar = bgMatch[1];
         }
         assigneeName =
@@ -2413,16 +2717,70 @@
       }
     }
 
-    let summary = extractCleanSummaryFromDom(cardEl);
-    if (!summary || summary === key) {
-      const allText = (cardEl.innerText || cardEl.textContent || '').replace(/\s+/g, ' ');
-      let stripped = allText.replace(key, '').trim();
-      if (statusName) stripped = stripped.replace(statusName, '').trim();
-      if (assigneeName && assigneeName !== '未指派') stripped = stripped.replace(assigneeName, '').trim();
-      if (parentSummary) stripped = stripped.replace(parentSummary, '').trim();
-      if (dueDate) stripped = stripped.replace(dueDate, '').trim();
-      summary = cleanSummaryText(stripped) || '(無標題)';
+    let summary = extractCleanSummaryFromDom(cardEl, key);
+
+    // 若 keyLink 內帶有完整無截斷的螢幕報讀標題，且目前提取到的標題為空或為截斷版 (...)，優先採用完整標題
+    if (accessibleSummaryFromKey) {
+      if (!summary || summary === key || isTruncatedDuplicateOf(summary, accessibleSummaryFromKey)) {
+        summary = accessibleSummaryFromKey;
+      }
     }
+
+    if (!summary || summary === key) {
+      const cloneCard = cardEl.cloneNode(true);
+      cloneCard
+        .querySelectorAll(
+          'a[href*="/browse/"], svg, img, style, script, button, [aria-hidden="true"], [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden], [data-testid*="key"], [data-testid*="status"], [data-testid*="lozenge"], [data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="points"], [data-testid*="statistic"], [data-testid*="priority"], [data-testid*="assignee"], [data-testid*="avatar"], [data-testid*="epic"], [data-testid*="parent"], [data-testid*="due"], .ghx-key, .ghx-end, .ghx-stat-fields'
+        )
+        .forEach((el) => el.remove());
+
+      const fallbackChunks = [];
+      const walker = document.createTreeWalker(cloneCard, NodeFilter.SHOW_TEXT, null);
+      let node = walker.nextNode();
+      while (node) {
+        const val = (node.nodeValue || '')
+          .replace(/[\u200B-\u200D\uFEFF]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (
+          val &&
+          val !== key &&
+          val !== statusName &&
+          val !== parentSummary &&
+          val !== dueDate &&
+          val !== assigneeName &&
+          val !== '-' &&
+          !/^\d{1,3}(\.\d)?$/.test(val)
+        ) {
+          fallbackChunks.push(val);
+        }
+        node = walker.nextNode();
+      }
+
+      const dedupedFallback = deduplicateSummaryChunks(fallbackChunks, key);
+      if (dedupedFallback.length > 0) {
+        summary = cleanSummaryText(dedupedFallback.join(' '));
+      }
+
+      if (!summary || summary === key) {
+        const allText = (cardEl.innerText || cardEl.textContent || '').replace(/\s+/g, ' ');
+        let stripped = allText.split(key).join('').trim();
+        if (statusName) stripped = stripped.split(statusName).join('').trim();
+        if (assigneeName && assigneeName !== '未指派') {
+          stripped = stripped.split(assigneeName).join('').trim();
+        }
+        if (parentSummary) stripped = stripped.split(parentSummary).join('').trim();
+        if (dueDate) stripped = stripped.split(dueDate).join('').trim();
+        summary = cleanSummaryText(stripped) || '(無標題)';
+      }
+    }
+
+    if (summary && key) {
+      const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      summary = summary.replace(new RegExp(`^${escapedKey}\\s*[-:]?\\s*`, 'i'), '').trim();
+    }
+
+    summary = cleanSummaryText(summary) || '(無標題)';
 
     return {
       id: key,
@@ -2606,10 +2964,12 @@
             key,
             title: item.meta.title,
             issues: apiIssues,
-            filterKeyword: ''
+            filterKeyword: '',
+            fromApi: true
           };
         } else {
           cached.issues = apiIssues;
+          cached.fromApi = true;
         }
         activeSprintCache.set(key, cached);
 
@@ -2636,7 +2996,7 @@
 
     const key = item.meta.key;
 
-    // 1. 若快取中無資料，先從原生 DOM 即時解析
+    // 1. 若快取中無資料，先從原生 DOM 即時解析；若尚未取得 API 資料但 DOM 有更新，亦同步最新 DOM 卡片
     let sprintData = activeSprintCache.get(key);
     if (!sprintData) {
       const domIssues = parseIssuesFromBranch(branchEl, item.sprintEl);
@@ -2645,12 +3005,27 @@
         title: item.meta.title,
         issues: domIssues,
         filterKeyword: '',
-        dateRange: ''
+        dateRange: '',
+        fromApi: false
       };
       activeSprintCache.set(key, sprintData);
 
       // 非同步發起 API 補充更完整資料
       syncActiveSprintIssuesFromApi(item);
+    } else if (!sprintData.fromApi) {
+      const latestDomIssues = parseIssuesFromBranch(branchEl, item.sprintEl);
+      if (latestDomIssues.length > 0 && latestDomIssues.length >= sprintData.issues.length) {
+        sprintData.issues = latestDomIssues;
+      }
+    }
+
+    // 確保快取中的所有卡片標題皆經過深度去重清理
+    if (Array.isArray(sprintData.issues)) {
+      sprintData.issues.forEach((iss) => {
+        if (iss && iss.summary) {
+          iss.summary = cleanSummaryText(iss.summary);
+        }
+      });
     }
 
     // 從原生標頭提取日期區間 (例如 "22 10月 - 4 11月")
@@ -2710,10 +3085,16 @@
     const stats = calculateSprintStatistics(sprintData.issues);
     const displayTitle = cleanSprintTitle(sprintData.title);
 
+    const issuesSig = sprintData.issues
+      .map((i) => `${i.key}:${i.summary}:${i.statusName}:${i.storyPoints ?? ''}`)
+      .join('|');
+
     const sig = JSON.stringify({
       key,
       count: sprintData.issues.length,
       points: stats.totalPoints,
+      fromApi: Boolean(sprintData.fromApi),
+      issuesSig,
       filterKw,
       dateRange,
       theme: currentSettings.themeStyle
@@ -2805,9 +3186,11 @@
       refreshBtn.addEventListener('click', async () => {
         refreshBtn.disabled = true;
         refreshBtn.textContent = '同步中...';
+        customView.removeAttribute('data-bjwt-render-sig');
         const domIssues = parseIssuesFromBranch(branchEl, item.sprintEl);
         if (domIssues.length > 0) {
           sprintData.issues = domIssues;
+          renderActiveSprintBranch(item);
         }
         await syncActiveSprintIssuesFromApi(item);
         refreshBtn.disabled = false;
@@ -2861,13 +3244,25 @@
         )
       : histItem.issues;
 
+    if (Array.isArray(histItem.issues)) {
+      histItem.issues.forEach((iss) => {
+        if (iss && iss.summary) {
+          iss.summary = cleanSummaryText(iss.summary);
+        }
+      });
+    }
+
     const stats = calculateSprintStatistics(histItem.issues);
     const displayTitle = cleanSprintTitle(histItem.title);
+    const histIssuesSig = histItem.issues
+      .map((i) => `${i.key}:${i.summary}:${i.statusName}:${i.storyPoints ?? ''}`)
+      .join('|');
 
     const sig = JSON.stringify({
       key: histItem.key,
       count: histItem.issues.length,
       points: stats.totalPoints,
+      histIssuesSig,
       filterKw,
       theme: currentSettings.themeStyle
     });
