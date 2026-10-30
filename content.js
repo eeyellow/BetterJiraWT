@@ -28,11 +28,11 @@
 
   const CARD_SELECTORS = [
     '[data-testid="software-backlog.card-list.card.card-contents.card-container"]',
-    '[data-testid^="software-backlog.card-list.card"]',
+    '[data-testid^="software-backlog.card-list.card."]',
     '[data-testid*="issue-card"]',
     '.js-issue',
     '.ghx-issue-compact',
-    '.sprint-card'
+    '.sprint-card:not(.bjwt-history-card)'
   ];
 
   const ISSUE_DETAIL_SELECTORS = [
@@ -105,6 +105,13 @@
    * }
    */
   const activeSprintCache = new Map();
+
+  /**
+   * 全域卡片欄位快取 (key -> Issue 物件)
+   * 用於將 REST API 取得的完整欄位與原生 DOM 解析出的即時欄位 (如頭像縮寫 RAY、背景色、最新狀態) 融合，
+   * 同時不覆蓋原生篩選器篩選後的卡片集合。
+   */
+  const issueMetadataMap = new Map();
 
   let cachedStoryPointsFieldId = null;
   let cachedBoardSprints = null;
@@ -433,8 +440,11 @@
   function cleanSprintTitle(raw) {
     if (!raw || typeof raw !== 'string') return '';
     let t = raw.replace(/\s+/g, ' ').trim();
-    // 移除尾部括號中的卡片/工作項目數量，例如 (29 個工作項目), (15 issues)
-    t = t.replace(/\s*\(\s*\d+\s*(個工作項目|個問題|工作項目|issues?|cards?|items?|張卡片)\s*\)\s*$/i, '');
+    // 移除尾部括號中的卡片/工作項目數量，例如 (29 個工作項目), (29 個工作項目中的 5 個), (5 / 29 個工作項目), (5 of 29 issues)
+    t = t.replace(
+      /\s*\(\s*\d+\s*(?:(?:\/|of)\s*\d+\s*)?(?:個工作項目|個問題|工作項目|issues?|cards?|items?|張卡片)(?:\s*中的\s*\d+\s*個?)?\s*\)\s*$/i,
+      ''
+    );
     // 移除尾部日期區間，例如 22 10月 – 4 11月, 2026/10/22 - 2026/11/04
     t = t.replace(/\s+\d{1,4}[-/年\s]?\d{1,2}[-/月\s]?\d{1,2}[日]?\s*[-~至到–—]\s*\d{1,4}[-/年\s]?\d{1,2}[-/月\s]?\d{1,2}[日]?\s*$/i, '');
     t = t.replace(/\s+\d{1,2}\s*[^\d\s\(\)]+\s*[-~至到–—]\s*\d{1,2}\s*[^\d\s\(\)]+\s*$/i, '');
@@ -561,6 +571,695 @@
       badge.textContent = badgeText;
       badge.title = `共 ${points > 0 ? `${points} 點 Story Points · ` : ''}${count} 個工作項目`;
     }
+  }
+
+  /**
+   * 清理負責人標籤字串 (去除 Jira 前綴與篩選後綴)
+   */
+  function cleanAssigneeLabel(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    let s = raw
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!s) return '';
+    s = s
+      .replace(
+        /^(?:負責人|經辦人|指派給|指派對象|篩選依據|依|使用者|頭像|Assignee|Assigned\s+to|Filter\s+by(?:\s+assignee)?|User|Avatar(?:\s+for)?)\s*[:：]?\s*/i,
+        ''
+      )
+      .trim();
+    s = s
+      .replace(/\s*[,，(（]?\s*(?:已選取|未選取|selected|not\s+selected|unselected)\s*[)）]?$/i, '')
+      .trim();
+    s = s.replace(/\s*(?:篩選|的頭像|filter|avatar)$/i, '').trim();
+    return s;
+  }
+
+  /**
+   * 檢查字串是否代表「未指派 (Unassigned)」
+   */
+  function isUnassignedText(str) {
+    if (!str) return false;
+    const t = cleanAssigneeLabel(str).toLowerCase();
+    return /^(?:未指派|未分配|無負責人|無經辦人|無|unassigned|no\s+assignee|none)$/i.test(t);
+  }
+
+  /**
+   * 從負責人姓名推導各種可能的縮寫形式 (例如 "Ray Huang" -> ["RAY", "RH", "R"], "Bruce Peng" -> ["BP", "BRUCE", "B"])
+   */
+  function deriveInitialsVariants(name, explicitInitials = '') {
+    const variants = new Set();
+    if (explicitInitials) {
+      const cleanInit = explicitInitials.trim().toUpperCase();
+      if (cleanInit && !isUnassignedText(cleanInit)) {
+        variants.add(cleanInit);
+      }
+    }
+    if (!name || isUnassignedText(name)) {
+      return Array.from(variants);
+    }
+
+    const cleaned = cleanAssigneeLabel(name);
+    if (!cleaned || isUnassignedText(cleaned)) {
+      return Array.from(variants);
+    }
+
+    if (cleaned.length <= 5 && !/\s/.test(cleaned)) {
+      variants.add(cleaned.toUpperCase());
+    }
+
+    const parts = cleaned
+      .split(/[\s_.\-@()（），,\/]+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    if (parts.length > 0) {
+      const firstWord = parts[0].toUpperCase();
+      if (firstWord.length <= 6) {
+        variants.add(firstWord);
+      }
+      variants.add(firstWord.slice(0, 1));
+      if (firstWord.length >= 2) {
+        variants.add(firstWord.slice(0, 2));
+      }
+      if (firstWord.length >= 3) {
+        variants.add(firstWord.slice(0, 3));
+      }
+    }
+
+    if (parts.length >= 2) {
+      const wordInitials = parts
+        .slice(0, 3)
+        .map((p) => p[0].toUpperCase())
+        .join('');
+      if (wordInitials) {
+        variants.add(wordInitials);
+      }
+      const firstTwoInitials = (parts[0][0] + parts[1][0]).toUpperCase();
+      variants.add(firstTwoInitials);
+    }
+
+    return Array.from(variants);
+  }
+
+  /**
+   * 決定卡片上顯示的縮寫文字 (優先採用原生 DOM 的縮寫如 "RAY"、"BP"、"B")
+   */
+  function getDisplayInitialsForIssue(iss) {
+    if (!iss || iss.isUnassigned || isUnassignedText(iss.assigneeName)) {
+      return '';
+    }
+    if (iss.assigneeInitials && !isUnassignedText(iss.assigneeInitials)) {
+      return iss.assigneeInitials.trim().slice(0, 4).toUpperCase();
+    }
+    const name = cleanAssigneeLabel(iss.assigneeName || '');
+    if (!name || isUnassignedText(name)) return '?';
+    if (name.length <= 4 && !/\s/.test(name)) {
+      return name.toUpperCase();
+    }
+    const parts = name
+      .split(/[\s_.\-@()]+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length >= 2 && /^[A-Za-z]/.test(parts[0]) && /^[A-Za-z]/.test(parts[1])) {
+      if (parts[0].length <= 3) {
+        return parts[0].toUpperCase();
+      }
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 3).toUpperCase();
+  }
+
+  /**
+   * 正規化頭像圖片網址以便比對 (去除 size 等查詢參數)
+   */
+  function normalizeAvatarUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    if (/issuetype|\/type\/|priority|status/i.test(url)) return '';
+    try {
+      const u = new URL(url, window.location.origin);
+      return `${u.origin}${u.pathname}`.replace(/\/(?:small|medium|large|xsmall|xxlarge)$/i, '');
+    } catch {
+      return url.split('?')[0];
+    }
+  }
+
+  /**
+   * 將原生 DOM 卡片與 API 卡片資料融合並存入 issueMetadataMap
+   */
+  function mergeAndCacheIssue(primaryIss, secondaryIss = null) {
+    if (!primaryIss || !primaryIss.key) return primaryIss;
+    const key = primaryIss.key.toUpperCase();
+    const existing = secondaryIss || issueMetadataMap.get(key) || null;
+    if (!existing) {
+      const copy = {
+        ...primaryIss,
+        key,
+        assigneeTokens: Array.from(new Set(primaryIss.assigneeTokens || []))
+      };
+      issueMetadataMap.set(key, copy);
+      return copy;
+    }
+
+    const domSide = primaryIss.fromDom ? primaryIss : existing.fromDom ? existing : primaryIss;
+    const apiSide = !primaryIss.fromDom ? primaryIss : !existing.fromDom ? existing : null;
+
+    const isUnassigned =
+      domSide.isUnassigned !== undefined
+        ? domSide.isUnassigned
+        : apiSide && apiSide.isUnassigned !== undefined
+        ? apiSide.isUnassigned
+        : isUnassignedText(primaryIss.assigneeName);
+
+    let assigneeName = '未指派';
+    if (!isUnassigned) {
+      const apiName = apiSide && !isUnassignedText(apiSide.assigneeName) ? apiSide.assigneeName : '';
+      const domName = domSide && !isUnassignedText(domSide.assigneeName) ? domSide.assigneeName : '';
+      assigneeName =
+        apiName && apiName.length >= domName.length
+          ? apiName
+          : domName || apiName || '已指派';
+    }
+
+    const assigneeInitials = isUnassigned
+      ? ''
+      : (domSide && domSide.assigneeInitials) ||
+        (existing && existing.assigneeInitials) ||
+        (primaryIss && primaryIss.assigneeInitials) ||
+        deriveInitialsVariants(assigneeName)[0] ||
+        '';
+
+    const assigneeBgColor = isUnassigned
+      ? ''
+      : (domSide && domSide.assigneeBgColor) ||
+        (existing && existing.assigneeBgColor) ||
+        (primaryIss && primaryIss.assigneeBgColor) ||
+        '';
+
+    const assigneeAvatar = isUnassigned
+      ? ''
+      : (primaryIss.assigneeAvatar && !/issuetype|\/type\//i.test(primaryIss.assigneeAvatar)
+          ? primaryIss.assigneeAvatar
+          : '') ||
+        (existing.assigneeAvatar && !/issuetype|\/type\//i.test(existing.assigneeAvatar)
+          ? existing.assigneeAvatar
+          : '');
+
+    const tokenSet = new Set([
+      ...(primaryIss.assigneeTokens || []),
+      ...(existing.assigneeTokens || [])
+    ]);
+    if (!isUnassigned) {
+      if (assigneeName) tokenSet.add(assigneeName.toLowerCase());
+      if (assigneeInitials) tokenSet.add(assigneeInitials.toLowerCase());
+      deriveInitialsVariants(assigneeName, assigneeInitials).forEach((v) =>
+        tokenSet.add(v.toLowerCase())
+      );
+    }
+
+    const merged = {
+      ...existing,
+      ...primaryIss,
+      key,
+      summary:
+        apiSide && apiSide.summary && isTruncatedDuplicateOf(primaryIss.summary, apiSide.summary)
+          ? apiSide.summary
+          : primaryIss.summary || existing.summary,
+      statusName: (domSide && domSide.statusName) || primaryIss.statusName || existing.statusName,
+      statusCategory:
+        (domSide && domSide.statusCategory) || primaryIss.statusCategory || existing.statusCategory,
+      issueTypeIcon: primaryIss.issueTypeIcon || existing.issueTypeIcon,
+      issueTypeName: primaryIss.issueTypeName || existing.issueTypeName,
+      priorityIcon: primaryIss.priorityIcon || existing.priorityIcon,
+      prioritySvg: primaryIss.prioritySvg || existing.prioritySvg,
+      priorityName: primaryIss.priorityName || existing.priorityName,
+      parentKey: primaryIss.parentKey || existing.parentKey,
+      parentSummary: primaryIss.parentSummary || existing.parentSummary,
+      dueDate: primaryIss.dueDate || existing.dueDate,
+      storyPoints:
+        primaryIss.storyPoints !== null && primaryIss.storyPoints !== undefined
+          ? primaryIss.storyPoints
+          : existing.storyPoints !== null && existing.storyPoints !== undefined
+          ? existing.storyPoints
+          : null,
+      isUnassigned,
+      assigneeName,
+      assigneeInitials,
+      assigneeBgColor,
+      assigneeAvatar,
+      assigneeTokens: Array.from(tokenSet)
+    };
+
+    issueMetadataMap.set(key, merged);
+    return merged;
+  }
+
+  /**
+   * 偵測 Jira 原生篩選搜尋區 (搜尋框、人員頭像篩選、未指派篩選、快速篩選等) 的目前狀態
+   */
+  function getNativeBacklogFilterState() {
+    const state = {
+      searchKeyword: '',
+      includeUnassigned: false,
+      selectedAssignees: [],
+      hasDirectFilter: false,
+      sig: ''
+    };
+
+    // 1. 檢查原生「搜尋待辦事項」輸入框
+    const searchInputs = Array.from(
+      document.querySelectorAll(
+        'input[data-testid*="search"], input[placeholder*="搜尋"], input[placeholder*="Search"], input[aria-label*="搜尋"], input[aria-label*="Search"], [role="search"] input, [data-testid*="filter"] input[type="text"], [data-testid*="filter"] input[type="search"]'
+      )
+    ).filter(
+      (inp) =>
+        !inp.closest(`#${SIDEBAR_ID}`) &&
+        !inp.closest('[data-bjwt-sprint-branch]') &&
+        !inp.closest(`#${HISTORY_PICKER_MODAL_ID}`) &&
+        !inp.closest(`#${HISTORY_ISSUE_MODAL_ID}`) &&
+        !inp.closest('[data-bjwt-issue-modal]') &&
+        !inp.closest('header[role="banner"], [data-testid="atlassian-navigation"]') &&
+        !inp.classList.contains('bjwt-history-card-filter')
+    );
+
+    for (const inp of searchInputs) {
+      const val = (inp.value || '').trim();
+      if (val) {
+        state.searchKeyword = val.toLowerCase();
+        break;
+      }
+    }
+
+    // 檢查網址參數是否有搜尋字或 assignee
+    try {
+      const url = new URL(window.location.href);
+      if (!state.searchKeyword) {
+        const urlText = url.searchParams.get('text') || url.searchParams.get('search') || '';
+        if (urlText.trim()) {
+          state.searchKeyword = urlText.trim().toLowerCase();
+        }
+      }
+    } catch {}
+
+    // 2. 尋找原生篩選列中的人員頭像篩選按鈕與下拉選單項目
+    const filterRootCandidates = new Set();
+    searchInputs.forEach((inp) => {
+      let curr = inp.parentElement;
+      for (let i = 0; i < 5 && curr && curr !== document.body; i++) {
+        if (!curr.querySelector('[data-bjwt-layout-host="true"]')) {
+          filterRootCandidates.add(curr);
+        }
+        curr = curr.parentElement;
+      }
+    });
+
+    document
+      .querySelectorAll(
+        '[data-testid*="assignee-filter"], [data-testid*="ak-avatar"], [data-testid*="avatar-group"], [data-testid*="backlog-filter"], [data-testid*="filters"]'
+      )
+      .forEach((el) => {
+        if (
+          !el.closest(`#${SIDEBAR_ID}`) &&
+          !el.closest('[data-bjwt-sprint-branch]') &&
+          !el.closest('[data-bjwt-sprint-header-partner]') &&
+          !el.closest(`#${HISTORY_PICKER_MODAL_ID}`) &&
+          !el.closest(`#${HISTORY_ISSUE_MODAL_ID}`) &&
+          !el.closest('[data-bjwt-issue-modal]') &&
+          !el.closest('header[role="banner"], [data-testid="atlassian-navigation"]')
+        ) {
+          filterRootCandidates.add(el);
+        }
+      });
+
+    // 若使用者點開了「+11」更多人員下拉選單，將該彈出選單也納入檢查
+    document
+      .querySelectorAll(
+        '[role="dialog"], [role="menu"], [role="listbox"], [data-testid*="popup"], [data-testid*="dropdown"]'
+      )
+      .forEach((popup) => {
+        if (
+          popup.id !== HISTORY_PICKER_MODAL_ID &&
+          popup.id !== HISTORY_ISSUE_MODAL_ID &&
+          !popup.hasAttribute('data-bjwt-issue-modal') &&
+          !popup.closest(`#${SIDEBAR_ID}`) &&
+          !popup.closest('[data-bjwt-sprint-branch]')
+        ) {
+          if (
+            popup.querySelector(
+              '[data-testid*="assignee"], [data-testid*="avatar"], [role="checkbox"], [role="menuitemcheckbox"], input[type="checkbox"]'
+            )
+          ) {
+            filterRootCandidates.add(popup);
+          }
+        }
+      });
+
+    const candidateButtons = [];
+    const seenEls = new Set();
+
+    filterRootCandidates.forEach((root) => {
+      const items = root.querySelectorAll(
+        'button, [role="checkbox"], [role="menuitemcheckbox"], [role="option"], label'
+      );
+      items.forEach((el) => {
+        if (seenEls.has(el)) return;
+        if (
+          el.closest(`#${SIDEBAR_ID}`) ||
+          el.closest('[data-bjwt-sprint-branch]') ||
+          el.closest('[data-bjwt-sprint-header-partner]') ||
+          el.closest(`#${HISTORY_PICKER_MODAL_ID}`) ||
+          el.closest(`#${HISTORY_ISSUE_MODAL_ID}`) ||
+          el.closest('[data-bjwt-issue-modal]') ||
+          el.closest('header[role="banner"], [data-testid="atlassian-navigation"]')
+        ) {
+          return;
+        }
+        // 排除包含其他 button 的外層大容器
+        if (el.tagName !== 'BUTTON' && el.querySelector('button, [role="checkbox"]')) {
+          return;
+        }
+
+        const txt = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        // 排除「+11」展開更多按鈕、「篩選條件」、「自訂篩選條件」、「清除篩選」等非單一人員按鈕
+        if (/^\+\d+$/.test(txt)) return;
+        if (
+          /^(?:篩選條件|自訂篩選條件|快速篩選|清除|重設|更多|檢視設定|深入分析|filters?|custom\s+filters?|quick\s+filters?|clear|reset|more|insights?)$/i.test(
+            txt
+          )
+        ) {
+          return;
+        }
+        if (el.getAttribute('aria-haspopup') === 'true' || el.getAttribute('aria-haspopup') === 'menu' || el.getAttribute('aria-haspopup') === 'dialog') {
+          return;
+        }
+
+        const isAvatarLike = Boolean(
+          el.matches('[data-testid*="assignee"], [data-testid*="avatar"], [ role="checkbox" ], [ role="menuitemcheckbox" ]') ||
+            el.closest('[data-testid*="assignee"], [data-testid*="avatar-group"]') ||
+            el.querySelector('[data-testid*="avatar"], [class*="Avatar"], [class*="avatar"], img[src*="avatar"], [role="img"], svg, input[type="checkbox"]')
+        );
+
+        if (isAvatarLike) {
+          seenEls.add(el);
+          candidateButtons.push(el);
+        }
+      });
+    });
+
+    // 輔助函式：擷取按鈕本身與內部節點的選取外框 (box-shadow / outline / border) 特徵
+    function getAvatarRingInfo(btn) {
+      const nodes = [btn, ...Array.from(btn.querySelectorAll('span, div, img'))];
+      for (const n of nodes) {
+        const cs = window.getComputedStyle(n);
+        const bs = cs.boxShadow || 'none';
+        const ol = cs.outline || 'none';
+        // 檢查是否有明顯的 2px~4px 選取外框陰影 (排除純透明或純黑底色間距)
+        if (bs && bs !== 'none') {
+          const shadows = bs.split(/,(?![^(]*\))/).map((s) => s.trim());
+          // 若有多層 box-shadow (Atlassian 頭像選取時會有內圈間距 + 外圈亮色光環兩層 shadow)
+          if (shadows.length >= 2) {
+            return { hasMultiRing: true, rawShadow: bs };
+          }
+          // 單層但帶有亮色 (非深灰黑底色) 的 2px+ 擴散環
+          const spreadMatch = bs.match(/0px\s+0px\s+0px\s+([234](?:\.\d+)?)px/);
+          if (spreadMatch) {
+            const colorMatch = bs.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+            if (colorMatch) {
+              const r = parseInt(colorMatch[1], 10);
+              const g = parseInt(colorMatch[2], 10);
+              const b = parseInt(colorMatch[3], 10);
+              // 亮度較高的選取色 (如橘色 RAY、藍色選取框，排除深色背景 #1d2125)
+              if (r > 80 || g > 80 || b > 120) {
+                return { hasBrightRing: true, rawShadow: bs };
+              }
+            }
+          }
+        }
+        if (ol && ol !== 'none' && !/0px/.test(ol)) {
+          return { hasBrightRing: true, rawShadow: ol };
+        }
+      }
+      return { hasMultiRing: false, hasBrightRing: false, rawShadow: 'none' };
+    }
+
+    // 檢查每個候選人員按鈕是否處於「已選取」狀態
+    const selectedElements = [];
+    candidateButtons.forEach((btn) => {
+      const checkNodes = [
+        btn,
+        btn.parentElement,
+        ...Array.from(btn.querySelectorAll('[aria-checked], [aria-pressed], [aria-selected], [data-selected], input'))
+      ].filter(Boolean);
+
+      let isSelected = false;
+      for (const n of checkNodes) {
+        if (
+          n.getAttribute('aria-checked') === 'true' ||
+          n.getAttribute('aria-pressed') === 'true' ||
+          n.getAttribute('aria-selected') === 'true' ||
+          n.getAttribute('data-selected') === 'true'
+        ) {
+          isSelected = true;
+          break;
+        }
+        if (n.tagName === 'INPUT' && (n.checked || n.hasAttribute('checked'))) {
+          isSelected = true;
+          break;
+        }
+        const cls = typeof n.className === 'string' ? n.className : '';
+        if (/(?:^|[-_\s])(?:selected|is-selected|isSelected|checked|is-checked|isChecked)(?:$|[-_\s])/.test(cls)) {
+          isSelected = true;
+          break;
+        }
+      }
+
+      if (!isSelected) {
+        const srTexts = Array.from(
+          btn.querySelectorAll('[class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]')
+        )
+          .map((e) => e.textContent || '')
+          .join(' ');
+        if (/(?:已選取|selected)/i.test(srTexts) && !/(?:未選取|not\s+selected|unselected)/i.test(srTexts)) {
+          isSelected = true;
+        }
+      }
+
+      if (!isSelected && !btn.matches(':hover')) {
+        const ring = getAvatarRingInfo(btn);
+        if (ring.hasMultiRing || ring.hasBrightRing) {
+          isSelected = true;
+        }
+      }
+
+      if (isSelected) {
+        selectedElements.push(btn);
+      }
+    });
+
+    // 解析每個已選取人員按鈕的代表名稱、縮寫與頭像
+    selectedElements.forEach((btn) => {
+      const rawLabels = [];
+      const attrNodes = [
+        btn,
+        btn.parentElement,
+        ...Array.from(btn.querySelectorAll('[aria-label], [title], img[alt], img[title], [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]'))
+      ].filter(Boolean);
+
+      attrNodes.forEach((n) => {
+        if (n.getAttribute) {
+          const al = n.getAttribute('aria-label');
+          const ti = n.getAttribute('title');
+          const alt = n.getAttribute('alt');
+          if (al) rawLabels.push(al);
+          if (ti) rawLabels.push(ti);
+          if (alt) rawLabels.push(alt);
+        }
+      });
+
+      btn
+        .querySelectorAll('[class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]')
+        .forEach((sr) => {
+          const t = (sr.textContent || '').trim();
+          if (t) rawLabels.push(t);
+        });
+
+      const clone = btn.cloneNode(true);
+      clone
+        .querySelectorAll(
+          'svg, style, script, [aria-hidden="true"], [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]'
+        )
+        .forEach((e) => e.remove());
+      const visibleText = (clone.textContent || '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const cleanedNames = Array.from(
+        new Set(
+          rawLabels
+            .map(cleanAssigneeLabel)
+            .filter((s) => s && !/^(?:已選取|未選取|selected|unselected)$/i.test(s))
+        )
+      );
+
+      const img = btn.querySelector('img[src]');
+      const avatarSrc = img && img.src ? normalizeAvatarUrl(img.src) : '';
+
+      // 判斷是否為「未指派」按鈕
+      const isUnassignedBtn =
+        cleanedNames.some(isUnassignedText) ||
+        isUnassignedText(visibleText) ||
+        (!visibleText && !avatarSrc && cleanedNames.length === 0 && Boolean(btn.querySelector('svg')));
+
+      if (isUnassignedBtn) {
+        state.includeUnassigned = true;
+        return;
+      }
+
+      let initials = '';
+      if (visibleText && visibleText.length <= 6 && !/\s/.test(visibleText)) {
+        initials = visibleText.toUpperCase();
+      } else if (visibleText && !cleanedNames.includes(visibleText)) {
+        cleanedNames.push(cleanAssigneeLabel(visibleText));
+      }
+
+      const tokens = new Set();
+      if (initials) {
+        tokens.add(initials.toLowerCase());
+      }
+      cleanedNames.forEach((name) => {
+        const lower = name.toLowerCase();
+        tokens.add(lower);
+        deriveInitialsVariants(name, initials).forEach((v) => tokens.add(v.toLowerCase()));
+      });
+
+      state.selectedAssignees.push({
+        initials: initials.toLowerCase(),
+        cleanedNames: cleanedNames.map((n) => n.toLowerCase()),
+        tokens: Array.from(tokens),
+        avatarSrc
+      });
+    });
+
+    state.hasDirectFilter = Boolean(
+      state.searchKeyword || state.includeUnassigned || state.selectedAssignees.length > 0
+    );
+
+    state.sig = JSON.stringify({
+      kw: state.searchKeyword,
+      unassigned: state.includeUnassigned,
+      assignees: state.selectedAssignees.map((a) => ({
+        i: a.initials,
+        n: a.cleanedNames,
+        av: a.avatarSrc
+      }))
+    });
+
+    return state;
+  }
+
+  /**
+   * 判斷單張卡片是否符合選取的負責人篩選條件
+   */
+  function doesIssueMatchAssigneeFilter(iss, filterState) {
+    if (!filterState.includeUnassigned && filterState.selectedAssignees.length === 0) {
+      return true;
+    }
+
+    const issUnassigned = Boolean(iss.isUnassigned || isUnassignedText(iss.assigneeName));
+    if (issUnassigned) {
+      return Boolean(filterState.includeUnassigned);
+    }
+
+    if (filterState.selectedAssignees.length === 0) {
+      return false;
+    }
+
+    const issAvatar = normalizeAvatarUrl(iss.assigneeAvatar || '');
+    const issInitials = (iss.assigneeInitials || '').trim().toLowerCase();
+    const issName = cleanAssigneeLabel(iss.assigneeName || '').toLowerCase();
+    const issDerivedInitials = deriveInitialsVariants(iss.assigneeName, iss.assigneeInitials).map(
+      (v) => v.toLowerCase()
+    );
+    const issTokens = new Set([
+      ...(iss.assigneeTokens || []).map((t) => String(t).toLowerCase()),
+      ...issDerivedInitials
+    ]);
+    if (issName) issTokens.add(issName);
+    if (issInitials) issTokens.add(issInitials);
+
+    return filterState.selectedAssignees.some((sel) => {
+      // 1. 若雙方皆有真實使用者頭像 URL 且一致
+      if (sel.avatarSrc && issAvatar && sel.avatarSrc === issAvatar) {
+        return true;
+      }
+
+      // 2. 若篩選按鈕與卡片皆有明確的短縮寫 (例如篩選列為 "RAY" 或 "B"，卡片上也有 "RAY" 或 "B")
+      if (sel.initials && issInitials) {
+        if (sel.initials === issInitials) {
+          return true;
+        }
+        // 若兩者都是從 Jira 頭像圓圈取得的縮寫且不相同，除非完整姓名完全相同，否則視為不同人
+        if (sel.cleanedNames.length === 0 || (sel.cleanedNames.length === 1 && sel.cleanedNames[0] === sel.initials)) {
+          return false;
+        }
+      }
+
+      // 3. 比對完整姓名與標籤 (例如 "ray huang")
+      for (const selName of sel.cleanedNames) {
+        if (!selName) continue;
+        if (issName && issName === selName) return true;
+        if (issTokens.has(selName)) return true;
+        if (selName.length >= 3 && issName && (issName.includes(selName) || selName.includes(issName))) {
+          return true;
+        }
+      }
+
+      // 4. 若篩選按鈕只有縮寫 (如 "ray" 或 "bp")，而卡片來自 API 只有全名 (如 "Ray Huang" 或 "Bruce Peng")
+      if (sel.initials) {
+        if (issTokens.has(sel.initials)) {
+          return true;
+        }
+        if (sel.initials.length >= 3 && issName && issName.includes(sel.initials)) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+  }
+
+  /**
+   * 根據 Jira 原生篩選搜尋區狀態過濾卡片陣列
+   */
+  function filterIssuesByNativeFilter(issues, filterState) {
+    if (!Array.isArray(issues) || issues.length === 0) return [];
+    if (!filterState || !filterState.hasDirectFilter) return issues;
+
+    const kw = filterState.searchKeyword;
+    return issues.filter((iss) => {
+      if (!doesIssueMatchAssigneeFilter(iss, filterState)) {
+        return false;
+      }
+      if (kw) {
+        const haystacks = [
+          iss.key,
+          iss.summary,
+          iss.assigneeName,
+          iss.assigneeInitials,
+          iss.statusName,
+          iss.parentKey,
+          iss.parentSummary
+        ]
+          .filter(Boolean)
+          .map((s) => String(s).toLowerCase());
+        if (!haystacks.some((h) => h.includes(kw))) {
+          return false;
+        }
+      }
+      return true;
+    });
   }
 
   function normalizeUrl(rawUrl) {
@@ -706,7 +1405,29 @@
   }
 
   /**
-   * 擷取衝刺的真實名稱與卡片數量
+   * 檢查某個原生 Sprint 容器是否處於風琴夾收合狀態
+   */
+  function isNativeSprintCollapsed(branchEl, sprintEl, headerPartner) {
+    const headerCandidates = [
+      headerPartner,
+      branchEl && branchEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header'),
+      sprintEl && sprintEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header')
+    ].filter(Boolean);
+
+    for (const hdr of headerCandidates) {
+      const toggleBtn = hdr.querySelector('[aria-expanded="false"]');
+      if (toggleBtn && !toggleBtn.hasAttribute('aria-haspopup') && !isInsideCard(toggleBtn)) {
+        return true;
+      }
+    }
+    if (sprintEl && sprintEl.classList && sprintEl.classList.contains('ghx-closed')) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 擷取衝刺的真實名稱與卡片數量 (支援讀取原生篩選後的數量，如「29 個工作項目中的 5 個」)
    */
   function extractSprintMeta(branchEl, sprintEl, headerPartner, index) {
     const searchRoots = [headerPartner, branchEl, sprintEl, sprintEl.parentElement].filter(Boolean);
@@ -811,12 +1532,16 @@
       title = `衝刺 ${index + 1}`;
     }
 
-    // 計算卡片數量
+    // 計算原生 DOM 中的真實卡片數量 (嚴格排除自定義檢視卡片與容器節點)
     let cardNodes = [];
     for (const root of [branchEl, sprintEl]) {
       if (!root) continue;
       for (const cardSel of CARD_SELECTORS) {
-        const foundCards = Array.from(root.querySelectorAll(cardSel));
+        const foundCards = Array.from(root.querySelectorAll(cardSel)).filter(
+          (c) =>
+            !c.classList.contains('bjwt-history-card') &&
+            !c.closest('[data-bjwt-custom-view]')
+        );
         if (foundCards.length > 0) {
           cardNodes = foundCards.filter(
             (c) => !foundCards.some((other) => other !== c && other.contains(c))
@@ -827,17 +1552,45 @@
       if (cardNodes.length > 0) break;
     }
 
+    // 從標頭擷取文字顯示的工作項目數量 (包含篩選後「29 個工作項目中的 5 個」或「5 of 29 issues」)
+    let headerFilteredCount = null;
+    let headerTotalCount = null;
+    for (const root of searchRoots) {
+      const headerEl =
+        root.querySelector('[data-testid*="header"], .ghx-backlog-header, header') || root;
+      const headerText = (headerEl.innerText || headerEl.textContent || '').replace(/\s+/g, ' ');
+      const zhSubsetMatch = headerText.match(
+        /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)\s*中的\s*(\d+)\s*個?/i
+      );
+      if (zhSubsetMatch) {
+        headerTotalCount = parseInt(zhSubsetMatch[1], 10);
+        headerFilteredCount = parseInt(zhSubsetMatch[2], 10);
+        break;
+      }
+      const enSubsetMatch = headerText.match(
+        /(\d+)\s*(?:of|\/)\s*(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i
+      );
+      if (enSubsetMatch) {
+        headerFilteredCount = parseInt(enSubsetMatch[1], 10);
+        headerTotalCount = parseInt(enSubsetMatch[2], 10);
+        break;
+      }
+      const countMatch = headerText.match(
+        /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i
+      );
+      if (countMatch) {
+        headerTotalCount = parseInt(countMatch[1], 10);
+        break;
+      }
+    }
+
+    const isCollapsed = isNativeSprintCollapsed(branchEl, sprintEl, headerPartner);
     let cardCount = cardNodes.length;
-    if (cardCount === 0) {
-      for (const root of searchRoots) {
-        const headerEl =
-          root.querySelector('[data-testid*="header"], .ghx-backlog-header, header') || root;
-        const headerText = (headerEl.innerText || headerEl.textContent || '').replace(/\s+/g, ' ');
-        const countMatch = headerText.match(/(\d+)\s*(個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i);
-        if (countMatch) {
-          cardCount = parseInt(countMatch[1], 10);
-          break;
-        }
+    if (cardCount === 0 && isCollapsed) {
+      if (headerFilteredCount !== null) {
+        cardCount = headerFilteredCount;
+      } else if (headerTotalCount !== null) {
+        cardCount = headerTotalCount;
       }
     }
 
@@ -902,7 +1655,12 @@
       index,
       title: cleanedTitle,
       rawTitle: title,
+      domCardCount: cardNodes.length,
+      headerFilteredCount,
+      headerTotalCount,
+      isCollapsed,
       cardCount,
+      headerStoryPoints,
       storyPoints: headerStoryPoints
     };
   }
@@ -923,6 +1681,82 @@
   }
 
   /**
+   * 整合並計算單一未結束衝刺在目前原生篩選狀態下應顯示的卡片清單與點數統計
+   */
+  function resolveSprintIssuesForLayout(item, nativeFilter) {
+    const { branch, sprintEl, meta } = item;
+    const key = meta.key;
+
+    // 每次都從原生 DOM 讀取目前實際存在的卡片 (因為 CSS 保留了離屏尺寸，Jira 篩選後 DOM 卡片會即時增減)
+    const rawDomIssues = parseIssuesFromBranch(branch, sprintEl);
+    const domIssues = rawDomIssues.map((iss) => mergeAndCacheIssue(iss));
+
+    let cached = activeSprintCache.get(key);
+    if (!cached) {
+      cached = {
+        key,
+        title: meta.title,
+        issues: [],
+        allApiIssues: null,
+        filterKeyword: '',
+        dateRange: '',
+        fromApi: false,
+        apiSyncing: false
+      };
+      activeSprintCache.set(key, cached);
+    }
+
+    cached.title = meta.title;
+
+    // 若尚未向 Jira API 同步完整欄位 (Story Points / Epic / 精確經辦人)，在背景發起一次 API 同步
+    if (!cached.fromApi && !cached.apiSyncing) {
+      cached.apiSyncing = true;
+      syncActiveSprintIssuesFromApi(item);
+    }
+
+    let resolvedIssues = [];
+    if (domIssues.length > 0) {
+      // 原生 DOM 已有展開的卡片：先以原生 DOM 卡片為基底 (已受 Jira 所有原生篩選器過濾)，再套用本地雙重確認篩選
+      resolvedIssues = filterIssuesByNativeFilter(domIssues, nativeFilter);
+    } else if (!meta.isCollapsed) {
+      // 衝刺處於展開狀態，但原生 DOM 內有 0 張卡片 (代表目前篩選條件下此衝刺為 0 張卡片，或原本即為空衝刺)
+      if (
+        !nativeFilter.isFiltered &&
+        meta.headerTotalCount > 0 &&
+        Array.isArray(cached.allApiIssues) &&
+        cached.allApiIssues.length > 0
+      ) {
+        resolvedIssues = cached.allApiIssues.map((iss) => mergeAndCacheIssue(iss));
+      } else {
+        resolvedIssues = [];
+      }
+    } else {
+      // 衝刺處於收合狀態 (Jira 收合時不渲染 DOM 卡片)：若有 API 快取卡片，使用 API 卡片套用原生篩選器計算該人員點數
+      if (Array.isArray(cached.allApiIssues) && cached.allApiIssues.length > 0) {
+        const apiMerged = cached.allApiIssues.map((iss) => mergeAndCacheIssue(iss));
+        resolvedIssues = filterIssuesByNativeFilter(apiMerged, nativeFilter);
+      } else {
+        resolvedIssues = [];
+      }
+    }
+
+    cached.issues = resolvedIssues;
+    cached.nativeFilterSig = nativeFilter.sig;
+
+    const stats = calculateSprintStatistics(resolvedIssues);
+    if (domIssues.length > 0 || !meta.isCollapsed || Array.isArray(cached.allApiIssues)) {
+      meta.cardCount = stats.totalIssues;
+      meta.storyPoints = stats.totalPoints;
+    } else if (nativeFilter.isFiltered) {
+      meta.cardCount = meta.headerFilteredCount !== null ? meta.headerFilteredCount : 0;
+      meta.storyPoints = 0;
+    } else {
+      meta.cardCount = meta.headerTotalCount !== null ? meta.headerTotalCount : meta.cardCount;
+      meta.storyPoints = meta.headerStoryPoints || 0;
+    }
+  }
+
+  /**
    * 建立或更新「左欄 20% 衝刺清單 + 右欄 80% 選取衝刺卡片」的雙欄排版
    */
   function applyTwoColumnBacklogLayout() {
@@ -936,6 +1770,9 @@
 
     sprintsHost.setAttribute('data-bjwt-layout-host', 'true');
     lockBacklogAncestorWidths(sprintsHost);
+
+    // 偵測目前 Jira 原生篩選搜尋區的狀態 (人員頭像、未指派、搜尋關鍵字)
+    const nativeFilter = getNativeBacklogFilterState();
 
     // 找出每個衝刺在 sprintsHost 下的直接子節點 (branch)
     const branchSet = new Set();
@@ -970,15 +1807,9 @@
 
       const meta = extractSprintMeta(branch, sprintEl, headerPartner, idx);
       meta.isHistorical = false;
-      const cachedActive = activeSprintCache.get(meta.key);
-      if (cachedActive && cachedActive.issues && cachedActive.issues.length > 0) {
-        const activeStats = calculateSprintStatistics(cachedActive.issues);
-        meta.cardCount = activeStats.totalIssues;
-        if (activeStats.totalPoints > 0) {
-          meta.storyPoints = activeStats.totalPoints;
-        }
-      }
-      return { sprintEl, branch, headerPartner, meta };
+      const branchObj = { sprintEl, branch, headerPartner, meta };
+      resolveSprintIssuesForLayout(branchObj, nativeFilter);
+      return branchObj;
     });
 
     // 將目前已載入的「歷史 Sprint (已結束)」動態同步 / Append 至 sprintsHost 與 sprintBranches
@@ -1007,9 +1838,10 @@
       histBranch.setAttribute('data-bjwt-sprint-container', 'true');
       histBranch.setAttribute('data-bjwt-sprint-index', String(idx));
 
-      renderHistoricalSprintBranch(histBranch, histItem);
+      renderHistoricalSprintBranch(histBranch, histItem, nativeFilter);
 
-      const histStats = calculateSprintStatistics(histItem.issues);
+      const filteredHistIssues = filterIssuesByNativeFilter(histItem.issues || [], nativeFilter);
+      const histStats = calculateSprintStatistics(filteredHistIssues);
 
       sprintBranches.push({
         sprintEl: histBranch,
@@ -1020,7 +1852,7 @@
           index: idx,
           title: cleanSprintTitle(histItem.title),
           rawTitle: histItem.title,
-          cardCount: histItem.issues.length,
+          cardCount: filteredHistIssues.length,
           storyPoints: histStats.totalPoints,
           isHistorical: true,
           sprintId: histItem.sprintId,
@@ -1073,7 +1905,7 @@
 
       // 未結束衝刺：改用自定義卡片檢視 (與歷史衝刺一體呈現)
       if (isSelected && !item.meta.isHistorical) {
-        renderActiveSprintBranch(item);
+        renderActiveSprintBranch(item, nativeFilter);
       }
     });
 
@@ -1096,7 +1928,7 @@
     }
 
     updateColumnsViewportHeight(sprintsHost, sidebar);
-    renderSidebarContents(sidebar, sprintBranches, resolvedIndex);
+    renderSidebarContents(sidebar, sprintBranches, resolvedIndex, nativeFilter);
 
     return sprintsHost;
   }
@@ -1122,14 +1954,15 @@
   /**
    * 渲染左欄 20% 的衝刺選單內容 (區分「未結束衝刺」與「已結束歷史衝刺」，並提供收合/展開 SVG 圖示按鈕與歷史衝刺按鈕)
    */
-  function renderSidebarContents(sidebar, sprintBranches, selectedIndex) {
+  function renderSidebarContents(sidebar, sprintBranches, selectedIndex, nativeFilter) {
     ensureRuntimeCriticalStyles();
 
     const signature = JSON.stringify({
-      v: 4,
+      v: 5,
       selectedIndex,
       collapsed: isSidebarCollapsed,
       theme: currentSettings.themeStyle,
+      filterSig: nativeFilter ? nativeFilter.sig : '',
       items: sprintBranches.map((b) => ({
         key: b.meta.key,
         title: b.meta.title,
@@ -1243,18 +2076,13 @@
     listEl.appendChild(liveHeader);
 
     liveItems.forEach(({ item, idx }) => {
-      const activeData = activeSprintCache.get(item.meta.key);
-      const activeStats =
-        activeData && activeData.issues ? calculateSprintStatistics(activeData.issues) : null;
-      const pts =
-        activeStats && activeStats.totalPoints > 0
-          ? activeStats.totalPoints
-          : item.meta.storyPoints || 0;
-      const badgeText = pts > 0 ? `${pts} 點` : `${item.meta.cardCount}`;
+      const pts = item.meta.storyPoints || 0;
+      const count = item.meta.cardCount || 0;
+      const badgeText = pts > 0 ? `${pts} 點` : `${count}`;
       const badgeTitle =
         pts > 0
-          ? `${item.meta.title}：共 ${pts} 點 Story Points (${item.meta.cardCount} 個工作項目)`
-          : `${item.meta.title}：共 ${item.meta.cardCount} 個工作項目`;
+          ? `${item.meta.title}：共 ${pts} 點 Story Points (${count} 個工作項目)`
+          : `${item.meta.title}：共 ${count} 個工作項目`;
 
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -1298,18 +2126,13 @@
       listEl.appendChild(histHeader);
 
       historyItems.forEach(({ item, idx }) => {
-        const histData = loadedHistoricalSprints.find((h) => h.key === item.meta.key);
-        const histStats =
-          histData && histData.issues ? calculateSprintStatistics(histData.issues) : null;
-        const pts =
-          histStats && histStats.totalPoints > 0
-            ? histStats.totalPoints
-            : item.meta.storyPoints || 0;
-        const badgeText = pts > 0 ? `${pts} 點` : `${item.meta.cardCount}`;
+        const pts = item.meta.storyPoints || 0;
+        const count = item.meta.cardCount || 0;
+        const badgeText = pts > 0 ? `${pts} 點` : `${count}`;
         const badgeTitle =
           pts > 0
-            ? `${item.meta.title}：共 ${pts} 點 Story Points (${item.meta.cardCount} 個工作項目)`
-            : `${item.meta.title}：共 ${item.meta.cardCount} 個工作項目`;
+            ? `${item.meta.title}：共 ${pts} 點 Story Points (${count} 個工作項目)`
+            : `${item.meta.title}：共 ${count} 個工作項目`;
 
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -1883,6 +2706,17 @@
         text-overflow: ellipsis !important;
         white-space: nowrap !important;
       }
+      .bjwt-history-avatar-unassigned {
+        width: 24px !important;
+        height: 24px !important;
+        border-radius: 50% !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: var(--ds-surface-sunken, rgba(255, 255, 255, 0.08)) !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+        border: 1px dashed var(--ds-border, rgba(255, 255, 255, 0.25)) !important;
+      }
     `;
     (document.head || document.documentElement).appendChild(styleEl);
   }
@@ -2032,9 +2866,28 @@
     let cleanStatus = (statusObj.name || '未知狀態').replace(/\s+/g, ' ').trim();
     cleanStatus = cleanStatus.replace(/(▾|▼|⌵|v|\^)+$/i, '').trim();
 
-    return {
+    const rawAssigneeName = assigneeObj
+      ? cleanAssigneeLabel(assigneeObj.displayName || assigneeObj.name || assigneeObj.emailAddress || '')
+      : '';
+    const isUnassigned = !assigneeObj || !rawAssigneeName || isUnassignedText(rawAssigneeName);
+    const assigneeName = isUnassigned ? '未指派' : rawAssigneeName;
+    const assigneeAccountId = assigneeObj ? String(assigneeObj.accountId || '').trim() : '';
+
+    const tokenList = [];
+    if (!isUnassigned) {
+      tokenList.push(...deriveInitialsVariants(assigneeName));
+      if (assigneeObj && assigneeObj.name) {
+        tokenList.push(...deriveInitialsVariants(assigneeObj.name));
+      }
+      if (assigneeObj && assigneeObj.emailAddress) {
+        const localPart = String(assigneeObj.emailAddress).split('@')[0];
+        if (localPart) tokenList.push(...deriveInitialsVariants(localPart));
+      }
+    }
+
+    const issueObj = {
       id: raw.id,
-      key: raw.key || '',
+      key: (raw.key || '').toUpperCase(),
       summary: cleanSummaryText((fields.summary || '(無標題)').replace(/\s+/g, ' ').trim()),
       statusName: cleanStatus || '未知狀態',
       statusCategory: statusCatKey, // 'done' | 'indeterminate' | 'new'
@@ -2042,10 +2895,14 @@
       issueTypeIcon: issueTypeObj.iconUrl || '',
       priorityName: priorityObj.name || '',
       priorityIcon: priorityObj.iconUrl || '',
-      assigneeName: assigneeObj ? assigneeObj.displayName || assigneeObj.name || '' : '未指派',
+      assigneeName,
+      assigneeAccountId,
+      isUnassigned,
+      assigneeInitials: isUnassigned ? '' : getDisplayInitialsForIssue({ assigneeName, isUnassigned }),
+      assigneeTokens: Array.from(new Set(tokenList)),
       assigneeAvatar:
         assigneeObj && assigneeObj.avatarUrls
-          ? assigneeObj.avatarUrls['24x24'] || assigneeObj.avatarUrls['48x48'] || ''
+          ? assigneeObj.avatarUrls['48x48'] || assigneeObj.avatarUrls['24x24'] || ''
           : '',
       parentKey: parentObj ? parentObj.key : '',
       parentSummary:
@@ -2053,6 +2910,8 @@
       dueDate: fields.duedate || '',
       storyPoints
     };
+
+    return mergeAndCacheIssue(issueObj);
   }
 
   /**
@@ -2443,7 +3302,18 @@
       : iss.statusCategory === 'indeterminate'
       ? 'status-inprogress'
       : 'status-todo';
-    const initials = (iss.assigneeName || '?').slice(0, 2).toUpperCase();
+    const isUnassigned = Boolean(iss.isUnassigned) || isUnassignedText(iss.assigneeName);
+    const displayAssigneeName = isUnassigned ? '未指派' : iss.assigneeName || '未指派';
+    const initials = getDisplayInitialsForIssue(iss);
+    const hasValidAvatarImg =
+      !isUnassigned &&
+      Boolean(iss.assigneeAvatar) &&
+      !/issuetype|avatar\/type|universal_avatar\/view\/type\/issuetype/i.test(iss.assigneeAvatar);
+    const fallbackBgStyle =
+      iss.assigneeBgColor && !/rgba?\(0,\s*0,\s*0,\s*0\)|transparent/i.test(iss.assigneeBgColor)
+        ? ` style="background: ${escapeHtml(iss.assigneeBgColor)} !important;"`
+        : '';
+
     const parentLabel = iss.parentSummary || iss.parentKey || '';
     const pointsDisplay =
       iss.storyPoints !== null && iss.storyPoints !== undefined && iss.storyPoints !== ''
@@ -2492,11 +3362,18 @@
               ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap" title="優先順序：${escapeHtml(iss.priorityName)}">${iss.prioritySvg}</span>`
               : ''
           }
-          <span class="bjwt-history-assignee" title="負責人：${escapeHtml(iss.assigneeName)}">
+          <span class="bjwt-history-assignee" title="負責人：${escapeHtml(displayAssigneeName)}">
             ${
-              iss.assigneeAvatar
-                ? `<img class="bjwt-history-avatar" src="${escapeHtml(iss.assigneeAvatar)}" alt="${escapeHtml(iss.assigneeName)}" />`
-                : `<span class="bjwt-history-avatar-fallback">${escapeHtml(initials)}</span>`
+              isUnassigned
+                ? `<span class="bjwt-history-avatar-unassigned" aria-label="未指派">
+                    <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                  </span>`
+                : hasValidAvatarImg
+                ? `<img class="bjwt-history-avatar" src="${escapeHtml(iss.assigneeAvatar)}" alt="${escapeHtml(displayAssigneeName)}" />`
+                : `<span class="bjwt-history-avatar-fallback"${fallbackBgStyle}>${escapeHtml(initials || '?')}</span>`
             }
           </span>
         </div>
@@ -2568,7 +3445,7 @@
     let issueTypeName = '任務';
     const typeImg =
       cardEl.querySelector(
-        'img[src*="issuetype"], img[src*="avatar/type"], [data-testid*="issue-type"] img, img:first-of-type'
+        'img[src*="issuetype"], img[src*="avatar/type"], [data-testid*="issue-type"] img, [data-testid*="type-icon"] img, img:first-of-type'
       );
     if (typeImg && typeImg.src) {
       issueTypeIcon = typeImg.src;
@@ -2669,27 +3546,138 @@
       }
     }
 
+    // 擷取負責人資訊：嚴格排除左側的 issueTypeIcon，避免將問題類型圖示誤判為負責人頭像
     let assigneeName = '未指派';
+    let assigneeInitials = '';
     let assigneeAvatar = '';
-    const avatarEl = cardEl.querySelector(
-      '[data-testid*="assignee"], img[src*="avatar"]:not([src*="issuetype"]):not([src*="avatar/type"]), [data-testid*="avatar"], .ghx-avatar'
-    );
-    if (avatarEl && avatarEl !== typeImg) {
-      const img = avatarEl.tagName === 'IMG' ? avatarEl : avatarEl.querySelector('img:not([src*="issuetype"]):not([src*="avatar/type"])');
-      if (img && img.src && img !== typeImg) {
-        assigneeAvatar = img.src;
-        assigneeName = img.alt || img.title || avatarEl.getAttribute('aria-label') || '';
+    let assigneeBgColor = '';
+    let isUnassigned = true;
+    const assigneeTokens = new Set();
+
+    const isIssueTypeElement = (el) => {
+      if (!el || !(el instanceof Element)) return true;
+      if (typeImg && (el === typeImg || el.contains(typeImg) || typeImg.contains(el))) return true;
+      if (el.closest('[data-testid*="issue-type"], [data-testid*="issuetype"], [data-testid*="type-icon"], [data-testid*="priority"]')) {
+        return true;
+      }
+      const tid = (el.getAttribute('data-testid') || '').toLowerCase();
+      if (tid.includes('issue-type') || tid.includes('issuetype') || tid.includes('priority')) {
+        return true;
+      }
+      return false;
+    };
+
+    const assigneeCandidates = Array.from(
+      cardEl.querySelectorAll(
+        '[data-testid*="assignee"], [data-testid*="card-End"] [data-testid*="avatar"], .ghx-avatar, [data-testid*="avatar"]'
+      )
+    ).filter((el) => !isIssueTypeElement(el));
+
+    const avatarRoot =
+      assigneeCandidates.find((el) => (el.getAttribute('data-testid') || '').toLowerCase().includes('assignee')) ||
+      assigneeCandidates[assigneeCandidates.length - 1] ||
+      null;
+
+    if (avatarRoot) {
+      const rawAriaPieces = [
+        avatarRoot.getAttribute('aria-label'),
+        avatarRoot.getAttribute('title'),
+        ...Array.from(avatarRoot.querySelectorAll('[aria-label], [title], img[alt]')).map(
+          (n) => n.getAttribute('aria-label') || n.getAttribute('title') || n.getAttribute('alt')
+        )
+      ].filter(Boolean);
+
+      const avatarImg =
+        avatarRoot.tagName === 'IMG'
+          ? avatarRoot
+          : avatarRoot.querySelector(
+              'img:not([src*="issuetype"]):not([src*="avatar/type"]):not([src*="priority"])'
+            );
+
+      if (
+        avatarImg &&
+        avatarImg.src &&
+        avatarImg !== typeImg &&
+        (!issueTypeIcon || avatarImg.src !== issueTypeIcon) &&
+        !/issuetype|avatar\/type|universal_avatar\/view\/type\/issuetype/i.test(avatarImg.src)
+      ) {
+        assigneeAvatar = avatarImg.src;
       } else {
-        const bgImg = window.getComputedStyle(avatarEl).backgroundImage;
+        const bgImg = window.getComputedStyle(avatarRoot).backgroundImage;
         const bgMatch = bgImg && bgImg.match(/url\(["']?([^"']+)["']?\)/);
-        if (bgMatch && !bgMatch[1].includes('none') && !bgMatch[1].includes('issuetype')) {
+        if (
+          bgMatch &&
+          !bgMatch[1].includes('none') &&
+          !/issuetype|avatar\/type/i.test(bgMatch[1])
+        ) {
           assigneeAvatar = bgMatch[1];
         }
-        assigneeName =
-          avatarEl.getAttribute('aria-label') ||
-          avatarEl.getAttribute('title') ||
-          (avatarEl.textContent || '').trim() ||
-          '未指派';
+      }
+
+      // 擷取頭像圓圈內的縮寫文字 (例如 "RAY", "B", "BP")，排除 aria-hidden 以外的螢幕報讀長字串
+      const cloneForInitials = avatarRoot.cloneNode(true);
+      cloneForInitials
+        .querySelectorAll('[class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], svg, img, style, script')
+        .forEach((n) => n.remove());
+      const visibleShortText = (cloneForInitials.textContent || '').replace(/\s+/g, '').trim();
+      if (
+        visibleShortText &&
+        visibleShortText.length <= 6 &&
+        !isUnassignedText(visibleShortText)
+      ) {
+        assigneeInitials = visibleShortText.toUpperCase();
+        assigneeTokens.add(visibleShortText.toLowerCase());
+      }
+
+      // 擷取圓形頭像背景色 (供自定義卡片呈現一致的色塊)
+      const bgNodes = [avatarRoot, ...Array.from(avatarRoot.querySelectorAll('span, div'))];
+      for (const n of bgNodes) {
+        const bgc = window.getComputedStyle(n).backgroundColor;
+        if (
+          bgc &&
+          !/rgba?\(0,\s*0,\s*0,\s*0\)|transparent|rgb\(255,\s*255,\s*255\)/i.test(bgc)
+        ) {
+          assigneeBgColor = bgc;
+          break;
+        }
+      }
+
+      // 解析負責人完整名稱或未指派狀態
+      let foundExplicitUnassigned = false;
+      const cleanedLabels = [];
+      rawAriaPieces.forEach((rawPiece) => {
+        if (isUnassignedText(rawPiece)) {
+          foundExplicitUnassigned = true;
+        }
+        const cleaned = cleanAssigneeLabel(rawPiece);
+        if (cleaned) {
+          if (isUnassignedText(cleaned)) {
+            foundExplicitUnassigned = true;
+          } else if (cleaned.toLowerCase() !== issueTypeName.toLowerCase()) {
+            cleanedLabels.push(cleaned);
+            deriveInitialsVariants(cleaned).forEach((t) => assigneeTokens.add(t));
+          }
+        }
+      });
+
+      if (foundExplicitUnassigned && cleanedLabels.length === 0 && !assigneeInitials && !assigneeAvatar) {
+        isUnassigned = true;
+        assigneeName = '未指派';
+      } else if (cleanedLabels.length > 0) {
+        isUnassigned = false;
+        assigneeName = cleanedLabels[0];
+        if (!assigneeInitials) {
+          assigneeInitials = getDisplayInitialsForIssue({ assigneeName, isUnassigned: false });
+        }
+      } else if (assigneeInitials) {
+        isUnassigned = false;
+        assigneeName = assigneeInitials;
+      } else if (assigneeAvatar) {
+        isUnassigned = false;
+        assigneeName = '已指派';
+      } else {
+        isUnassigned = true;
+        assigneeName = '未指派';
       }
     }
 
@@ -2749,6 +3737,7 @@
           val !== parentSummary &&
           val !== dueDate &&
           val !== assigneeName &&
+          val !== assigneeInitials &&
           val !== '-' &&
           !/^\d{1,3}(\.\d)?$/.test(val)
         ) {
@@ -2782,7 +3771,7 @@
 
     summary = cleanSummaryText(summary) || '(無標題)';
 
-    return {
+    const parsedIssue = {
       id: key,
       key,
       summary,
@@ -2794,12 +3783,18 @@
       priorityIcon,
       prioritySvg,
       assigneeName,
+      assigneeInitials,
+      assigneeBgColor,
+      isUnassigned,
+      assigneeTokens: Array.from(assigneeTokens),
       assigneeAvatar,
       parentKey,
       parentSummary,
       dueDate,
       storyPoints
     };
+
+    return mergeAndCacheIssue(parsedIssue);
   }
 
   /**
@@ -2951,73 +3946,55 @@
   }
 
   /**
-   * 非同步同步未結束衝刺的卡片資料，並於完成時自動更新畫面
+   * 非同步同步未結束衝刺的卡片資料，並寫入 issueMetadataMap 與 allApiIssues，
+   * 完成後透過 scheduleLayoutRefresh() 結合當前原生篩選器重新計算左右兩欄，絕不以未篩選清單覆蓋畫面
    */
   async function syncActiveSprintIssuesFromApi(item) {
     const key = item.meta.key;
     try {
       const apiIssues = await fetchSprintIssuesForActive(item);
-      if (apiIssues && apiIssues.length > 0) {
-        let cached = activeSprintCache.get(key);
-        if (!cached) {
-          cached = {
-            key,
-            title: item.meta.title,
-            issues: apiIssues,
-            filterKeyword: '',
-            fromApi: true
-          };
-        } else {
-          cached.issues = apiIssues;
-          cached.fromApi = true;
-        }
+      let cached = activeSprintCache.get(key);
+      if (!cached) {
+        cached = {
+          key,
+          title: item.meta.title,
+          issues: [],
+          allApiIssues: null,
+          filterKeyword: '',
+          fromApi: false,
+          apiSyncing: false
+        };
         activeSprintCache.set(key, cached);
-
-        const stats = calculateSprintStatistics(apiIssues);
-        item.meta.cardCount = stats.totalIssues;
-        item.meta.storyPoints = stats.totalPoints;
-
-        // 同步更新左側欄 Tab 的徽章數值
-        updateSidebarBadgeForSprint(key, stats.totalPoints, stats.totalIssues);
-
-        if (activeSprintKey === key) {
-          renderActiveSprintBranch(item);
-        }
       }
-    } catch {}
+      cached.apiSyncing = false;
+
+      if (apiIssues && apiIssues.length > 0) {
+        const mergedList = apiIssues.map((iss) => mergeAndCacheIssue(iss));
+        cached.allApiIssues = mergedList;
+        cached.fromApi = true;
+        activeSprintCache.set(key, cached);
+        scheduleLayoutRefresh();
+      }
+    } catch {
+      const cached = activeSprintCache.get(key);
+      if (cached) cached.apiSyncing = false;
+    }
   }
 
   /**
-   * 渲染未結束衝刺的自定義卡片檢視 (與歷史衝刺一體呈現)
+   * 渲染未結束衝刺的自定義卡片檢視 (與歷史衝刺一體呈現，並即時連動 Jira 原生篩選搜尋區)
    */
-  function renderActiveSprintBranch(item) {
+  function renderActiveSprintBranch(item, nativeFilter = null) {
     const branchEl = item.branch;
     if (!branchEl) return;
 
     const key = item.meta.key;
+    const activeNativeFilter = nativeFilter || getNativeBacklogFilterState();
 
-    // 1. 若快取中無資料，先從原生 DOM 即時解析；若尚未取得 API 資料但 DOM 有更新，亦同步最新 DOM 卡片
-    let sprintData = activeSprintCache.get(key);
-    if (!sprintData) {
-      const domIssues = parseIssuesFromBranch(branchEl, item.sprintEl);
-      sprintData = {
-        key,
-        title: item.meta.title,
-        issues: domIssues,
-        filterKeyword: '',
-        dateRange: '',
-        fromApi: false
-      };
-      activeSprintCache.set(key, sprintData);
-
-      // 非同步發起 API 補充更完整資料
-      syncActiveSprintIssuesFromApi(item);
-    } else if (!sprintData.fromApi) {
-      const latestDomIssues = parseIssuesFromBranch(branchEl, item.sprintEl);
-      if (latestDomIssues.length > 0 && latestDomIssues.length >= sprintData.issues.length) {
-        sprintData.issues = latestDomIssues;
-      }
-    }
+    // 每次渲染前皆確保與最新原生 DOM 及篩選狀態同步
+    resolveSprintIssuesForLayout(item, activeNativeFilter);
+    const sprintData = activeSprintCache.get(key);
+    if (!sprintData) return;
 
     // 確保快取中的所有卡片標題皆經過深度去重清理
     if (Array.isArray(sprintData.issues)) {
@@ -3069,7 +4046,7 @@
       branchEl.appendChild(customView);
     }
 
-    // 3. 根據關鍵字篩選卡片
+    // 3. 根據自定義卡片搜尋框關鍵字二次篩選卡片 (sprintData.issues 已由原生篩選器過濾)
     const filterKw = (sprintData.filterKeyword || '').trim().toLowerCase();
     const visibleIssues = filterKw
       ? sprintData.issues.filter(
@@ -3077,23 +4054,29 @@
             iss.key.toLowerCase().includes(filterKw) ||
             iss.summary.toLowerCase().includes(filterKw) ||
             iss.assigneeName.toLowerCase().includes(filterKw) ||
+            (iss.assigneeInitials && iss.assigneeInitials.toLowerCase().includes(filterKw)) ||
             iss.statusName.toLowerCase().includes(filterKw) ||
             (iss.parentSummary && iss.parentSummary.toLowerCase().includes(filterKw))
         )
       : sprintData.issues;
 
-    const stats = calculateSprintStatistics(sprintData.issues);
+    // 點數與數量統計完全依據目前篩選後可見的卡片計算
+    const stats = calculateSprintStatistics(visibleIssues);
     const displayTitle = cleanSprintTitle(sprintData.title);
 
-    const issuesSig = sprintData.issues
-      .map((i) => `${i.key}:${i.summary}:${i.statusName}:${i.storyPoints ?? ''}`)
+    const issuesSig = visibleIssues
+      .map(
+        (i) =>
+          `${i.key}:${i.summary}:${i.statusName}:${i.storyPoints ?? ''}:${i.assigneeName || ''}:${i.assigneeInitials || ''}`
+      )
       .join('|');
 
     const sig = JSON.stringify({
       key,
-      count: sprintData.issues.length,
+      count: visibleIssues.length,
       points: stats.totalPoints,
       fromApi: Boolean(sprintData.fromApi),
+      nativeFilterSig: activeNativeFilter.sig,
       issuesSig,
       filterKw,
       dateRange,
@@ -3156,7 +4139,7 @@
         <div class="bjwt-history-card-list">
           ${
             visibleIssues.length === 0
-              ? `<div class="bjwt-history-empty-cards">目前沒有符合條件的待辦事項卡片。</div>`
+              ? `<div class="bjwt-history-empty-cards">目前沒有符合篩選條件的待辦事項卡片。</div>`
               : visibleIssues.map(renderIssueCardHtml).join('')
           }
         </div>
@@ -3187,12 +4170,8 @@
         refreshBtn.disabled = true;
         refreshBtn.textContent = '同步中...';
         customView.removeAttribute('data-bjwt-render-sig');
-        const domIssues = parseIssuesFromBranch(branchEl, item.sprintEl);
-        if (domIssues.length > 0) {
-          sprintData.issues = domIssues;
-          renderActiveSprintBranch(item);
-        }
         await syncActiveSprintIssuesFromApi(item);
+        scheduleLayoutRefresh();
         refreshBtn.disabled = false;
         refreshBtn.textContent = '↻ 重新整理';
       });
@@ -3211,7 +4190,9 @@
     // 綁定卡片點擊事件以置中 Modal 預覽
     customView.querySelectorAll('.bjwt-history-card').forEach((cardEl) => {
       const issueKey = cardEl.getAttribute('data-bjwt-history-issue-key');
-      const issueObj = sprintData.issues.find((i) => i.key === issueKey);
+      const issueObj =
+        visibleIssues.find((i) => i.key === issueKey) ||
+        sprintData.issues.find((i) => i.key === issueKey);
       const handleActivate = (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -3229,20 +4210,24 @@
   }
 
   /**
-   * 渲染右欄 80% 中的「歷史 Sprint (已結束)」卡片區塊
+   * 渲染右欄 80% 中的「歷史 Sprint (已結束)」卡片區塊 (同樣支援原生篩選搜尋連動)
    */
-  function renderHistoricalSprintBranch(branchEl, histItem) {
+  function renderHistoricalSprintBranch(branchEl, histItem, nativeFilter = null) {
+    const activeNativeFilter = nativeFilter || getNativeBacklogFilterState();
+    const baseFilteredIssues = filterIssuesByNativeFilter(histItem.issues || [], activeNativeFilter);
+
     const filterKw = (histItem.filterKeyword || '').trim().toLowerCase();
     const visibleIssues = filterKw
-      ? histItem.issues.filter(
+      ? baseFilteredIssues.filter(
           (iss) =>
             iss.key.toLowerCase().includes(filterKw) ||
             iss.summary.toLowerCase().includes(filterKw) ||
             iss.assigneeName.toLowerCase().includes(filterKw) ||
+            (iss.assigneeInitials && iss.assigneeInitials.toLowerCase().includes(filterKw)) ||
             iss.statusName.toLowerCase().includes(filterKw) ||
             (iss.parentSummary && iss.parentSummary.toLowerCase().includes(filterKw))
         )
-      : histItem.issues;
+      : baseFilteredIssues;
 
     if (Array.isArray(histItem.issues)) {
       histItem.issues.forEach((iss) => {
@@ -3252,16 +4237,17 @@
       });
     }
 
-    const stats = calculateSprintStatistics(histItem.issues);
+    const stats = calculateSprintStatistics(visibleIssues);
     const displayTitle = cleanSprintTitle(histItem.title);
-    const histIssuesSig = histItem.issues
-      .map((i) => `${i.key}:${i.summary}:${i.statusName}:${i.storyPoints ?? ''}`)
+    const histIssuesSig = visibleIssues
+      .map((i) => `${i.key}:${i.summary}:${i.statusName}:${i.storyPoints ?? ''}:${i.assigneeName || ''}`)
       .join('|');
 
     const sig = JSON.stringify({
       key: histItem.key,
-      count: histItem.issues.length,
+      count: visibleIssues.length,
       points: stats.totalPoints,
+      nativeFilterSig: activeNativeFilter.sig,
       histIssuesSig,
       filterKw,
       theme: currentSettings.themeStyle
@@ -3377,7 +4363,9 @@
 
     branchEl.querySelectorAll('.bjwt-history-card').forEach((cardEl) => {
       const issueKey = cardEl.getAttribute('data-bjwt-history-issue-key');
-      const issueObj = histItem.issues.find((i) => i.key === issueKey);
+      const issueObj =
+        visibleIssues.find((i) => i.key === issueKey) ||
+        histItem.issues.find((i) => i.key === issueKey);
       const handleActivate = (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -4233,15 +5221,83 @@
     });
   }
 
-  // 當點擊卡片時，立即在同一個 frame 及後續微任務偵測右側面板並轉為 Modal (0 延遲)
+  /**
+   * 判斷某個點擊或輸入目標是否位於我們自定義的側邊欄、自定義卡片檢視或 Modal 內
+   */
+  function isInsideExtensionUi(el) {
+    if (!el || !(el instanceof Element)) return false;
+    return Boolean(
+      el.closest(`#${SIDEBAR_ID}`) ||
+        el.closest(`#${MODAL_BACKDROP_ID}`) ||
+        el.closest(`#${HISTORY_PICKER_MODAL_ID}`) ||
+        el.closest(`#${HISTORY_ISSUE_MODAL_ID}`) ||
+        el.closest('[data-bjwt-history-branch="true"]') ||
+        el.closest('[data-bjwt-custom-view]')
+    );
+  }
+
+  /**
+   * 當使用者在 Jira 原生篩選搜尋區 (人員頭像、搜尋框、下拉選單、清除篩選按鈕) 操作時，
+   * 立即排程多次微延遲刷新，確保 React 完成狀態更新與虛擬列表重繪後，左右兩欄 100% 即時同步。
+   */
+  function triggerNativeFilterSyncBurst() {
+    scheduleLayoutRefresh();
+    setTimeout(() => scheduleLayoutRefresh(), 32);
+    setTimeout(() => scheduleLayoutRefresh(), 120);
+    setTimeout(() => scheduleLayoutRefresh(), 280);
+  }
+
+  // 當點擊卡片時，立即在同一個 frame 及後續微任務偵測右側面板並轉為 Modal (0 延遲)；
+  // 當點擊 Jira 原生篩選搜尋區 (如人員頭像、篩選條件、清除篩選) 時，立即同步左右側欄
   document.addEventListener(
     'click',
     (e) => {
       const target = e.target;
-      if (target && target instanceof Element && isInsideCard(target)) {
+      if (!target || !(target instanceof Element)) return;
+
+      if (isInsideCard(target)) {
         requestAnimationFrame(() => applyIssueDetailModalTransform());
         setTimeout(() => applyIssueDetailModalTransform(), 16);
         setTimeout(() => applyIssueDetailModalTransform(), 60);
+        return;
+      }
+
+      if (!isInsideExtensionUi(target)) {
+        triggerNativeFilterSyncBurst();
+      }
+    },
+    true
+  );
+
+  // 監聽原生搜尋框輸入與變更事件，即時連動左右側欄
+  document.addEventListener(
+    'input',
+    (e) => {
+      const target = e.target;
+      if (target && target instanceof Element && !isInsideExtensionUi(target)) {
+        triggerNativeFilterSyncBurst();
+      }
+    },
+    true
+  );
+
+  document.addEventListener(
+    'change',
+    (e) => {
+      const target = e.target;
+      if (target && target instanceof Element && !isInsideExtensionUi(target)) {
+        triggerNativeFilterSyncBurst();
+      }
+    },
+    true
+  );
+
+  document.addEventListener(
+    'keyup',
+    (e) => {
+      const target = e.target;
+      if (target && target instanceof Element && !isInsideExtensionUi(target)) {
+        scheduleLayoutRefresh();
       }
     },
     true
@@ -4323,19 +5379,14 @@
     });
   }
 
-  // 監聽 Jira SPA 路由切換、非同步衝刺載入與點擊卡片開啟詳細區 (無 50ms 盲區)
+  // 監聽 Jira SPA 路由切換、原生篩選器屬性變更、非同步衝刺載入與點擊卡片開啟詳細區 (無 50ms 盲區)
   const observer = new MutationObserver((mutations) => {
     const isExternalChange = mutations.some((m) => {
-      const target = m.target;
-      if (!target || !(target instanceof Element)) return true;
-      return (
-        !target.closest(`#${SIDEBAR_ID}`) &&
-        !target.closest(`#${MODAL_BACKDROP_ID}`) &&
-        !target.closest(`#${HISTORY_PICKER_MODAL_ID}`) &&
-        !target.closest(`#${HISTORY_ISSUE_MODAL_ID}`) &&
-        !target.closest('[data-bjwt-history-branch="true"]') &&
-        !target.closest('[data-bjwt-custom-view]')
-      );
+      const rawTarget = m.target;
+      const target =
+        rawTarget instanceof Element ? rawTarget : rawTarget ? rawTarget.parentElement : null;
+      if (!target) return true;
+      return !isInsideExtensionUi(target);
     });
 
     if (isExternalChange) {
@@ -4344,7 +5395,21 @@
   });
 
   if (document.documentElement) {
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: [
+        'aria-checked',
+        'aria-pressed',
+        'aria-selected',
+        'aria-expanded',
+        'data-selected',
+        'class',
+        'value'
+      ]
+    });
   }
 
   init();

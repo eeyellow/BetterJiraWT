@@ -331,9 +331,18 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-
   background: rgba(9, 30, 66, 0.42);
 }
 
-/* 隱藏所有原生衝刺標頭夥伴 (避免原生標題殘留，統一由 BetterJiraWT 新設計的 Sprint Banner 呈現) */
+/* 隱藏所有原生衝刺標頭夥伴 (移至畫面外且保留尺寸，避免原生標題殘留並讓 Jira React 持續即時更新) */
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"] {
-  display: none !important;
+  position: fixed !important;
+  top: -99999px !important;
+  left: -99999px !important;
+  width: 1024px !important;
+  height: auto !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  z-index: -9999 !important;
 }
 
 /* 左欄收合時，右欄衝刺區域自動擴展填滿剩餘寬度 */
@@ -343,8 +352,22 @@ html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"][data-bj
   max-width: calc(100% - 52px) !important;
 }
 
-/* 隱藏所有未選取的衝刺與其標頭 */
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="false"],
+/* 隱藏所有未選取的衝刺與其標頭 (保留虛擬清單容器尺寸使 Jira 原生篩選能同步渲染所有衝刺 DOM) */
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="false"]:not([data-bjwt-history-branch="true"]) {
+  position: fixed !important;
+  top: -99999px !important;
+  left: -99999px !important;
+  width: 1024px !important;
+  height: 3000px !important;
+  max-height: 3000px !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  z-index: -9999 !important;
+}
+
+html[data-betterjira-layout="two-column"] [data-bjwt-history-branch="true"][data-bjwt-sprint-active="false"],
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="false"] {
   display: none !important;
 }
@@ -1068,9 +1091,19 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
   padding: 10px !important;
 }
 
-/* 徹底隱藏未結束衝刺內的所有原生 Jira 直屬子節點 (徹底消除原生標頭殘留、卡片容器與大塊空白) */
+/* 徹底隱藏未結束衝刺內的所有原生 Jira 直屬子節點 (移至畫面外且保留高度，使 Jira 虛擬卷軸在篩選時仍完整渲染所有卡片 DOM) */
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) > *:not(.bjwt-active-sprint-custom-view) {
-  display: none !important;
+  position: fixed !important;
+  top: -99999px !important;
+  left: -99999px !important;
+  width: 1024px !important;
+  height: 3000px !important;
+  max-height: 3000px !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  z-index: -9999 !important;
 }
 
 /* 未結束衝刺自定義檢視容器與按鈕樣式 */
@@ -1451,8 +1484,21 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   border-radius: 50% !important;
   background: #d97706 !important;
   color: #ffffff !important;
-  font-size: 10px !important;
+  font-size: 9.5px !important;
   font-weight: 700 !important;
+  letter-spacing: -0.2px !important;
+}
+
+.bjwt-history-avatar-unassigned {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 50% !important;
+  background: rgba(148, 163, 184, 0.16) !important;
+  border: 1px solid rgba(148, 163, 184, 0.35) !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
 }
 
 /* 歷史卡片點擊後的置中詳情 Modal */
