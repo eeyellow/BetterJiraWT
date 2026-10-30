@@ -230,12 +230,47 @@
         max-width: 16px !important;
         max-height: 16px !important;
       }
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"],
+      html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"],
+      html[data-betterjira-layout="two-column"] #ghx-detail-view,
+      [data-bjwt-issue-modal="true"],
+      #bjwt-history-issue-modal {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        inset: 0 !important;
+        width: 100vw !important;
+        width: 100% !important;
+        height: 100vh !important;
+        height: 100% !important;
+        max-width: 100vw !important;
+        max-height: 100vh !important;
+        min-width: 100% !important;
+        min-height: 100% !important;
+        transform: none !important;
+        margin: 0 !important;
+        background: var(--ds-surface-overlay, #ffffff) !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        z-index: 350 !important;
+        overflow: auto !important;
+        border: none !important;
+        box-sizing: border-box !important;
+      }
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] > *,
+      html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"] > *,
+      [data-bjwt-issue-modal="true"] > * {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
       #bjwt-history-issue-modal {
         display: flex !important;
         flex-direction: column !important;
         overflow: hidden !important;
         background: var(--ds-surface-overlay, #1d2125) !important;
-        border: 1px solid var(--ds-border, #38414a) !important;
+        border: none !important;
       }
       .bjwt-history-issue-modal-header {
         flex: 0 0 auto !important;

@@ -1,6 +1,6 @@
 /**
- * @fileoverview 卡片詳細內容置中視窗 (Issue Detail Modal) 元件
- * 負責將原生 Jira 側欄面板轉為置中 Modal、提供歷史/未結束卡片的豐富資訊彈窗 (支援說明、子任務、留言與屬性)。
+ * @fileoverview 卡片詳細內容視窗 (Issue Detail Modal) 元件
+ * 負責將原生 Jira 側欄面板轉為佔滿整個版面的 Modal、提供歷史/未結束卡片的豐富資訊彈窗 (支援說明、子任務、留言與屬性)。
  * @module components/issue-modal
  */
 
@@ -9,7 +9,7 @@
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
   /**
-   * 偵測右側卡片詳細面板 (支援載入骨架階段與完整載入階段)，立即轉為置中 Modal
+   * 偵測右側卡片詳細面板 (支援載入骨架階段與完整載入階段)，立即轉為全版面 Modal
    *
    * @param {Element} host - 衝刺清單宿主節點
    * @returns {{modalPane: Element, splitContainer: Element}|null} 找到的面板節點與外層分割容器
@@ -175,13 +175,17 @@
   }
 
   /**
-   * 將 Jira 點擊卡片後右側的詳細面板，立即轉換為置中彈出的 Modal 視窗
+   * 將 Jira 點擊卡片後右側的詳細面板，立即轉換為佔滿全版面的 Modal 視窗
    *
    * @param {Element|null} [sprintsHost=null] - 衝刺宿主節點
    */
   function applyIssueDetailModalTransform(sprintsHost) {
-    const { Constants } = BetterJira;
+    const { Constants, RuntimeStyles } = BetterJira;
     const { HISTORY_ISSUE_MODAL_ID, MODAL_BACKDROP_ID } = Constants;
+
+    if (RuntimeStyles && typeof RuntimeStyles.ensureRuntimeCriticalStyles === 'function') {
+      RuntimeStyles.ensureRuntimeCriticalStyles();
+    }
 
     if (document.getElementById(HISTORY_ISSUE_MODAL_ID)) {
       return;
@@ -225,7 +229,7 @@
   }
 
   /**
-   * 點擊卡片時，以置中豐富 Modal 彈窗預覽完整卡片詳情
+   * 點擊卡片時，以佔滿全版面的豐富 Modal 彈窗預覽完整卡片詳情
    * 先即時呈現 fallback 既有欄位 (0ms)，隨後透過 Jira REST API 非同步載入詳細說明、留言、子任務
    *
    * @param {string} issueKey - 卡片編號 (例如 "WMC-1234")

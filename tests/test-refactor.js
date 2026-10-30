@@ -258,6 +258,21 @@ assert(cardHtml.includes('status-inprogress'), '進行中卡片應有 status-inp
 assert(cardHtml.includes('>5<'), '卡片應包含正確點數 5');
 console.log('✓ IssueCardComponent 測試通過！');
 
+console.log('--- 測試 8: IssueModal 全版面樣式檢查 ---');
+const stylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+const runtimeStylesJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+
+assert(stylesCss.includes('width: 100vw !important;'), 'styles.css 應設定 modal 寬度 100vw');
+assert(stylesCss.includes('height: 100vh !important;'), 'styles.css 應設定 modal 高度 100vh');
+assert(stylesCss.includes('inset: 0 !important;'), 'styles.css 應設定 modal inset: 0');
+assert(!stylesCss.includes('width: min(92vw, 1140px)'), 'styles.css 不應殘留舊版固定寬度');
+assert(!stylesCss.includes('height: min(90vh, 860px)'), 'styles.css 不應殘留舊版固定高度');
+
+assert(runtimeStylesJs.includes('width: 100vw !important;'), 'runtime-styles.js 應設定 modal 寬度 100vw');
+assert(runtimeStylesJs.includes('height: 100vh !important;'), 'runtime-styles.js 應設定 modal 高度 100vh');
+assert(runtimeStylesJs.includes('inset: 0 !important;'), 'runtime-styles.js 應設定 modal inset: 0');
+console.log('✓ IssueModal 全版面樣式測試通過！');
+
 console.log('============================================');
 console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
 console.log('============================================');
