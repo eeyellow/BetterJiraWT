@@ -1,0 +1,396 @@
+/**
+ * @fileoverview Jira 衝刺 (Sprint) 原生 DOM 結構解析模組
+ * 負責從原生 Backlog 樹狀結構中辨識衝刺容器、擷取標題、計算可見與標頭卡片數、解析收合狀態。
+ * @module parser/sprint-dom-parser
+ */
+
+(() => {
+  const BetterJira = (typeof window !== 'undefined' ? window : global).BetterJira =
+    (typeof window !== 'undefined' ? window : global).BetterJira || {};
+
+  /**
+   * 檢查元素是否位於某張卡片內部
+   *
+   * @param {Element|*} el - 欲檢查之 DOM 元素
+   * @returns {boolean} 是否在卡片內部
+   */
+  function isInsideCard(el) {
+    if (!el || !(el instanceof Element)) return false;
+    const { CARD_SELECTORS } = BetterJira.Constants;
+    for (const sel of CARD_SELECTORS) {
+      if (el.closest(sel)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 尋找頁面上所有原生的衝刺 (Sprint / Backlog) 容器 (排除歷史衝刺自訂容器)
+   *
+   * @returns {Element[]} 頂層衝刺容器元素陣列
+   */
+  function findSprintContainers() {
+    const { SPRINT_SELECTORS } = BetterJira.Constants;
+    for (const selector of SPRINT_SELECTORS) {
+      const nodes = Array.from(document.querySelectorAll(selector)).filter(
+        (el) => !el.closest('[data-bjwt-history-branch="true"]')
+      );
+      if (nodes.length > 0) {
+        const topLevel = nodes.filter(
+          (el) => !nodes.some((other) => other !== el && other.contains(el))
+        );
+        if (topLevel.length > 0) {
+          return topLevel;
+        }
+      }
+    }
+    return [];
+  }
+
+  /**
+   * 檢查文字是否為有意義的衝刺名稱 (過濾純數字、純問題數量、按鈕文字等)
+   *
+   * @param {string} text - 候選字串
+   * @returns {boolean} 是否為有效衝刺名稱
+   */
+  function isValidSprintTitleCandidate(text) {
+    if (!text) return false;
+    const { IGNORED_BUTTON_TEXTS } = BetterJira.Constants;
+    const cleaned = text.replace(/\s+/g, ' ').trim();
+    if (!cleaned || cleaned.length < 2) return false;
+    if (IGNORED_BUTTON_TEXTS.has(cleaned.toLowerCase())) return false;
+    if (/^\(?(\d+)\s*(個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?|點|points?)\)?$/i.test(cleaned)) {
+      return false;
+    }
+    if (/^[\d\s.,()\-+/]+$/.test(cleaned)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * 檢查某個原生 Sprint 容器是否處於風琴夾收合狀態
+   *
+   * @param {Element|null} branchEl - 衝刺 branch 節點
+   * @param {Element} sprintEl - 衝刺容器節點
+   * @param {Element|null} headerPartner - 獨立配對標頭節點
+   * @returns {boolean} 是否處於收合狀態
+   */
+  function isNativeSprintCollapsed(branchEl, sprintEl, headerPartner) {
+    const headerCandidates = [
+      headerPartner,
+      branchEl && branchEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header'),
+      sprintEl && sprintEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header')
+    ].filter(Boolean);
+
+    for (const hdr of headerCandidates) {
+      const toggleBtn = hdr.querySelector('[aria-expanded="false"]');
+      if (toggleBtn && !toggleBtn.hasAttribute('aria-haspopup') && !isInsideCard(toggleBtn)) {
+        return true;
+      }
+    }
+    if (sprintEl && sprintEl.classList && sprintEl.classList.contains('ghx-closed')) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 僅在使用者於左欄手動點擊切換衝刺時，檢查該衝刺標頭是否處於收合狀態；
+   * 絕不在 MutationObserver 中自動觸發任何 click，避免誤觸「+ 建立問題」按鈕。
+   *
+   * @param {Element|null} branchEl - 衝刺 branch 節點
+   * @param {Element} sprintEl - 衝刺容器節點
+   * @param {Element|null} headerPartner - 獨立配對標頭節點
+   */
+  function expandSprintHeaderOnUserSelect(branchEl, sprintEl, headerPartner) {
+    const { CARD_SELECTORS } = BetterJira.Constants;
+
+    // 若該衝刺內已經有可見的卡片，代表已經是展開狀態，不需點擊任何按鈕
+    for (const sel of CARD_SELECTORS) {
+      const existingCard = (branchEl || sprintEl).querySelector(sel);
+      if (existingCard && existingCard.offsetParent !== null) {
+        return;
+      }
+    }
+
+    // 僅尋找衝刺標頭列 (Header) 內的風琴夾展開按鈕，嚴格排除底部新增卡片區域
+    const headerCandidates = [
+      headerPartner,
+      branchEl && branchEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header'),
+      sprintEl && sprintEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header')
+    ].filter(Boolean);
+
+    for (const hdr of headerCandidates) {
+      const toggleBtn = hdr.querySelector('[aria-expanded="false"]');
+      if (
+        toggleBtn &&
+        !toggleBtn.hasAttribute('aria-haspopup') &&
+        !isInsideCard(toggleBtn)
+      ) {
+        toggleBtn.click();
+        return;
+      }
+    }
+
+    if (sprintEl && sprintEl.classList && sprintEl.classList.contains('ghx-closed')) {
+      const expander = sprintEl.querySelector('.ghx-expander, .js-expander');
+      if (expander) expander.click();
+    }
+  }
+
+  /**
+   * 擷取衝刺的真實名稱與卡片數量 (支援讀取原生篩選後的數量，如「29 個工作項目中的 5 個」)
+   *
+   * @param {Element} branchEl - 衝刺在 sprintsHost 下的直接子節點
+   * @param {Element} sprintEl - 衝刺容器節點
+   * @param {Element|null} headerPartner - 兄弟標頭節點
+   * @param {number} index - 衝刺流水序號
+   * @returns {Object} 衝刺 Meta 詮釋資料結構
+   */
+  function extractSprintMeta(branchEl, sprintEl, headerPartner, index) {
+    const { CARD_SELECTORS } = BetterJira.Constants;
+    const { cleanSprintTitle } = BetterJira.TextUtils;
+    const searchRoots = [headerPartner, branchEl, sprintEl, sprintEl.parentElement].filter(Boolean);
+
+    let title = '';
+
+    // 1. 優先從明確的標題 Selector 尋找 (排除卡片內部元素)
+    const explicitSelectors = [
+      '[data-testid*="sprint-name"]',
+      '[data-testid*="header.title"]',
+      '[data-testid*="backlog-header"]',
+      '[data-testid*="card-list.header"] h2',
+      '[data-testid*="card-list.header"] h3',
+      '[data-testid*="card-list.header"] [role="heading"]',
+      '[data-testid*="header"] h2',
+      '[data-testid*="header"] h3',
+      '[data-testid*="header"] [role="heading"]',
+      '.ghx-name',
+      'h2',
+      'h3',
+      'h4',
+      '[role="heading"]'
+    ];
+
+    for (const root of searchRoots) {
+      if (title) break;
+      for (const sel of explicitSelectors) {
+        const matches = root.querySelectorAll(sel);
+        for (const el of matches) {
+          if (isInsideCard(el)) continue;
+          const candidate = (el.textContent || '').replace(/\s+/g, ' ').trim();
+          if (isValidSprintTitleCandidate(candidate)) {
+            title = candidate;
+            break;
+          }
+        }
+        if (title) break;
+      }
+    }
+
+    // 2. 檢查是否有 inline-edit 的 <input> 儲存衝刺名稱
+    if (!title) {
+      for (const root of searchRoots) {
+        const inputs = root.querySelectorAll('input[type="text"], input:not([type])');
+        for (const inp of inputs) {
+          if (isInsideCard(inp)) continue;
+          const val = (inp.value || '').trim();
+          if (isValidSprintTitleCandidate(val)) {
+            title = val;
+            break;
+          }
+        }
+        if (title) break;
+      }
+    }
+
+    // 3. 檢查容器或風琴夾按鈕上的 aria-label
+    if (!title) {
+      for (const root of searchRoots) {
+        const ariaNodes = [
+          root,
+          ...Array.from(root.querySelectorAll('[aria-expanded], [role="region"], [data-testid*="header"]'))
+        ];
+        for (const node of ariaNodes) {
+          if (!node || !(node instanceof Element) || isInsideCard(node)) continue;
+          const label = (node.getAttribute('aria-label') || '').trim();
+          if (isValidSprintTitleCandidate(label)) {
+            title = label;
+            break;
+          }
+        }
+        if (title) break;
+      }
+    }
+
+    // 4. 走訪非卡片區域的文字節點，取第一個有意義的標頭文字 (即衝刺名稱)
+    if (!title) {
+      for (const root of searchRoots) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+          acceptNode(node) {
+            const parent = node.parentElement;
+            if (!parent) return NodeFilter.FILTER_REJECT;
+            if (isInsideCard(parent)) return NodeFilter.FILTER_REJECT;
+            if (parent.closest('button') && !parent.closest('[aria-expanded]')) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            const txt = (node.nodeValue || '').replace(/\s+/g, ' ').trim();
+            return isValidSprintTitleCandidate(txt)
+              ? NodeFilter.FILTER_ACCEPT
+              : NodeFilter.FILTER_SKIP;
+          }
+        });
+        const firstTextNode = walker.nextNode();
+        if (firstTextNode) {
+          title = firstTextNode.nodeValue.replace(/\s+/g, ' ').trim();
+          break;
+        }
+      }
+    }
+
+    if (!title) {
+      title = `衝刺 ${index + 1}`;
+    }
+
+    // 計算原生 DOM 中的真實卡片數量 (嚴格排除自定義檢視卡片與容器節點)
+    let cardNodes = [];
+    for (const root of [branchEl, sprintEl]) {
+      if (!root) continue;
+      for (const cardSel of CARD_SELECTORS) {
+        const foundCards = Array.from(root.querySelectorAll(cardSel)).filter(
+          (c) =>
+            !c.classList.contains('bjwt-history-card') &&
+            !c.closest('[data-bjwt-custom-view]')
+        );
+        if (foundCards.length > 0) {
+          cardNodes = foundCards.filter(
+            (c) => !foundCards.some((other) => other !== c && other.contains(c))
+          );
+          break;
+        }
+      }
+      if (cardNodes.length > 0) break;
+    }
+
+    // 從標頭擷取文字顯示的工作項目數量 (包含篩選後「29 個工作項目中的 5 個」或「5 of 29 issues」)
+    let headerFilteredCount = null;
+    let headerTotalCount = null;
+    for (const root of searchRoots) {
+      const headerEl =
+        root.querySelector('[data-testid*="header"], .ghx-backlog-header, header') || root;
+      const headerText = (headerEl.innerText || headerEl.textContent || '').replace(/\s+/g, ' ');
+      const zhSubsetMatch = headerText.match(
+        /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)\s*中的\s*(\d+)\s*個?/i
+      );
+      if (zhSubsetMatch) {
+        headerTotalCount = parseInt(zhSubsetMatch[1], 10);
+        headerFilteredCount = parseInt(zhSubsetMatch[2], 10);
+        break;
+      }
+      const enSubsetMatch = headerText.match(
+        /(\d+)\s*(?:of|\/)\s*(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i
+      );
+      if (enSubsetMatch) {
+        headerFilteredCount = parseInt(enSubsetMatch[1], 10);
+        headerTotalCount = parseInt(enSubsetMatch[2], 10);
+        break;
+      }
+      const countMatch = headerText.match(
+        /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i
+      );
+      if (countMatch) {
+        headerTotalCount = parseInt(countMatch[1], 10);
+        break;
+      }
+    }
+
+    const isCollapsed = isNativeSprintCollapsed(branchEl, sprintEl, headerPartner);
+    let cardCount = cardNodes.length;
+    if (cardCount === 0 && isCollapsed) {
+      if (headerFilteredCount !== null) {
+        cardCount = headerFilteredCount;
+      } else if (headerTotalCount !== null) {
+        cardCount = headerTotalCount;
+      }
+    }
+
+    // 擷取 sprintId (若 DOM 節點上有)
+    let sprintId =
+      sprintEl.getAttribute('data-sprint-id') ||
+      branchEl.getAttribute('data-sprint-id') ||
+      '';
+    if (!sprintId) {
+      for (const root of searchRoots) {
+        const foundEl = root.querySelector(
+          '[data-sprint-id], [data-testid*="container-"], [data-testid*="header-"]'
+        );
+        if (foundEl) {
+          sprintId = foundEl.getAttribute('data-sprint-id') || '';
+          if (!sprintId) {
+            const m = (foundEl.getAttribute('data-testid') || '').match(/(\d{2,})/);
+            if (m) sprintId = m[1];
+          }
+          if (sprintId) break;
+        }
+      }
+    }
+
+    // 擷取原生標頭上的 Story Points (例如三個數字徽章 [26] [38] [17])
+    let headerStoryPoints = 0;
+    for (const root of searchRoots) {
+      const headerEl =
+        root.querySelector('[data-testid*="header"], .ghx-backlog-header, header') || root;
+      const badges = Array.from(
+        headerEl.querySelectorAll(
+          '[data-testid*="badge"], [data-testid*="estimate"], [class*="badge"], [class*="estimate"]'
+        )
+      );
+      let sum = 0;
+      let count = 0;
+      badges.forEach((b) => {
+        if (isInsideCard(b)) return;
+        const txt = (b.textContent || '').trim();
+        if (/^\d{1,3}(\.\d)?$/.test(txt)) {
+          sum += parseFloat(txt);
+          count++;
+        }
+      });
+      if (count >= 1 && sum > 0) {
+        headerStoryPoints = Math.round(sum * 10) / 10;
+        break;
+      }
+    }
+
+    const cleanedTitle = cleanSprintTitle(title);
+    const key =
+      sprintId ||
+      sprintEl.getAttribute('data-sprint-id') ||
+      branchEl.getAttribute('data-sprint-id') ||
+      sprintEl.getAttribute('id') ||
+      `${index}__${cleanedTitle}`;
+
+    return {
+      key,
+      sprintId,
+      index,
+      title: cleanedTitle,
+      rawTitle: title,
+      domCardCount: cardNodes.length,
+      headerFilteredCount,
+      headerTotalCount,
+      isCollapsed,
+      cardCount,
+      headerStoryPoints,
+      storyPoints: headerStoryPoints
+    };
+  }
+
+  BetterJira.SprintDomParser = {
+    isInsideCard,
+    findSprintContainers,
+    isValidSprintTitleCandidate,
+    isNativeSprintCollapsed,
+    expandSprintHeaderOnUserSelect,
+    extractSprintMeta
+  };
+})();
