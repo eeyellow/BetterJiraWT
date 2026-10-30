@@ -106,18 +106,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 儲存樣式設定至 IndexedDB
   saveStyleBtn.addEventListener('click', async () => {
     const checkedRadio = document.querySelector('input[name="themeStyle"]:checked');
-    const selectedStyle = checkedRadio ? checkedRadio.value : 'Bootstrap';
+    const selectedStyle = checkedRadio ? checkedRadio.value : 'Default';
     currentSettings = await BetterJiraDB.saveSetting('themeStyle', selectedStyle);
     renderUI(currentSettings);
     notifyActiveTabs(currentSettings);
-    setStatusMessage(`已套用「${selectedStyle}」樣式並存至 IndexedDB`);
+    const label = BetterJiraDB.getStyleLabel(selectedStyle);
+    setStatusMessage(`已套用「${label}」樣式並存至 IndexedDB`);
     closeStyleModal();
   });
 
   function syncStyleSelection(styleName) {
+    const normalized = styleName || 'Default';
     styleOptionCards.forEach((card) => {
       const radio = card.querySelector('input[name="themeStyle"]');
-      const isMatch = radio.value === styleName;
+      const isMatch = radio.value === normalized;
       radio.checked = isMatch;
       card.classList.toggle('selected', isMatch);
     });
@@ -125,10 +127,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function renderUI(settings) {
     const { backlogUrl, themeStyle } = settings;
+    const styleLabel = BetterJiraDB.getStyleLabel(themeStyle);
 
-    document.body.setAttribute('data-theme', themeStyle);
-    currentStyleBadge.textContent = themeStyle;
-    stylePreviewText.textContent = `目前：${themeStyle}`;
+    document.body.setAttribute('data-theme', themeStyle || 'Default');
+    currentStyleBadge.textContent = styleLabel;
+    stylePreviewText.textContent = `目前：${styleLabel}`;
 
     if (backlogUrl) {
       backlogUrlPreview.textContent = backlogUrl;

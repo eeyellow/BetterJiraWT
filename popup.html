@@ -17,7 +17,7 @@
           <p>Jira 擴充與版面美化工具</p>
         </div>
       </div>
-      <span class="theme-badge" id="currentStyleBadge">Bootstrap</span>
+      <span class="theme-badge" id="currentStyleBadge">預設</span>
     </header>
 
     <!-- 主選單區塊 -->
@@ -48,7 +48,7 @@
               <span class="submenu-index">1.2</span>
               <div class="submenu-text">
                 <span class="submenu-label">樣式</span>
-                <span class="submenu-preview" id="stylePreviewText">目前：Bootstrap</span>
+                <span class="submenu-preview" id="stylePreviewText">目前：預設</span>
               </div>
             </div>
             <span class="submenu-arrow">›</span>
@@ -88,7 +88,7 @@
             </button>
           </div>
           <p class="helper-text">
-            設定儲存於前端 IndexedDB，瀏覽器關閉重啟後仍會保留，且符合此網址的頁面將自動套用樣式與後續設定。
+            設定儲存於前端 IndexedDB，瀏覽器關閉重啟後仍會保留，且符合此網址的頁面將自動套用左右兩欄衝刺排版與選定樣式。
           </p>
         </div>
         <div class="modal-footer">
@@ -108,6 +108,18 @@
         <div class="modal-body">
           <p class="input-label">選擇套用於待辦事項頁面的預設樣式：</p>
           <div class="style-options" id="styleOptionsList">
+            <!-- 預設 (Default) 選項 -->
+            <label class="style-option-card" data-style="Default">
+              <input type="radio" name="themeStyle" value="Default" />
+              <div class="style-option-info">
+                <div class="style-option-title">
+                  <span class="style-swatch swatch-default">J</span>
+                  <strong>預設</strong>
+                </div>
+                <p class="style-option-desc">保持原本 Jira 的配色與卡片樣式，僅套用擴充功能的排版與功能。</p>
+              </div>
+            </label>
+
             <!-- Bootstrap 選項 -->
             <label class="style-option-card" data-style="Bootstrap">
               <input type="radio" name="themeStyle" value="Bootstrap" />
