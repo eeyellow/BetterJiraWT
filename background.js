@@ -47,6 +47,29 @@ function syncIconFromStorage() {
 
 chrome.runtime.onInstalled.addListener(() => {
   syncIconFromStorage();
+
+  if (chrome.tabs && chrome.scripting) {
+    chrome.tabs.query({ url: ['*://*.atlassian.net/*'] }, (tabs) => {
+      if (!tabs) return;
+      tabs.forEach((tab) => {
+        if (!tab.id) return;
+        chrome.scripting.insertCSS(
+          {
+            target: { tabId: tab.id },
+            files: ['styles.css']
+          },
+          () => void chrome.runtime.lastError
+        );
+        chrome.scripting.executeScript(
+          {
+            target: { tabId: tab.id },
+            files: ['db.js', 'content.js']
+          },
+          () => void chrome.runtime.lastError
+        );
+      });
+    });
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
