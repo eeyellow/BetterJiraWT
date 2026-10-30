@@ -588,6 +588,7 @@ html[data-betterjira-theme="Bootstrap"] [data-testid="atlassian-navigation"] {
   border-bottom: 2px solid var(--bjwt-bs-primary) !important;
 }
 
+html[data-betterjira-theme="Bootstrap"] .bjwt-history-sprint-container,
 html[data-betterjira-theme="Bootstrap"] [data-testid*="software-backlog.card-list.container"],
 html[data-betterjira-theme="Bootstrap"] [data-bjwt-sprint-container="true"],
 html[data-betterjira-theme="Bootstrap"] .ghx-backlog-container {
@@ -702,6 +703,7 @@ html[data-betterjira-theme="MaterialDesign"] [data-testid="atlassian-navigation"
   box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14) !important;
 }
 
+html[data-betterjira-theme="MaterialDesign"] .bjwt-history-sprint-container,
 html[data-betterjira-theme="MaterialDesign"] [data-testid*="software-backlog.card-list.container"],
 html[data-betterjira-theme="MaterialDesign"] [data-bjwt-sprint-container="true"],
 html[data-betterjira-theme="MaterialDesign"] .ghx-backlog-container {
@@ -1058,12 +1060,11 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
   color: #f59e0b !important;
 }
 
-/* 右欄歷史 Sprint 容器與卡片 (相容深色與淺色模式，對齊原生 Jira Backlog 卡片風格) */
+/* 右欄衝刺容器與卡片 (相容深色與淺色模式，對齊左欄邊框風格) */
 .bjwt-history-sprint-container {
   background: var(--ds-surface-sunken, #161a1d) !important;
-  border: 1px solid var(--ds-border, #38414a) !important;
-  border-top: 3px solid #d97706 !important;
-  border-radius: 8px !important;
+  border: 1px solid var(--ds-border, #dfe1e6) !important;
+  border-radius: 6px !important;
   padding: 10px !important;
 }
 
@@ -1114,7 +1115,7 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   gap: 10px !important;
   padding: 8px 12px !important;
   background: var(--ds-surface-raised, #22272b) !important;
-  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+  border: 1px solid var(--ds-border, #dfe1e6) !important;
   border-radius: 6px !important;
   margin-bottom: 8px !important;
 }
