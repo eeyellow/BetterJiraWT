@@ -88,7 +88,7 @@
             </button>
           </div>
           <p class="helper-text">
-            設定儲存於前端 IndexedDB，瀏覽器關閉重啟後仍會保留，且符合此網址的頁面將自動套用左右兩欄衝刺排版與選定樣式。
+            設定儲存於前端 IndexedDB，瀏覽器關閉重啟後仍會保留。
           </p>
         </div>
         <div class="modal-footer">
@@ -98,7 +98,7 @@
       </div>
     </div>
 
-    <!-- 彈出視窗 1.2：設定 - 樣式 -->
+    <!-- 彈出視窗 1.2：設定 - 樣式 (僅保留標題，精簡高度) -->
     <div class="modal-overlay hidden" id="styleModal">
       <div class="modal-card">
         <div class="modal-header">
@@ -106,41 +106,31 @@
           <button class="close-btn" id="closeStyleModalBtn" type="button" aria-label="關閉">✕</button>
         </div>
         <div class="modal-body">
-          <p class="input-label">選擇套用於待辦事項頁面的預設樣式：</p>
           <div class="style-options" id="styleOptionsList">
             <!-- 預設 (Default) 選項 -->
             <label class="style-option-card" data-style="Default">
               <input type="radio" name="themeStyle" value="Default" />
-              <div class="style-option-info">
-                <div class="style-option-title">
-                  <span class="style-swatch swatch-default">J</span>
-                  <strong>預設</strong>
-                </div>
-                <p class="style-option-desc">保持原本 Jira 的配色與卡片樣式，僅套用擴充功能的排版與功能。</p>
+              <div class="style-option-title">
+                <span class="style-swatch swatch-default">J</span>
+                <strong>預設</strong>
               </div>
             </label>
 
             <!-- Bootstrap 選項 -->
             <label class="style-option-card" data-style="Bootstrap">
               <input type="radio" name="themeStyle" value="Bootstrap" />
-              <div class="style-option-info">
-                <div class="style-option-title">
-                  <span class="style-swatch swatch-bootstrap">B</span>
-                  <strong>Bootstrap</strong>
-                </div>
-                <p class="style-option-desc">經典 Bootstrap 5 色彩系統、圓角卡片、清晰邊框與標籤徽章風格。</p>
+              <div class="style-option-title">
+                <span class="style-swatch swatch-bootstrap">B</span>
+                <strong>Bootstrap</strong>
               </div>
             </label>
 
             <!-- MaterialDesign 選項 -->
             <label class="style-option-card" data-style="MaterialDesign">
               <input type="radio" name="themeStyle" value="MaterialDesign" />
-              <div class="style-option-info">
-                <div class="style-option-title">
-                  <span class="style-swatch swatch-material">M</span>
-                  <strong>MaterialDesign</strong>
-                </div>
-                <p class="style-option-desc">Google Material Design 層次陰影 (Elevation)、圓潤膠囊按鈕與現代化排版。</p>
+              <div class="style-option-title">
+                <span class="style-swatch swatch-material">M</span>
+                <strong>MaterialDesign</strong>
               </div>
             </label>
           </div>

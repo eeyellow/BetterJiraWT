@@ -1,16 +1,17 @@
 /**
  * BetterJiraWT Content Script
  * 1. 偵測當前網址是否符合設定的「待辦事項網址」
- * 2. 套用選定樣式：預設 (Default) / Bootstrap / MaterialDesign
+ * 2. 套用選定樣式：預設 (Default) / Bootstrap / MaterialDesign (透過 Extension Icon 呈現狀態，不在右下角顯示徽章)
  * 3. 將「待辦事項」頁面改為左右兩欄排版：
- *    - 左欄約 20%：放置衝刺 (Sprints) 清單，每次只能切換選取一個衝刺
+ *    - 左欄約 20%：放置衝刺 (Sprints) 清單，顯示真實衝刺名稱，支援長清單捲動，每次只能切換一個衝刺
  *    - 右欄約 80%：顯示目前選取衝刺中的卡片
+ * 4. 點擊右欄卡片時，不將右欄切半，改以置中 Modal 彈出視窗完整呈現卡片詳細內容
  */
 (() => {
   const THEME_ATTR = 'data-betterjira-theme';
   const LAYOUT_ACTIVE_ATTR = 'data-betterjira-layout';
-  const BADGE_ID = 'betterjira-wt-floating-badge';
   const SIDEBAR_ID = 'bjwt-sprint-sidebar';
+  const MODAL_BACKDROP_ID = 'bjwt-issue-modal-backdrop';
 
   const SPRINT_SELECTORS = [
     '[data-testid="software-backlog.card-list.container"]',
@@ -30,6 +31,35 @@
     '.ghx-issue-compact',
     '.sprint-card'
   ];
+
+  const ISSUE_DETAIL_SELECTORS = [
+    '[data-testid="issue.views.issue-details.issue-layout.issue-view"]',
+    '[data-testid*="issue.views.issue-details.issue-layout"]',
+    '[data-testid*="issue.views.issue-base.foundation.summary"]',
+    '[data-testid*="issue-view-layout-templates"]',
+    '[data-testid*="backlog-content.issue-detail"]',
+    '[data-testid*="issue-detail"]',
+    '#jira-issue-header',
+    '#ghx-detail-view',
+    '.ghx-detail-view'
+  ];
+
+  const IGNORED_BUTTON_TEXTS = new Set([
+    '完成衝刺',
+    '開始衝刺',
+    '建立衝刺',
+    '編輯衝刺',
+    '刪除衝刺',
+    '建立問題',
+    '更多動作',
+    'complete sprint',
+    'start sprint',
+    'create sprint',
+    'edit sprint',
+    'delete sprint',
+    'create issue',
+    'more actions'
+  ]);
 
   let currentSettings = {
     backlogUrl: '',
@@ -65,14 +95,27 @@
     );
   }
 
+  function syncExtensionIcon(themeStyle) {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage(
+        {
+          type: 'BETTER_JIRA_WT_UPDATE_ICON',
+          themeStyle: themeStyle || 'Default'
+        },
+        () => {
+          void chrome.runtime.lastError;
+        }
+      );
+    }
+  }
+
   /**
-   * 尋找頁面上所有的衝刺 (Sprint / Backlog) 風琴夾容器
+   * 尋找頁面上所有的衝刺 (Sprint / Backlog) 容器
    */
   function findSprintContainers() {
     for (const selector of SPRINT_SELECTORS) {
       const nodes = Array.from(document.querySelectorAll(selector));
       if (nodes.length > 0) {
-        // 過濾掉被其他容器包住的子元素，只保留最外層的各個衝刺容器
         const topLevel = nodes.filter(
           (el) => !nodes.some((other) => other !== el && other.contains(el))
         );
@@ -103,103 +146,210 @@
   }
 
   /**
-   * 確保被選取的衝刺若是折疊狀態 (風琴夾收合)，自動將其展開以顯示內部卡片
+   * 檢查元素是否位於某張卡片內部 (避免誤把卡片標題當成衝刺名稱)
    */
-  function ensureSprintExpanded(sprintEl) {
-    if (!sprintEl) return;
-
-    // 1. Jira Cloud 風琴夾按鈕通常帶有 aria-expanded="false"
-    const headerArea =
-      sprintEl.querySelector(
-        '[data-testid*="card-list.header"], [data-testid*="header"], .ghx-backlog-header, header'
-      ) || sprintEl;
-
-    const collapsedBtns = headerArea.querySelectorAll('[aria-expanded="false"]');
-    collapsedBtns.forEach((btn) => {
-      // 避免誤點選單按鈕 (如 aria-haspopup="true")
-      if (!btn.hasAttribute('aria-haspopup')) {
-        btn.click();
-      }
-    });
-
-    // 2. Jira Server / Data Center 折疊樣式 (.ghx-closed)
-    if (sprintEl.classList.contains('ghx-closed')) {
-      const expander = sprintEl.querySelector('.ghx-expander, .js-expander');
-      if (expander) {
-        expander.click();
-      } else {
-        sprintEl.classList.remove('ghx-closed');
-      }
+  function isInsideCard(el) {
+    if (!el || !(el instanceof Element)) return false;
+    for (const sel of CARD_SELECTORS) {
+      if (el.closest(sel)) return true;
     }
-
-    // 3. 原生 <details> 風琴夾
-    if (sprintEl.tagName === 'DETAILS' && !sprintEl.open) {
-      sprintEl.open = true;
-    }
+    return false;
   }
 
   /**
-   * 擷取衝刺的標題、卡片數量與狀態資訊，供左欄 20% 衝刺切換器顯示
+   * 檢查文字是否為有意義的衝刺名稱 (過濾純數字、純問題數量、按鈕文字等)
    */
-  function extractSprintMeta(sprintEl, index) {
-    const headerEl =
-      sprintEl.querySelector(
-        '[data-testid*="card-list.header"], [data-testid*="header"], .ghx-backlog-header, header, summary, .sprint-header'
-      ) || sprintEl;
+  function isValidSprintTitleCandidate(text) {
+    if (!text) return false;
+    const cleaned = text.replace(/\s+/g, ' ').trim();
+    if (!cleaned || cleaned.length < 2) return false;
+    if (IGNORED_BUTTON_TEXTS.has(cleaned.toLowerCase())) return false;
+    // 過濾純問題數，如 "12 個問題"、"(5 issues)"、"0 張卡片"
+    if (/^\(?(\d+)\s*(個問題|issues?|張卡片|cards?|items?|點|points?)\)?$/i.test(cleaned)) {
+      return false;
+    }
+    // 過濾純數字或純符號
+    if (/^[\d\s.,()\-+/]+$/.test(cleaned)) {
+      return false;
+    }
+    return true;
+  }
 
-    // 嘗試取得衝刺名稱
-    const titleSelectors = [
+  /**
+   * 確保被選取的衝刺若是折疊狀態 (風琴夾收合)，自動將其展開以顯示內部卡片
+   */
+  function ensureSprintExpanded(branchEl, sprintEl, headerPartner) {
+    const roots = [headerPartner, branchEl, sprintEl].filter(Boolean);
+    const visited = new Set();
+
+    roots.forEach((root) => {
+      // 1. Jira Cloud 風琴夾按鈕通常帶有 aria-expanded="false"
+      const collapsedBtns = root.querySelectorAll('[aria-expanded="false"]');
+      collapsedBtns.forEach((btn) => {
+        if (visited.has(btn)) return;
+        visited.add(btn);
+        if (!btn.hasAttribute('aria-haspopup') && !isInsideCard(btn)) {
+          btn.click();
+        }
+      });
+
+      // 2. Jira Server / Data Center 折疊樣式 (.ghx-closed)
+      if (root.classList && root.classList.contains('ghx-closed')) {
+        const expander = root.querySelector('.ghx-expander, .js-expander');
+        if (expander) {
+          expander.click();
+        } else {
+          root.classList.remove('ghx-closed');
+        }
+      }
+
+      // 3. 原生 <details> 風琴夾
+      if (root.tagName === 'DETAILS' && !root.open) {
+        root.open = true;
+      }
+    });
+  }
+
+  /**
+   * 擷取衝刺的真實名稱與卡片數量
+   * 同時搜尋整個衝刺分支 (branch)、標頭兄弟節點 (headerPartner) 與容器 (sprintEl)
+   */
+  function extractSprintMeta(branchEl, sprintEl, headerPartner, index) {
+    const searchRoots = [headerPartner, branchEl, sprintEl, sprintEl.parentElement].filter(Boolean);
+
+    let title = '';
+
+    // 1. 優先從明確的標題 Selector 尋找 (排除卡片內部元素)
+    const explicitSelectors = [
       '[data-testid*="sprint-name"]',
       '[data-testid*="header.title"]',
+      '[data-testid*="backlog-header"]',
       '[data-testid*="card-list.header"] h2',
+      '[data-testid*="card-list.header"] h3',
       '[data-testid*="card-list.header"] [role="heading"]',
+      '[data-testid*="header"] h2',
+      '[data-testid*="header"] h3',
+      '[data-testid*="header"] [role="heading"]',
       '.ghx-name',
       'h2',
       'h3',
       'h4',
-      '[role="heading"]',
-      'strong'
+      '[role="heading"]'
     ];
 
-    let title = '';
-    for (const sel of titleSelectors) {
-      const found = headerEl.querySelector(sel);
-      if (found && found.textContent && found.textContent.trim()) {
-        title = found.textContent.trim();
-        break;
+    for (const root of searchRoots) {
+      if (title) break;
+      for (const sel of explicitSelectors) {
+        const matches = root.querySelectorAll(sel);
+        for (const el of matches) {
+          if (isInsideCard(el)) continue;
+          const candidate = (el.textContent || '').replace(/\s+/g, ' ').trim();
+          if (isValidSprintTitleCandidate(candidate)) {
+            title = candidate;
+            break;
+          }
+        }
+        if (title) break;
+      }
+    }
+
+    // 2. 檢查是否有 inline-edit 的 <input> 儲存衝刺名稱
+    if (!title) {
+      for (const root of searchRoots) {
+        const inputs = root.querySelectorAll('input[type="text"], input:not([type])');
+        for (const inp of inputs) {
+          if (isInsideCard(inp)) continue;
+          const val = (inp.value || '').trim();
+          if (isValidSprintTitleCandidate(val)) {
+            title = val;
+            break;
+          }
+        }
+        if (title) break;
+      }
+    }
+
+    // 3. 檢查容器或風琴夾按鈕上的 aria-label
+    if (!title) {
+      for (const root of searchRoots) {
+        const ariaNodes = [
+          root,
+          ...Array.from(root.querySelectorAll('[aria-expanded], [role="region"], [data-testid*="header"]'))
+        ];
+        for (const node of ariaNodes) {
+          if (!node || !(node instanceof Element) || isInsideCard(node)) continue;
+          const label = (node.getAttribute('aria-label') || '').trim();
+          if (isValidSprintTitleCandidate(label)) {
+            title = label;
+            break;
+          }
+        }
+        if (title) break;
+      }
+    }
+
+    // 4. 走訪非卡片區域的文字節點，取第一個有意義的標頭文字 (即衝刺名稱)
+    if (!title) {
+      for (const root of searchRoots) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+          acceptNode(node) {
+            const parent = node.parentElement;
+            if (!parent) return NodeFilter.FILTER_REJECT;
+            if (isInsideCard(parent)) return NodeFilter.FILTER_REJECT;
+            if (parent.closest('button') && !parent.closest('[aria-expanded]')) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            const txt = (node.nodeValue || '').replace(/\s+/g, ' ').trim();
+            return isValidSprintTitleCandidate(txt)
+              ? NodeFilter.FILTER_ACCEPT
+              : NodeFilter.FILTER_SKIP;
+          }
+        });
+        const firstTextNode = walker.nextNode();
+        if (firstTextNode) {
+          title = firstTextNode.nodeValue.replace(/\s+/g, ' ').trim();
+          break;
+        }
       }
     }
 
     if (!title) {
-      const rawText = (headerEl.innerText || headerEl.textContent || '').trim();
-      const firstLine = rawText.split('\n').map((s) => s.trim()).find(Boolean);
-      title = firstLine || `衝刺 ${index + 1}`;
+      title = `衝刺 ${index + 1}`;
     }
 
-    // 計算卡片數量 (扣除被巢狀選取的元素)
+    // 計算卡片數量
     let cardNodes = [];
-    for (const cardSel of CARD_SELECTORS) {
-      const foundCards = Array.from(sprintEl.querySelectorAll(cardSel));
-      if (foundCards.length > 0) {
-        cardNodes = foundCards.filter(
-          (c) => !foundCards.some((other) => other !== c && other.contains(c))
-        );
-        break;
+    for (const root of [branchEl, sprintEl]) {
+      if (!root) continue;
+      for (const cardSel of CARD_SELECTORS) {
+        const foundCards = Array.from(root.querySelectorAll(cardSel));
+        if (foundCards.length > 0) {
+          cardNodes = foundCards.filter(
+            (c) => !foundCards.some((other) => other !== c && other.contains(c))
+          );
+          break;
+        }
       }
+      if (cardNodes.length > 0) break;
     }
 
     let cardCount = cardNodes.length;
     if (cardCount === 0) {
-      // 若風琴夾尚未渲染卡片，嘗試從標頭文字解析問題數量，例如 "12 個問題" 或 "12 issues"
-      const headerText = (headerEl.innerText || headerEl.textContent || '').replace(/\s+/g, ' ');
-      const countMatch = headerText.match(/(\d+)\s*(個問題|issues?|張卡片|cards?|items?)/i);
-      if (countMatch) {
-        cardCount = parseInt(countMatch[1], 10);
+      for (const root of searchRoots) {
+        const headerEl =
+          root.querySelector('[data-testid*="header"], .ghx-backlog-header, header') || root;
+        const headerText = (headerEl.innerText || headerEl.textContent || '').replace(/\s+/g, ' ');
+        const countMatch = headerText.match(/(\d+)\s*(個問題|issues?|張卡片|cards?|items?)/i);
+        if (countMatch) {
+          cardCount = parseInt(countMatch[1], 10);
+          break;
+        }
       }
     }
 
     const key =
       sprintEl.getAttribute('data-sprint-id') ||
+      branchEl.getAttribute('data-sprint-id') ||
       sprintEl.getAttribute('id') ||
       `${index}__${title}`;
 
@@ -217,40 +367,63 @@
   function applyTwoColumnBacklogLayout() {
     const sprintContainers = findSprintContainers();
     if (sprintContainers.length === 0) {
-      return;
+      return null;
     }
 
     const sprintsHost = findLowestCommonAncestor(sprintContainers);
-    if (!sprintsHost) return;
+    if (!sprintsHost) return null;
 
     isMutatingInternal = true;
     try {
-      // 標記共同父容器為雙欄 Flex 容器
       sprintsHost.setAttribute('data-bjwt-layout-host', 'true');
 
       // 找出每個衝刺在 sprintsHost 下的直接子節點 (branch)
-      const sprintBranches = sprintContainers.map((sprintEl, idx) => {
+      const branchSet = new Set();
+      const rawSprintItems = sprintContainers.map((sprintEl) => {
         let branch = sprintEl;
         while (branch.parentElement && branch.parentElement !== sprintsHost) {
           branch = branch.parentElement;
         }
+        branchSet.add(branch);
+        return { sprintEl, branch };
+      });
+
+      // 若某個衝刺的標頭是 branch 的前一個兄弟節點 (headerPartner)，將其配對關聯
+      const sprintBranches = rawSprintItems.map((item, idx) => {
+        const { sprintEl, branch } = item;
+        let headerPartner = null;
+        const prev = branch.previousElementSibling;
+        if (
+          prev &&
+          prev.id !== SIDEBAR_ID &&
+          !branchSet.has(prev) &&
+          (prev.matches('[data-testid*="header"], header, .ghx-backlog-header') ||
+            prev.querySelector('[data-testid*="header"], h2, h3, [role="heading"], [aria-expanded]'))
+        ) {
+          headerPartner = prev;
+          headerPartner.setAttribute('data-bjwt-sprint-header-partner', 'true');
+        }
+
         sprintEl.setAttribute('data-bjwt-sprint-container', 'true');
         branch.setAttribute('data-bjwt-sprint-branch', 'true');
         branch.setAttribute('data-bjwt-sprint-index', String(idx));
-        return { sprintEl, branch, meta: extractSprintMeta(sprintEl, idx) };
+
+        const meta = extractSprintMeta(branch, sprintEl, headerPartner, idx);
+        return { sprintEl, branch, headerPartner, meta };
       });
 
-      // 標記 sprintsHost 下非衝刺、也非側邊欄的其他直接子元素 (例如頂部篩選列)
+      // 標記 sprintsHost 下非衝刺、也非側邊欄的其他直接子元素
       Array.from(sprintsHost.children).forEach((child) => {
         if (
           child.id !== SIDEBAR_ID &&
-          !child.hasAttribute('data-bjwt-sprint-branch')
+          !child.hasAttribute('data-bjwt-sprint-branch') &&
+          !child.hasAttribute('data-bjwt-sprint-header-partner')
         ) {
           child.setAttribute('data-bjwt-non-sprint-child', 'true');
         }
       });
 
-      // 決定目前選取的衝刺索引 (每次只能選取一個衝刺)
+      // 決定目前選取的衝刺索引 (每次只能切換一個衝刺)
       let resolvedIndex = 0;
       if (activeSprintKey !== null) {
         const foundByKey = sprintBranches.findIndex((item) => item.meta.key === activeSprintKey);
@@ -269,10 +442,14 @@
       // 切換右欄 80%：只顯示目前選取的衝刺，其餘衝刺隱藏，並確保選取的衝刺展開卡片
       sprintBranches.forEach((item, idx) => {
         const isSelected = idx === resolvedIndex;
-        item.branch.setAttribute('data-bjwt-sprint-active', isSelected ? 'true' : 'false');
-        item.sprintEl.setAttribute('data-bjwt-sprint-active', isSelected ? 'true' : 'false');
+        const activeVal = isSelected ? 'true' : 'false';
+        item.branch.setAttribute('data-bjwt-sprint-active', activeVal);
+        item.sprintEl.setAttribute('data-bjwt-sprint-active', activeVal);
+        if (item.headerPartner) {
+          item.headerPartner.setAttribute('data-bjwt-sprint-active', activeVal);
+        }
         if (isSelected) {
-          ensureSprintExpanded(item.sprintEl);
+          ensureSprintExpanded(item.branch, item.sprintEl, item.headerPartner);
         }
       });
 
@@ -283,18 +460,31 @@
         sidebar.id = SIDEBAR_ID;
       }
 
-      // 確保 sidebar 位於第一個衝刺 branch 之前
-      const firstBranch = sprintBranches[0].branch;
-      if (sidebar.parentElement !== sprintsHost || sidebar.nextElementSibling !== firstBranch) {
-        sprintsHost.insertBefore(sidebar, firstBranch);
+      const firstTarget = sprintBranches[0].headerPartner || sprintBranches[0].branch;
+      if (sidebar.parentElement !== sprintsHost || sidebar.nextElementSibling !== firstTarget) {
+        sprintsHost.insertBefore(sidebar, firstTarget);
       }
 
+      updateSidebarMaxHeight(sidebar);
       renderSidebarContents(sidebar, sprintBranches, resolvedIndex);
     } finally {
       setTimeout(() => {
         isMutatingInternal = false;
       }, 50);
     }
+
+    return sprintsHost;
+  }
+
+  /**
+   * 動態計算左欄可用高度，確保衝刺清單過長時可順暢捲動且不被裁切
+   */
+  function updateSidebarMaxHeight(sidebar) {
+    if (!sidebar) return;
+    const rect = sidebar.getBoundingClientRect();
+    const topOffset = rect.top > 0 ? rect.top : 120;
+    const maxH = Math.max(220, window.innerHeight - topOffset - 20);
+    sidebar.style.setProperty('--bjwt-sidebar-max-h', `${maxH}px`);
   }
 
   /**
@@ -310,15 +500,17 @@
       }))
     });
 
-    // 若內容未變更則不重複重建 DOM
     if (sidebar.getAttribute('data-bjwt-sig') === signature) {
       return;
     }
     sidebar.setAttribute('data-bjwt-sig', signature);
 
+    const prevList = sidebar.querySelector('.bjwt-sprint-list');
+    const prevScrollTop = prevList ? prevList.scrollTop : 0;
+
     sidebar.innerHTML = `
       <div class="bjwt-sidebar-header">
-        <span class="bjwt-sidebar-title">衝刺清單 (Sprints)</span>
+        <span class="bjwt-sidebar-title">衝刺清單</span>
         <span class="bjwt-sidebar-count">${sprintBranches.length}</span>
       </div>
       <div class="bjwt-sprint-list" role="tablist" aria-label="衝刺切換清單"></div>
@@ -347,6 +539,160 @@
 
       listEl.appendChild(btn);
     });
+
+    if (prevScrollTop > 0) {
+      listEl.scrollTop = prevScrollTop;
+    }
+  }
+
+  /**
+   * 將 Jira 點擊卡片後右側切半的詳細面板，轉換為置中彈出的 Modal 視窗
+   */
+  function applyIssueDetailModalTransform(sprintsHost) {
+    const host = sprintsHost || document.querySelector('[data-bjwt-layout-host="true"]');
+    if (!host) {
+      cleanupIssueModalAttributes();
+      return;
+    }
+
+    // 尋找不在 sprintsHost 內、也非原生 dialog 內的卡片詳細內容區塊
+    let issueInner = null;
+    for (const sel of ISSUE_DETAIL_SELECTORS) {
+      const candidates = Array.from(document.querySelectorAll(sel));
+      const found = candidates.find(
+        (el) =>
+          !host.contains(el) &&
+          !el.closest('[role="dialog"]') &&
+          el.offsetParent !== null
+      );
+      if (found) {
+        issueInner = found;
+        break;
+      }
+    }
+
+    if (!issueInner) {
+      cleanupIssueModalAttributes();
+      return;
+    }
+
+    // 往上尋找與 sprintsHost 共享同一個父容器 (splitContainer) 的右側面板根節點
+    let modalPane = issueInner;
+    while (
+      modalPane.parentElement &&
+      modalPane.parentElement !== document.body &&
+      !modalPane.parentElement.contains(host)
+    ) {
+      modalPane = modalPane.parentElement;
+    }
+
+    const splitContainer = modalPane.parentElement;
+    if (!splitContainer || !splitContainer.contains(host)) {
+      cleanupIssueModalAttributes();
+      return;
+    }
+
+    isMutatingInternal = true;
+    try {
+      // 清除舊標記但保留 backdrop
+      document.querySelectorAll('[data-bjwt-issue-modal]').forEach((el) => {
+        if (el !== modalPane) el.removeAttribute('data-bjwt-issue-modal');
+      });
+
+      splitContainer.setAttribute('data-bjwt-split-container', 'true');
+      modalPane.setAttribute('data-bjwt-issue-modal', 'true');
+
+      // 將從 sprintsHost 到 splitContainer 之間的所有左側祖先鏈標記為 100% 寬度，防止右欄被切半
+      let chainNode = host;
+      while (chainNode && chainNode !== splitContainer && chainNode !== document.body) {
+        chainNode.setAttribute('data-bjwt-backlog-pane', 'true');
+        chainNode = chainNode.parentElement;
+      }
+
+      // 隱藏分割線 (resizer / separator)
+      Array.from(splitContainer.children).forEach((child) => {
+        if (
+          child !== modalPane &&
+          !child.contains(host) &&
+          child.id !== MODAL_BACKDROP_ID
+        ) {
+          child.setAttribute('data-bjwt-resizer-hide', 'true');
+        }
+      });
+
+      ensureModalBackdrop(modalPane);
+    } finally {
+      setTimeout(() => {
+        isMutatingInternal = false;
+      }, 50);
+    }
+  }
+
+  function ensureModalBackdrop(modalPane) {
+    let backdrop = document.getElementById(MODAL_BACKDROP_ID);
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.id = MODAL_BACKDROP_ID;
+      backdrop.setAttribute('title', '點擊背景關閉卡片視窗');
+      backdrop.addEventListener('click', () => {
+        closeIssueDetailModal(modalPane);
+      });
+      document.body.appendChild(backdrop);
+    }
+  }
+
+  function closeIssueDetailModal(modalPane) {
+    const pane = modalPane || document.querySelector('[data-bjwt-issue-modal="true"]');
+    if (pane) {
+      const closeSelectors = [
+        '[data-testid*="close-button"] button',
+        '[data-testid*="close-button"]',
+        '[data-testid*="dismiss"]',
+        'button[aria-label*="關閉"]',
+        'button[aria-label*="Close"]',
+        'button[aria-label*="close"]',
+        '.js-detail-close',
+        '.ghx-Controls button'
+      ];
+      for (const sel of closeSelectors) {
+        const closeBtn = pane.querySelector(sel);
+        if (closeBtn && typeof closeBtn.click === 'function') {
+          closeBtn.click();
+          return;
+        }
+      }
+    }
+
+    // 若找不到關閉按鈕，嘗試移除網址中的 selectedIssue 參數並觸發返回
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('selectedIssue')) {
+        url.searchParams.delete('selectedIssue');
+        window.history.pushState({}, '', url.toString());
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  function cleanupIssueModalAttributes() {
+    const backdrop = document.getElementById(MODAL_BACKDROP_ID);
+    if (backdrop) {
+      backdrop.remove();
+    }
+    document.querySelectorAll('[data-bjwt-issue-modal]').forEach((el) => {
+      el.removeAttribute('data-bjwt-issue-modal');
+    });
+    document.querySelectorAll('[data-bjwt-split-container]').forEach((el) => {
+      el.removeAttribute('data-bjwt-split-container');
+    });
+    document.querySelectorAll('[data-bjwt-backlog-pane]').forEach((el) => {
+      el.removeAttribute('data-bjwt-backlog-pane');
+    });
+    document.querySelectorAll('[data-bjwt-resizer-hide]').forEach((el) => {
+      el.removeAttribute('data-bjwt-resizer-hide');
+    });
   }
 
   function escapeHtml(str) {
@@ -366,6 +712,8 @@
       sidebar.remove();
     }
 
+    cleanupIssueModalAttributes();
+
     document.querySelectorAll('[data-bjwt-layout-host]').forEach((el) => {
       el.removeAttribute('data-bjwt-layout-host');
     });
@@ -373,6 +721,11 @@
     document.querySelectorAll('[data-bjwt-sprint-branch]').forEach((el) => {
       el.removeAttribute('data-bjwt-sprint-branch');
       el.removeAttribute('data-bjwt-sprint-index');
+      el.removeAttribute('data-bjwt-sprint-active');
+    });
+
+    document.querySelectorAll('[data-bjwt-sprint-header-partner]').forEach((el) => {
+      el.removeAttribute('data-bjwt-sprint-header-partner');
       el.removeAttribute('data-bjwt-sprint-active');
     });
 
@@ -396,7 +749,6 @@
         document.body.removeAttribute(LAYOUT_ACTIVE_ATTR);
       }
       teardownTwoColumnBacklogLayout();
-      removeFloatingBadge();
       return;
     }
 
@@ -408,34 +760,8 @@
       document.body.setAttribute(LAYOUT_ACTIVE_ATTR, 'two-column');
     }
 
-    applyTwoColumnBacklogLayout();
-    renderFloatingBadge(activeStyle);
-  }
-
-  function renderFloatingBadge(activeStyle) {
-    if (!document.body) return;
-
-    let badge = document.getElementById(BADGE_ID);
-    if (!badge) {
-      badge = document.createElement('div');
-      badge.id = BADGE_ID;
-      document.body.appendChild(badge);
-    }
-
-    const styleLabel = BetterJiraDB.getStyleLabel(activeStyle);
-    badge.setAttribute('data-style', activeStyle);
-    badge.innerHTML = `
-      <span class="bjwt-dot"></span>
-      <span class="bjwt-title">BetterJiraWT</span>
-      <span class="bjwt-pill">${styleLabel}</span>
-    `;
-  }
-
-  function removeFloatingBadge() {
-    const badge = document.getElementById(BADGE_ID);
-    if (badge) {
-      badge.remove();
-    }
+    const sprintsHost = applyTwoColumnBacklogLayout();
+    applyIssueDetailModalTransform(sprintsHost);
   }
 
   function evaluateAndApply() {
@@ -453,11 +779,29 @@
     });
   }
 
+  // 按下 ESC 鍵時可關閉卡片 Modal
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const openModal = document.querySelector('[data-bjwt-issue-modal="true"]');
+      if (openModal) {
+        closeIssueDetailModal(openModal);
+      }
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    const sidebar = document.getElementById(SIDEBAR_ID);
+    if (sidebar) {
+      updateSidebarMaxHeight(sidebar);
+    }
+  });
+
   async function init() {
     try {
       const settings = await BetterJiraDB.getSettings();
       currentSettings = settings;
       await BetterJiraDB.syncFromObject(settings);
+      syncExtensionIcon(currentSettings.themeStyle);
       evaluateAndApply();
     } catch (err) {
       console.warn('[BetterJiraWT] Initialization error:', err);
@@ -469,6 +813,7 @@
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message && message.type === 'BETTER_JIRA_WT_SETTINGS_UPDATED' && message.payload) {
         currentSettings = message.payload;
+        syncExtensionIcon(currentSettings.themeStyle);
         BetterJiraDB.syncFromObject(currentSettings).then(() => {
           evaluateAndApply();
           sendResponse({ ok: true });
@@ -487,6 +832,7 @@
         }
         if (changes.themeStyle) {
           currentSettings.themeStyle = changes.themeStyle.newValue;
+          syncExtensionIcon(currentSettings.themeStyle);
         }
         BetterJiraDB.syncFromObject(currentSettings).then(() => {
           evaluateAndApply();
@@ -495,15 +841,14 @@
     });
   }
 
-  // 監聽 Jira SPA 路由切換與非同步衝刺載入
+  // 監聽 Jira SPA 路由切換、非同步衝刺載入與點擊卡片開啟詳細區
   const observer = new MutationObserver((mutations) => {
     if (isMutatingInternal) return;
 
-    // 忽略僅發生在浮動徽章或側邊欄內部的變更
     const isExternalChange = mutations.some((m) => {
       const target = m.target;
       if (!target || !(target instanceof Element)) return true;
-      return !target.closest(`#${SIDEBAR_ID}`) && !target.closest(`#${BADGE_ID}`);
+      return !target.closest(`#${SIDEBAR_ID}`) && !target.closest(`#${MODAL_BACKDROP_ID}`);
     });
 
     if (isExternalChange) {

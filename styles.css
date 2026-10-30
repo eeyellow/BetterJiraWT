@@ -4,61 +4,6 @@
  */
 
 /* =========================================================
-   浮動狀態徽章 (右下角提示目前已啟用 BetterJiraWT 與套用樣式)
-   ========================================================= */
-#betterjira-wt-floating-badge {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 2147483640;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 12px;
-  font-weight: 600;
-  color: #172b4d;
-  background: #ffffff;
-  border: 1px solid #dfe1e6;
-  border-radius: 8px;
-  box-shadow: 0 4px 14px rgba(9, 30, 66, 0.15);
-  pointer-events: none;
-  user-select: none;
-  transition: all 0.25s ease;
-}
-
-#betterjira-wt-floating-badge .bjwt-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #198754;
-}
-
-#betterjira-wt-floating-badge .bjwt-pill {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #fff;
-  background: #0052cc;
-}
-
-#betterjira-wt-floating-badge[data-style="Bootstrap"] .bjwt-pill {
-  background: #0d6efd;
-}
-
-#betterjira-wt-floating-badge[data-style="MaterialDesign"] {
-  border-radius: 999px;
-  border-color: rgba(98, 0, 238, 0.2);
-  box-shadow: 0 6px 18px rgba(98, 0, 238, 0.22);
-}
-
-#betterjira-wt-floating-badge[data-style="MaterialDesign"] .bjwt-pill {
-  background: #6200ee;
-}
-
-/* =========================================================
    待辦事項雙欄排版 (左欄約 20% 衝刺清單 / 右欄約 80% 選取衝刺的卡片)
    ========================================================= */
 html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"] {
@@ -77,23 +22,27 @@ html[data-betterjira-layout="two-column"] [data-bjwt-non-sprint-child="true"] {
   width: 100% !important;
 }
 
-/* 左欄：約 20%，放衝刺清單，每次只能切換一個衝刺 */
+/* 左欄：約 20%，放衝刺清單，每次只能切換一個衝刺，支援捲動 */
 html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar {
   flex: 0 0 20% !important;
   width: 20% !important;
   max-width: 20% !important;
   min-width: 180px !important;
+  max-height: var(--bjwt-sidebar-max-h, calc(100vh - 140px)) !important;
+  display: flex !important;
+  flex-direction: column !important;
   position: sticky !important;
   top: 12px !important;
   box-sizing: border-box !important;
   background: var(--ds-surface-raised, #ffffff);
   border: 1px solid var(--ds-border, #dfe1e6);
   border-radius: 6px;
-  overflow: hidden;
+  overflow: hidden !important;
   z-index: 5;
 }
 
 .bjwt-sidebar-header {
+  flex: 0 0 auto !important;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -120,13 +69,34 @@ html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar {
 }
 
 .bjwt-sprint-list {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 160px);
-  overflow-y: auto;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
+}
+
+.bjwt-sprint-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.bjwt-sprint-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bjwt-sprint-list::-webkit-scrollbar-thumb {
+  background: rgba(9, 30, 66, 0.22);
+  border-radius: 999px;
+}
+
+.bjwt-sprint-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(9, 30, 66, 0.38);
 }
 
 .bjwt-sprint-tab {
+  flex: 0 0 auto;
   width: 100%;
   display: flex;
   align-items: center;
@@ -193,8 +163,16 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-
   box-sizing: border-box !important;
 }
 
-/* 隱藏所有未選取的衝刺 */
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="false"] {
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="true"] {
+  flex: 1 1 calc(80% - 16px) !important;
+  width: calc(80% - 16px) !important;
+  max-width: calc(80% - 16px) !important;
+  margin-left: auto !important;
+}
+
+/* 隱藏所有未選取的衝刺與其標頭 */
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="false"],
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="false"] {
   display: none !important;
 }
 
@@ -204,8 +182,53 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-container="true"][da
 }
 
 /* =========================================================
+   點擊卡片後：改以置中 Modal 彈出完整卡片內容，防止右欄被切半
+   ========================================================= */
+html[data-betterjira-layout="two-column"] [data-bjwt-backlog-pane="true"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: 1 1 100% !important;
+}
+
+html[data-betterjira-layout="two-column"] [data-bjwt-resizer-hide="true"] {
+  display: none !important;
+}
+
+#bjwt-issue-modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(9, 30, 66, 0.54) !important;
+  backdrop-filter: blur(2px) !important;
+  z-index: 340 !important;
+  cursor: pointer !important;
+}
+
+html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(92vw, 1140px) !important;
+  height: min(90vh, 860px) !important;
+  max-width: 92vw !important;
+  max-height: 90vh !important;
+  min-width: min(85vw, 760px) !important;
+  margin: 0 !important;
+  background: var(--ds-surface-overlay, #ffffff) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 24px 64px rgba(9, 30, 66, 0.45) !important;
+  z-index: 350 !important;
+  overflow: auto !important;
+  border: 1px solid var(--ds-border, #dfe1e6) !important;
+}
+
+html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] > * {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* =========================================================
    樣式 1：預設 (Default) - 保持原本 Jira 的樣式
-   (上方雙欄排版已使用 Jira 原生變數，不額外覆寫 Jira 原生配色與卡片外觀)
    ========================================================= */
 
 /* =========================================================
@@ -228,7 +251,6 @@ html[data-betterjira-theme="Bootstrap"] body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
 }
 
-/* 左欄 Bootstrap List-Group 風格 */
 html[data-betterjira-theme="Bootstrap"] #bjwt-sprint-sidebar {
   background: var(--bjwt-bs-surface);
   border: 1px solid var(--bjwt-bs-border);
@@ -260,14 +282,12 @@ html[data-betterjira-theme="Bootstrap"] .bjwt-sprint-tab.active .bjwt-sprint-tab
   color: var(--bjwt-bs-primary);
 }
 
-/* 頂部導覽列 */
 html[data-betterjira-theme="Bootstrap"] header,
 html[data-betterjira-theme="Bootstrap"] [data-testid="atlassian-navigation"] {
   background: linear-gradient(90deg, #212529 0%, #343a40 100%) !important;
   border-bottom: 2px solid var(--bjwt-bs-primary) !important;
 }
 
-/* 右欄 Sprint 容器 */
 html[data-betterjira-theme="Bootstrap"] [data-testid*="software-backlog.card-list.container"],
 html[data-betterjira-theme="Bootstrap"] [data-bjwt-sprint-container="true"],
 html[data-betterjira-theme="Bootstrap"] .ghx-backlog-container {
@@ -279,7 +299,6 @@ html[data-betterjira-theme="Bootstrap"] .ghx-backlog-container {
   padding: 8px !important;
 }
 
-/* 待辦事項列 (Issue Row / Card) */
 html[data-betterjira-theme="Bootstrap"] [data-testid*="software-backlog.card-list.card"],
 html[data-betterjira-theme="Bootstrap"] [data-testid*="issue-card"],
 html[data-betterjira-theme="Bootstrap"] .js-issue,
@@ -318,7 +337,6 @@ html[data-betterjira-theme="MaterialDesign"] body {
   font-family: Roboto, "Noto Sans TC", system-ui, -apple-system, sans-serif !important;
 }
 
-/* 左欄 Material Navigation Drawer 風格 */
 html[data-betterjira-theme="MaterialDesign"] #bjwt-sprint-sidebar {
   background: var(--bjwt-md-surface);
   border: none;
@@ -351,14 +369,12 @@ html[data-betterjira-theme="MaterialDesign"] .bjwt-sprint-tab.active .bjwt-sprin
   color: #ffffff;
 }
 
-/* 頂部導覽列 Material AppBar 風格 */
 html[data-betterjira-theme="MaterialDesign"] header,
 html[data-betterjira-theme="MaterialDesign"] [data-testid="atlassian-navigation"] {
   background: linear-gradient(135deg, #6200ee 0%, #3700b3 100%) !important;
   box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14) !important;
 }
 
-/* 右欄 Sprint 容器 Material Surface Elevation */
 html[data-betterjira-theme="MaterialDesign"] [data-testid*="software-backlog.card-list.container"],
 html[data-betterjira-theme="MaterialDesign"] [data-bjwt-sprint-container="true"],
 html[data-betterjira-theme="MaterialDesign"] .ghx-backlog-container {
@@ -369,7 +385,6 @@ html[data-betterjira-theme="MaterialDesign"] .ghx-backlog-container {
   padding: 12px !important;
 }
 
-/* 待辦事項列 (Issue Row / Card) Material Elevated Card */
 html[data-betterjira-theme="MaterialDesign"] [data-testid*="software-backlog.card-list.card"],
 html[data-betterjira-theme="MaterialDesign"] [data-testid*="issue-card"],
 html[data-betterjira-theme="MaterialDesign"] .js-issue,

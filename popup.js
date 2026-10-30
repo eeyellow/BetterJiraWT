@@ -26,6 +26,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const EXAMPLE_URL = 'https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog';
 
+  const ICON_MAP = {
+    Default: {
+      16: 'icons/icon_default_16.png',
+      48: 'icons/icon_default_48.png',
+      128: 'icons/icon_default_128.png'
+    },
+    Bootstrap: {
+      16: 'icons/icon_bootstrap_16.png',
+      48: 'icons/icon_bootstrap_48.png',
+      128: 'icons/icon_bootstrap_128.png'
+    },
+    MaterialDesign: {
+      16: 'icons/icon_material_16.png',
+      48: 'icons/icon_material_48.png',
+      128: 'icons/icon_material_128.png'
+    }
+  };
+
   let currentSettings = await BetterJiraDB.getSettings();
   renderUI(currentSettings);
 
@@ -103,7 +121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // 儲存樣式設定至 IndexedDB
+  // 儲存樣式設定至 IndexedDB 並更新 Extension Icon
   saveStyleBtn.addEventListener('click', async () => {
     const checkedRadio = document.querySelector('input[name="themeStyle"]:checked');
     const selectedStyle = checkedRadio ? checkedRadio.value : 'Default';
@@ -125,6 +143,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  function updateBrowserActionIcon(themeStyle) {
+    const styleKey = ICON_MAP[themeStyle] ? themeStyle : 'Default';
+    if (typeof chrome !== 'undefined' && chrome.action && chrome.action.setIcon) {
+      chrome.action.setIcon({ path: ICON_MAP[styleKey] });
+    }
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({ type: 'BETTER_JIRA_WT_UPDATE_ICON', themeStyle: styleKey }, () => {
+        void chrome.runtime.lastError;
+      });
+    }
+  }
+
   function renderUI(settings) {
     const { backlogUrl, themeStyle } = settings;
     const styleLabel = BetterJiraDB.getStyleLabel(themeStyle);
@@ -142,6 +172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     syncStyleSelection(themeStyle);
+    updateBrowserActionIcon(themeStyle);
   }
 
   function setStatusMessage(msg) {
@@ -160,7 +191,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 payload: settings
               },
               () => {
-                // 忽略未注入 content script 的系統分頁錯誤
                 void chrome.runtime.lastError;
               }
             );
