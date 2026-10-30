@@ -330,16 +330,13 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-
   background: rgba(9, 30, 66, 0.42);
 }
 
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="true"] {
-  flex: 1 1 calc(80% - 16px) !important;
-  width: calc(80% - 16px) !important;
-  max-width: calc(80% - 16px) !important;
-  margin-left: auto !important;
+/* 隱藏所有原生衝刺標頭夥伴 (避免原生標題殘留，統一由 BetterJiraWT 新設計的 Sprint Banner 呈現) */
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"] {
+  display: none !important;
 }
 
 /* 左欄收合時，右欄衝刺區域自動擴展填滿剩餘寬度 */
-html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"][data-bjwt-sidebar-collapsed="true"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="true"],
-html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"][data-bjwt-sidebar-collapsed="true"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="true"] {
+html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"][data-bjwt-sidebar-collapsed="true"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="true"] {
   flex: 1 1 calc(100% - 52px) !important;
   width: calc(100% - 52px) !important;
   max-width: calc(100% - 52px) !important;
@@ -349,11 +346,6 @@ html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"][data-bj
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="false"],
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="false"] {
   display: none !important;
-}
-
-/* 取消右欄選取衝刺的風琴夾折疊狀態，確保卡片永遠顯示 */
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-container="true"][data-bjwt-sprint-active="true"] .ghx-issues {
-  display: block !important;
 }
 
 /* =========================================================
@@ -1066,83 +1058,43 @@ html[data-betterjira-theme="MaterialDesign"] .sprint-card:hover {
   padding: 10px !important;
 }
 
-/* 隱藏未結束衝刺內的原生 Jira 卡片清單，改用自定義雙列卡片檢視 (避免原生跑版) */
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) [data-testid*="software-backlog.card-list.card"],
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) [data-testid*="issue-card"],
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) .ghx-issues,
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) .js-issue,
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) .ghx-issue-compact,
-html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) .sprint-card:not(.bjwt-history-card) {
+/* 徹底隱藏未結束衝刺內的所有原生 Jira 直屬子節點 (徹底消除原生標頭殘留、卡片容器與大塊空白) */
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.bjwt-active-sprint-custom-view) > *:not(.bjwt-active-sprint-custom-view) {
   display: none !important;
 }
 
-/* 未結束衝刺自定義檢視容器與控制列樣式 */
+/* 未結束衝刺自定義檢視容器與按鈕樣式 */
 .bjwt-active-sprint-custom-view {
   width: 100% !important;
   display: block !important;
 }
 
-.bjwt-active-sprint-container {
-  display: flex !important;
-  flex-direction: column !important;
-  width: 100% !important;
-  margin-top: 8px !important;
-  box-sizing: border-box !important;
+.bjwt-history-banner-badge.badge-active {
+  background: #059669 !important;
 }
 
-.bjwt-active-sprint-controls {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 12px !important;
-  padding: 8px 12px !important;
-  background: var(--ds-surface-raised, #22272b) !important;
-  border: 1px solid var(--ds-border, #2c333a) !important;
-  border-bottom: none !important;
-  border-radius: 6px 6px 0 0 !important;
-  box-sizing: border-box !important;
+.bjwt-history-banner-badge.badge-future {
+  background: #2563eb !important;
 }
 
-.bjwt-active-controls-left {
-  display: flex !important;
-  align-items: center !important;
-  gap: 10px !important;
-  min-width: 0 !important;
-}
-
-.bjwt-active-sprint-stat {
-  font-size: 12px !important;
-  font-weight: 500 !important;
-  color: var(--ds-text-subtle, #9fadbc) !important;
-  white-space: nowrap !important;
-}
-
-.bjwt-active-controls-right {
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-}
-
-.bjwt-active-refresh-btn {
+.bjwt-active-complete-btn {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 4px !important;
   height: 28px !important;
-  padding: 0 10px !important;
-  border: 1px solid var(--ds-border, #475569) !important;
+  padding: 0 12px !important;
+  border: 1px solid #0c66e4 !important;
   border-radius: 5px !important;
-  background: var(--ds-surface, #1d2125) !important;
-  color: var(--ds-text, #dee4ea) !important;
+  background: #0c66e4 !important;
+  color: #ffffff !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   cursor: pointer !important;
   transition: all 0.15s ease !important;
 }
 
-.bjwt-active-refresh-btn:hover {
-  background: var(--ds-surface-hovered, #2c333a) !important;
-  border-color: #3b82f6 !important;
-  color: #60a5fa !important;
+.bjwt-active-complete-btn:hover {
+  background: #0052cc !important;
+  border-color: #0052cc !important;
 }
 
 .bjwt-history-sprint-banner {
@@ -1430,6 +1382,22 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   width: 16px !important;
   height: 16px !important;
   flex-shrink: 0 !important;
+}
+
+.bjwt-history-priority-icon.bjwt-svg-wrap {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 16px !important;
+  line-height: 1 !important;
+}
+
+.bjwt-history-priority-icon.bjwt-svg-wrap svg {
+  width: 16px !important;
+  height: 16px !important;
+  max-width: 16px !important;
+  max-height: 16px !important;
 }
 
 .bjwt-history-status-badge {
