@@ -106,6 +106,209 @@
    */
   const activeSprintCache = new Map();
 
+  let cachedStoryPointsFieldId = null;
+  let cachedBoardSprints = null;
+
+  /**
+   * 清理卡片標題字串，徹底去除重複兩次的內容 (因 Jira DOM 同時包含可見文字與螢幕報讀 span)
+   */
+  function cleanSummaryText(rawText) {
+    if (!rawText) return '';
+    let txt = rawText.replace(/\s+/g, ' ').trim();
+    if (!txt) return '';
+
+    // 1. 若字串前半段與後半段完全相同 (無空格切分，如 "TitleTitle")
+    const len = txt.length;
+    if (len >= 4 && len % 2 === 0) {
+      const half = len / 2;
+      if (txt.slice(0, half) === txt.slice(half)) {
+        return txt.slice(0, half).trim();
+      }
+    }
+
+    // 2. 若字串長度為奇數且正中間為空格，兩側文字相同 (如 "Title Title")
+    if (len >= 5 && len % 2 === 1) {
+      const half = Math.floor(len / 2);
+      if (txt[half] === ' ' && txt.slice(0, half) === txt.slice(half + 1)) {
+        return txt.slice(0, half).trim();
+      }
+    }
+
+    // 3. 依單字數量切半檢查重複 (如 "Fix bug in login Fix bug in login")
+    const words = txt.split(' ').filter(Boolean);
+    if (words.length >= 2 && words.length % 2 === 0) {
+      const halfW = words.length / 2;
+      const firstW = words.slice(0, halfW).join(' ');
+      const secondW = words.slice(halfW).join(' ');
+      if (firstW === secondW) {
+        return firstW.trim();
+      }
+    }
+
+    return txt;
+  }
+
+  /**
+   * 從原生卡片 DOM 中提取乾淨且無重複的標題
+   */
+  function extractCleanSummaryFromDom(cardEl) {
+    if (!cardEl) return '';
+    const summaryEl = cardEl.querySelector(
+      '[data-testid*="summary"], [data-testid*="card-title"], .ghx-summary'
+    );
+    if (!summaryEl) return '';
+
+    // 複製該節點並移除所有螢幕報讀/隱藏節點
+    const clone = summaryEl.cloneNode(true);
+    const hiddenEls = clone.querySelectorAll(
+      '[aria-hidden="true"], [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]'
+    );
+    hiddenEls.forEach((el) => el.remove());
+
+    let raw = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!raw) {
+      raw = (summaryEl.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    return cleanSummaryText(raw);
+  }
+
+  /**
+   * 清理 Sprint 標題，移除尾部殘留的卡片數量與日期區間
+   */
+  function cleanSprintTitle(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    let t = raw.replace(/\s+/g, ' ').trim();
+    // 移除尾部括號中的卡片/工作項目數量，例如 (29 個工作項目), (15 issues)
+    t = t.replace(/\s*\(\s*\d+\s*(個工作項目|個問題|工作項目|issues?|cards?|items?|張卡片)\s*\)\s*$/i, '');
+    // 移除尾部日期區間，例如 22 10月 – 4 11月, 2026/10/22 - 2026/11/04
+    t = t.replace(/\s+\d{1,4}[-/年\s]?\d{1,2}[-/月\s]?\d{1,2}[日]?\s*[-~至到–—]\s*\d{1,4}[-/年\s]?\d{1,2}[-/月\s]?\d{1,2}[日]?\s*$/i, '');
+    t = t.replace(/\s+\d{1,2}\s*[^\d\s\(\)]+\s*[-~至到–—]\s*\d{1,2}\s*[^\d\s\(\)]+\s*$/i, '');
+    return t.trim() || raw.trim();
+  }
+
+  /**
+   * 計算一個衝刺中各狀態的卡片數與 Story Points 總和
+   */
+  function calculateSprintStatistics(issues) {
+    if (!Array.isArray(issues) || issues.length === 0) {
+      return {
+        totalIssues: 0,
+        todoCount: 0,
+        inProgressCount: 0,
+        doneCount: 0,
+        totalPoints: 0,
+        todoPoints: 0,
+        inProgressPoints: 0,
+        donePoints: 0
+      };
+    }
+
+    let doneCount = 0;
+    let inProgressCount = 0;
+    let todoCount = 0;
+
+    let donePoints = 0;
+    let inProgressPoints = 0;
+    let todoPoints = 0;
+
+    issues.forEach((iss) => {
+      const pt = parseFloat(iss.storyPoints);
+      const points = !isNaN(pt) && pt > 0 ? pt : 0;
+
+      if (iss.statusCategory === 'done') {
+        doneCount++;
+        donePoints += points;
+      } else if (iss.statusCategory === 'indeterminate') {
+        inProgressCount++;
+        inProgressPoints += points;
+      } else {
+        todoCount++;
+        todoPoints += points;
+      }
+    });
+
+    const roundPt = (val) => Math.round(val * 10) / 10;
+
+    return {
+      totalIssues: issues.length,
+      todoCount,
+      inProgressCount,
+      doneCount,
+      totalPoints: roundPt(donePoints + inProgressPoints + todoPoints),
+      todoPoints: roundPt(todoPoints),
+      inProgressPoints: roundPt(inProgressPoints),
+      donePoints: roundPt(donePoints)
+    };
+  }
+
+  /**
+   * 動態向 Jira API 探測當前環境 Story Points 專用的 Custom Field ID (如 customfield_10016 等)
+   */
+  async function detectStoryPointsCustomField() {
+    if (cachedStoryPointsFieldId) return cachedStoryPointsFieldId;
+    const endpoints = ['/rest/api/3/field', '/rest/api/2/field'];
+    for (const ep of endpoints) {
+      try {
+        const res = await fetch(`${window.location.origin}${ep}`, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' }
+        });
+        if (res.ok) {
+          const fields = await res.json();
+          if (Array.isArray(fields)) {
+            const sp = fields.find(
+              (f) =>
+                f.name &&
+                (/story\s*points?/i.test(f.name) ||
+                  /故事點數|故事點|估算|點數/i.test(f.name) ||
+                  (f.schema && f.schema.custom && f.schema.custom.includes('story-points')))
+            );
+            if (sp && sp.id) {
+              cachedStoryPointsFieldId = sp.id;
+              return sp.id;
+            }
+          }
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  /**
+   * 透過 Agile API 取得指定看板的 active 與 future sprints 清單
+   */
+  async function fetchActiveAndFutureSprintsForBoard(boardId) {
+    if (!boardId) return [];
+    if (cachedBoardSprints) return cachedBoardSprints;
+    try {
+      const res = await fetch(
+        `${window.location.origin}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=active,future&maxResults=100`,
+        { credentials: 'include', headers: { Accept: 'application/json' } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.values)) {
+          cachedBoardSprints = data.values;
+          return data.values;
+        }
+      }
+    } catch {}
+    return [];
+  }
+
+  /**
+   * 更新左側欄指定衝刺的 StoryPoint / 卡片總計徽章
+   */
+  function updateSidebarBadgeForSprint(key, points, count) {
+    const badge = document.querySelector(`.bjwt-sprint-tab-badge[data-bjwt-tab-key="${CSS.escape(key)}"]`);
+    if (badge) {
+      const badgeText = points > 0 ? `${points} 點` : `${count}`;
+      badge.textContent = badgeText;
+      badge.title = `共 ${points > 0 ? `${points} 點 Story Points · ` : ''}${count} 個工作項目`;
+    }
+  }
+
   function normalizeUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     try {
@@ -384,17 +587,69 @@
       }
     }
 
+    // 擷取 sprintId (若 DOM 節點上有)
+    let sprintId =
+      sprintEl.getAttribute('data-sprint-id') ||
+      branchEl.getAttribute('data-sprint-id') ||
+      '';
+    if (!sprintId) {
+      for (const root of searchRoots) {
+        const foundEl = root.querySelector(
+          '[data-sprint-id], [data-testid*="container-"], [data-testid*="header-"]'
+        );
+        if (foundEl) {
+          sprintId = foundEl.getAttribute('data-sprint-id') || '';
+          if (!sprintId) {
+            const m = (foundEl.getAttribute('data-testid') || '').match(/(\d{2,})/);
+            if (m) sprintId = m[1];
+          }
+          if (sprintId) break;
+        }
+      }
+    }
+
+    // 擷取原生標頭上的 Story Points (例如三個數字徽章 [26] [38] [17])
+    let headerStoryPoints = 0;
+    for (const root of searchRoots) {
+      const headerEl =
+        root.querySelector('[data-testid*="header"], .ghx-backlog-header, header') || root;
+      const badges = Array.from(
+        headerEl.querySelectorAll(
+          '[data-testid*="badge"], [data-testid*="estimate"], [class*="badge"], [class*="estimate"]'
+        )
+      );
+      let sum = 0;
+      let count = 0;
+      badges.forEach((b) => {
+        if (isInsideCard(b)) return;
+        const txt = (b.textContent || '').trim();
+        if (/^\d{1,3}(\.\d)?$/.test(txt)) {
+          sum += parseFloat(txt);
+          count++;
+        }
+      });
+      if (count >= 1 && sum > 0) {
+        headerStoryPoints = Math.round(sum * 10) / 10;
+        break;
+      }
+    }
+
+    const cleanedTitle = cleanSprintTitle(title);
     const key =
+      sprintId ||
       sprintEl.getAttribute('data-sprint-id') ||
       branchEl.getAttribute('data-sprint-id') ||
       sprintEl.getAttribute('id') ||
-      `${index}__${title}`;
+      `${index}__${cleanedTitle}`;
 
     return {
       key,
+      sprintId,
       index,
-      title,
-      cardCount
+      title: cleanedTitle,
+      rawTitle: title,
+      cardCount,
+      storyPoints: headerStoryPoints
     };
   }
 
@@ -461,6 +716,14 @@
 
       const meta = extractSprintMeta(branch, sprintEl, headerPartner, idx);
       meta.isHistorical = false;
+      const cachedActive = activeSprintCache.get(meta.key);
+      if (cachedActive && cachedActive.issues && cachedActive.issues.length > 0) {
+        const activeStats = calculateSprintStatistics(cachedActive.issues);
+        meta.cardCount = activeStats.totalIssues;
+        if (activeStats.totalPoints > 0) {
+          meta.storyPoints = activeStats.totalPoints;
+        }
+      }
       return { sprintEl, branch, headerPartner, meta };
     });
 
@@ -492,6 +755,8 @@
 
       renderHistoricalSprintBranch(histBranch, histItem);
 
+      const histStats = calculateSprintStatistics(histItem.issues);
+
       sprintBranches.push({
         sprintEl: histBranch,
         branch: histBranch,
@@ -499,8 +764,10 @@
         meta: {
           key: histItem.key,
           index: idx,
-          title: histItem.title,
+          title: cleanSprintTitle(histItem.title),
+          rawTitle: histItem.title,
           cardCount: histItem.issues.length,
+          storyPoints: histStats.totalPoints,
           isHistorical: true,
           sprintId: histItem.sprintId,
           startDate: histItem.startDate,
@@ -605,7 +872,7 @@
     ensureRuntimeCriticalStyles();
 
     const signature = JSON.stringify({
-      v: 3,
+      v: 4,
       selectedIndex,
       collapsed: isSidebarCollapsed,
       theme: currentSettings.themeStyle,
@@ -613,6 +880,7 @@
         key: b.meta.key,
         title: b.meta.title,
         count: b.meta.cardCount,
+        points: b.meta.storyPoints,
         isHistorical: Boolean(b.meta.isHistorical)
       }))
     });
@@ -721,6 +989,19 @@
     listEl.appendChild(liveHeader);
 
     liveItems.forEach(({ item, idx }) => {
+      const activeData = activeSprintCache.get(item.meta.key);
+      const activeStats =
+        activeData && activeData.issues ? calculateSprintStatistics(activeData.issues) : null;
+      const pts =
+        activeStats && activeStats.totalPoints > 0
+          ? activeStats.totalPoints
+          : item.meta.storyPoints || 0;
+      const badgeText = pts > 0 ? `${pts} 點` : `${item.meta.cardCount}`;
+      const badgeTitle =
+        pts > 0
+          ? `${item.meta.title}：共 ${pts} 點 Story Points (${item.meta.cardCount} 個工作項目)`
+          : `${item.meta.title}：共 ${item.meta.cardCount} 個工作項目`;
+
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = `bjwt-sprint-tab bjwt-sprint-tab-live ${idx === selectedIndex ? 'active' : ''}`;
@@ -733,7 +1014,7 @@
             ${escapeHtml(item.meta.title)}
           </span>
         </span>
-        <span class="bjwt-sprint-tab-badge">${item.meta.cardCount}</span>
+        <span class="bjwt-sprint-tab-badge" data-bjwt-tab-key="${escapeHtml(item.meta.key)}" title="${escapeHtml(badgeTitle)}">${escapeHtml(badgeText)}</span>
       `;
 
       btn.addEventListener('click', () => {
@@ -763,6 +1044,19 @@
       listEl.appendChild(histHeader);
 
       historyItems.forEach(({ item, idx }) => {
+        const histData = loadedHistoricalSprints.find((h) => h.key === item.meta.key);
+        const histStats =
+          histData && histData.issues ? calculateSprintStatistics(histData.issues) : null;
+        const pts =
+          histStats && histStats.totalPoints > 0
+            ? histStats.totalPoints
+            : item.meta.storyPoints || 0;
+        const badgeText = pts > 0 ? `${pts} 點` : `${item.meta.cardCount}`;
+        const badgeTitle =
+          pts > 0
+            ? `${item.meta.title}：共 ${pts} 點 Story Points (${item.meta.cardCount} 個工作項目)`
+            : `${item.meta.title}：共 ${item.meta.cardCount} 個工作項目`;
+
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = `bjwt-sprint-tab bjwt-sprint-tab-history ${idx === selectedIndex ? 'active' : ''}`;
@@ -780,7 +1074,7 @@
           </span>
           <span class="bjwt-sprint-tab-right">
             <span class="bjwt-closed-pill">已結束</span>
-            <span class="bjwt-sprint-tab-badge">${item.meta.cardCount}</span>
+            <span class="bjwt-sprint-tab-badge" data-bjwt-tab-key="${escapeHtml(item.meta.key)}" title="${escapeHtml(badgeTitle)}">${escapeHtml(badgeText)}</span>
             <span class="bjwt-history-remove-btn" role="button" tabindex="0" title="從清單移除此歷史衝刺" aria-label="移除歷史衝刺">✕</span>
           </span>
         `;
@@ -1005,6 +1299,20 @@
         opacity: 1 !important;
         background: rgba(245, 158, 11, 0.28) !important;
       }
+      .bjwt-history-priority-icon.bjwt-svg-wrap {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 16px !important;
+        height: 16px !important;
+        line-height: 1 !important;
+      }
+      .bjwt-history-priority-icon.bjwt-svg-wrap svg {
+        width: 16px !important;
+        height: 16px !important;
+        max-width: 16px !important;
+        max-height: 16px !important;
+      }
     `;
     (document.head || document.documentElement).appendChild(styleEl);
   }
@@ -1111,21 +1419,54 @@
     const assigneeObj = fields.assignee || null;
     const parentObj = fields.parent || null;
 
-    // 常見 Story Points 欄位
-    const storyPoints =
-      fields.customfield_10016 ??
-      fields.customfield_10026 ??
-      fields.story_points ??
-      (raw.estimateStatistic &&
-        raw.estimateStatistic.statFieldValue &&
-        raw.estimateStatistic.statFieldValue.value) ??
-      null;
+    // 常見 Story Points 欄位與動態探測之欄位
+    let rawStoryPoints = null;
+    if (cachedStoryPointsFieldId && fields[cachedStoryPointsFieldId] !== undefined) {
+      rawStoryPoints = fields[cachedStoryPointsFieldId];
+    } else if (
+      raw.estimateStatistic &&
+      raw.estimateStatistic.statFieldValue &&
+      raw.estimateStatistic.statFieldValue.value !== undefined
+    ) {
+      rawStoryPoints = raw.estimateStatistic.statFieldValue.value;
+    } else {
+      rawStoryPoints =
+        fields.customfield_10016 ??
+        fields.customfield_10026 ??
+        fields.customfield_10004 ??
+        fields.customfield_10008 ??
+        fields.customfield_10028 ??
+        fields.customfield_10024 ??
+        fields.story_points ??
+        fields.storyPoints ??
+        null;
+    }
+
+    if (rawStoryPoints === null || rawStoryPoints === undefined) {
+      for (const [k, v] of Object.entries(fields)) {
+        if (k.startsWith('customfield_') && typeof v === 'number' && v > 0 && v < 500) {
+          rawStoryPoints = v;
+          break;
+        }
+      }
+    }
+
+    let storyPoints = null;
+    if (rawStoryPoints !== null && rawStoryPoints !== undefined && rawStoryPoints !== '') {
+      const parsedNum = parseFloat(rawStoryPoints);
+      if (!isNaN(parsedNum)) {
+        storyPoints = Math.round(parsedNum * 10) / 10;
+      }
+    }
+
+    let cleanStatus = (statusObj.name || '未知狀態').replace(/\s+/g, ' ').trim();
+    cleanStatus = cleanStatus.replace(/(▾|▼|⌵|v|\^)+$/i, '').trim();
 
     return {
       id: raw.id,
       key: raw.key || '',
-      summary: fields.summary || '(無標題)',
-      statusName: statusObj.name || '未知狀態',
+      summary: cleanSummaryText((fields.summary || '(無標題)').replace(/\s+/g, ' ').trim()),
+      statusName: cleanStatus || '未知狀態',
       statusCategory: statusCatKey, // 'done' | 'indeterminate' | 'new'
       issueTypeName: issueTypeObj.name || '任務',
       issueTypeIcon: issueTypeObj.iconUrl || '',
@@ -1140,7 +1481,7 @@
       parentSummary:
         parentObj && parentObj.fields ? parentObj.fields.summary || '' : '',
       dueDate: fields.duedate || '',
-      storyPoints: typeof storyPoints === 'number' || typeof storyPoints === 'string' ? storyPoints : null
+      storyPoints
     };
   }
 
@@ -1150,6 +1491,8 @@
   async function fetchHistoricalSprintData(sprintNameInput, explicitSprintObj = null) {
     const trimmedName = (sprintNameInput || '').trim();
     const { boardId, projectKey } = await detectJiraContext();
+
+    await detectStoryPointsCustomField();
 
     let matchedSprint = explicitSprintObj;
 
@@ -1163,8 +1506,24 @@
         null;
     }
 
-    const fieldsParam =
-      'summary,status,issuetype,priority,assignee,parent,duedate,customfield_10016,customfield_10026';
+    const fieldsParam = [
+      'summary',
+      'status',
+      'issuetype',
+      'priority',
+      'assignee',
+      'parent',
+      'duedate',
+      'customfield_10016',
+      'customfield_10026',
+      'customfield_10004',
+      'customfield_10008',
+      'customfield_10028',
+      'customfield_10024',
+      cachedStoryPointsFieldId
+    ]
+      .filter(Boolean)
+      .join(',');
 
     // 2. 若找到對應的 Agile Sprint ID，優先呼叫 Agile Sprint Issues API
     if (matchedSprint && matchedSprint.id) {
@@ -1493,7 +1852,7 @@
     const initials = (iss.assigneeName || '?').slice(0, 2).toUpperCase();
     const parentLabel = iss.parentSummary || iss.parentKey || '';
     const pointsDisplay =
-      iss.storyPoints !== null && iss.storyPoints !== ''
+      iss.storyPoints !== null && iss.storyPoints !== undefined && iss.storyPoints !== ''
         ? String(iss.storyPoints)
         : '-';
 
@@ -1506,7 +1865,7 @@
         title="點擊以置中 Modal 預覽 ${escapeHtml(iss.key)} 詳細內容"
       >
         <!-- 第一列：卡片類型Icon，卡片編號，卡片標題 -->
-        <div class="bjwt-card-row-top">
+        <div class="bjwt-card-row-top bjwt-history-card-left">
           ${
             iss.issueTypeIcon
               ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(iss.issueTypeIcon)}" alt="${escapeHtml(iss.issueTypeName)}" title="${escapeHtml(iss.issueTypeName)}" />`
@@ -1516,8 +1875,8 @@
           <span class="bjwt-history-card-summary" title="${escapeHtml(iss.summary)}">${escapeHtml(iss.summary)}</span>
         </div>
 
-        <!-- 第二列：放其他的欄位 -->
-        <div class="bjwt-card-row-bottom">
+        <!-- 第二列：放其他的欄位 (Epic 標籤、狀態 Badge、到期日、Story Points、優先順序 Icon、負責人頭像) -->
+        <div class="bjwt-card-row-bottom bjwt-history-card-right">
           ${
             parentLabel
               ? `<span class="bjwt-history-parent-badge" title="${escapeHtml(iss.parentKey ? `${iss.parentKey}: ${iss.parentSummary}` : parentLabel)}"><span class="bjwt-parent-dot"></span>${escapeHtml(parentLabel)}</span>`
@@ -1535,6 +1894,8 @@
           ${
             iss.priorityIcon
               ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" title="優先順序：${escapeHtml(iss.priorityName)}" />`
+              : iss.prioritySvg
+              ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap" title="優先順序：${escapeHtml(iss.priorityName)}">${iss.prioritySvg}</span>`
               : ''
           }
           <span class="bjwt-history-assignee" title="負責人：${escapeHtml(iss.assigneeName)}">
@@ -1586,7 +1947,9 @@
     let issueTypeIcon = '';
     let issueTypeName = '任務';
     const typeImg =
-      cardEl.querySelector('img[src*="issuetype"], img[src*="avatar/type"], [data-testid*="issue-type"] img, img:first-of-type');
+      cardEl.querySelector(
+        'img[src*="issuetype"], img[src*="avatar/type"], [data-testid*="issue-type"] img, img:first-of-type'
+      );
     if (typeImg && typeImg.src) {
       issueTypeIcon = typeImg.src;
       issueTypeName = typeImg.alt || typeImg.title || '任務';
@@ -1599,7 +1962,9 @@
       cardEl.querySelector('button[id*="status"], [role="button"]:has(svg)');
 
     if (statusEl) {
-      statusName = (statusEl.textContent || '').trim().replace(/\s+/g, ' ');
+      const clone = statusEl.cloneNode(true);
+      clone.querySelectorAll('svg, [class*="icon"], [aria-hidden="true"]').forEach((e) => e.remove());
+      statusName = (clone.innerText || clone.textContent || '').trim().replace(/\s+/g, ' ');
     }
 
     if (!statusName) {
@@ -1613,6 +1978,9 @@
       }
     }
 
+    // 清理狀態文字 (去除按鈕 chevron 與 trailing arrow)
+    statusName = statusName.replace(/(▾|▼|⌵|v|\^|expand|dropdown)+$/i, '').trim();
+
     if (!statusName) {
       statusName = isDone ? '完成' : '待辦事項';
     }
@@ -1620,7 +1988,7 @@
     const lowerStatus = statusName.toLowerCase();
     if (isDone || /完成|done|closed|resolved/i.test(lowerStatus)) {
       statusCategory = 'done';
-    } else if (/進行中|in progress|testing|verify|wait/i.test(lowerStatus)) {
+    } else if (/進行中|in progress|testing|verify|wait|開發|進行/i.test(lowerStatus)) {
       statusCategory = 'indeterminate';
     } else {
       statusCategory = 'new';
@@ -1628,20 +1996,31 @@
 
     let storyPoints = null;
     const pointEl =
-      cardEl.querySelector('[data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="points"]');
+      cardEl.querySelector(
+        '[data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="points"], [data-testid*="statistic"], .ghx-estimate'
+      );
     if (pointEl) {
       const pt = (pointEl.textContent || '').trim();
-      if (pt) storyPoints = pt;
+      if (pt && pt !== '-' && !isNaN(parseFloat(pt))) {
+        storyPoints = parseFloat(pt);
+      }
     }
 
     if (storyPoints === null) {
-      const spans = Array.from(cardEl.querySelectorAll('span, div'));
-      for (const s of spans) {
-        if (s.children.length === 0) {
-          const txt = (s.textContent || '').trim();
-          if (/^\d{1,3}(\.\d)?$/.test(txt) && s.closest('[data-testid*="badge"], [class*="badge"], [class*="estimate"]')) {
-            storyPoints = txt;
-            break;
+      const candidates = Array.from(cardEl.querySelectorAll('button, span, div'));
+      for (const el of candidates) {
+        if (el.children.length === 0) {
+          const txt = (el.textContent || '').trim();
+          if (/^\d{1,3}(\.\d)?$/.test(txt)) {
+            const isBadge = Boolean(
+              el.closest(
+                '[data-testid*="badge"], [data-testid*="estimate"], [class*="badge"], [class*="estimate"], [class*="statistic"]'
+              )
+            );
+            if (isBadge) {
+              storyPoints = parseFloat(txt);
+              break;
+            }
           }
         }
       }
@@ -1649,45 +2028,58 @@
 
     let priorityName = '';
     let priorityIcon = '';
-    const prioImg = cardEl.querySelector(
-      'img[src*="priority"], [data-testid*="priority"] img, svg[data-testid*="priority"]'
+    let prioritySvg = '';
+    const prioEl = cardEl.querySelector(
+      '[data-testid*="priority"], img[src*="priority"], svg[data-testid*="priority"], .ghx-priority'
     );
-    if (prioImg) {
-      if (prioImg.tagName === 'IMG') {
-        priorityIcon = prioImg.src;
-        priorityName = prioImg.alt || prioImg.title || '';
-      } else {
-        priorityName = prioImg.getAttribute('aria-label') || '';
+    if (prioEl) {
+      const img = prioEl.tagName === 'IMG' ? prioEl : prioEl.querySelector('img');
+      const svg = prioEl.tagName === 'SVG' ? prioEl : prioEl.querySelector('svg');
+      if (img && img.src) {
+        priorityIcon = img.src;
+        priorityName = img.alt || img.title || '';
+      } else if (svg) {
+        prioritySvg = svg.outerHTML;
+        priorityName =
+          prioEl.getAttribute('aria-label') ||
+          svg.getAttribute('aria-label') ||
+          prioEl.getAttribute('title') ||
+          svg.getAttribute('title') ||
+          '';
       }
     }
 
     let assigneeName = '未指派';
     let assigneeAvatar = '';
     const avatarEl = cardEl.querySelector(
-      '[data-testid*="assignee"] img, img[src*="avatar"], [data-testid*="assignee"]'
+      '[data-testid*="assignee"], img[src*="avatar"], [data-testid*="avatar"], .ghx-avatar'
     );
     if (avatarEl) {
-      if (avatarEl.tagName === 'IMG') {
-        assigneeAvatar = avatarEl.src;
-        assigneeName = avatarEl.alt || avatarEl.title || '';
+      const img = avatarEl.tagName === 'IMG' ? avatarEl : avatarEl.querySelector('img');
+      if (img && img.src) {
+        assigneeAvatar = img.src;
+        assigneeName = img.alt || img.title || avatarEl.getAttribute('aria-label') || '';
       } else {
-        const innerImg = avatarEl.querySelector('img');
-        if (innerImg) {
-          assigneeAvatar = innerImg.src;
-          assigneeName = innerImg.alt || innerImg.title || '';
-        } else {
-          assigneeName = (avatarEl.textContent || '').trim();
+        const bgImg = window.getComputedStyle(avatarEl).backgroundImage;
+        const bgMatch = bgImg && bgImg.match(/url\(["']?([^"']+)["']?\)/);
+        if (bgMatch && !bgMatch[1].includes('none')) {
+          assigneeAvatar = bgMatch[1];
         }
+        assigneeName =
+          avatarEl.getAttribute('aria-label') ||
+          avatarEl.getAttribute('title') ||
+          (avatarEl.textContent || '').trim() ||
+          '未指派';
       }
     }
 
     let parentKey = '';
     let parentSummary = '';
     const epicEl = cardEl.querySelector(
-      '[data-testid*="epic"], [data-testid*="parent"], [data-testid*="lozenge-epic"], [class*="lozenge"]'
+      '[data-testid*="epic"], [data-testid*="parent"], [data-testid*="lozenge-epic"], [class*="lozenge-epic"], [class*="EpicLabel"]'
     );
     if (epicEl && epicEl !== statusEl) {
-      const epicText = (epicEl.textContent || '').trim();
+      const epicText = (epicEl.innerText || epicEl.textContent || '').trim().replace(/\s+/g, ' ');
       if (epicText && epicText !== statusName && !epicText.includes(key)) {
         parentSummary = epicText;
       }
@@ -1696,7 +2088,8 @@
     let dueDate = '';
     const dueEl = cardEl.querySelector('[data-testid*="due-date"], [data-testid*="duedate"]');
     if (dueEl) {
-      dueDate = (dueEl.textContent || '').trim();
+      dueDate = (dueEl.innerText || dueEl.textContent || '').trim().replace(/\s+/g, ' ');
+      dueDate = dueDate.replace(/^[📅\s]+/, '').trim();
     } else {
       const dateMatch = (cardEl.textContent || '').match(/(\d{1,2}月\d{1,2}日|\d{4}-\d{2}-\d{2})/);
       if (dateMatch) {
@@ -1704,13 +2097,7 @@
       }
     }
 
-    let summary = '';
-    const summaryEl =
-      cardEl.querySelector('[data-testid*="summary"], [data-testid*="card-title"]');
-    if (summaryEl) {
-      summary = (summaryEl.textContent || '').trim();
-    }
-
+    let summary = extractCleanSummaryFromDom(cardEl);
     if (!summary || summary === key) {
       const allText = (cardEl.innerText || cardEl.textContent || '').replace(/\s+/g, ' ');
       let stripped = allText.replace(key, '').trim();
@@ -1718,7 +2105,7 @@
       if (assigneeName && assigneeName !== '未指派') stripped = stripped.replace(assigneeName, '').trim();
       if (parentSummary) stripped = stripped.replace(parentSummary, '').trim();
       if (dueDate) stripped = stripped.replace(dueDate, '').trim();
-      summary = stripped || '(無標題)';
+      summary = cleanSummaryText(stripped) || '(無標題)';
     }
 
     return {
@@ -1731,6 +2118,7 @@
       issueTypeIcon,
       priorityName,
       priorityIcon,
+      prioritySvg,
       assigneeName,
       assigneeAvatar,
       parentKey,
@@ -1779,11 +2167,48 @@
    * 透過 Jira Agile REST API 抓取未結束衝刺的完整卡片資料
    */
   async function fetchSprintIssuesForActive(item) {
-    const { boardId } = await detectJiraContext();
-    const sprintId = item.meta.sprintId || (item.sprintEl && item.sprintEl.getAttribute('data-sprint-id'));
-    const title = item.meta.title;
-    const fieldsParam = 'summary,status,issuetype,priority,assignee,parent,duedate,customfield_10016,customfield_10026';
+    const { boardId, projectKey } = await detectJiraContext();
+    let sprintId = item.meta.sprintId || (item.sprintEl && item.sprintEl.getAttribute('data-sprint-id'));
+    const cleanTitle = cleanSprintTitle(item.meta.title);
 
+    await detectStoryPointsCustomField();
+
+    const fieldsParam = [
+      'summary',
+      'status',
+      'issuetype',
+      'priority',
+      'assignee',
+      'parent',
+      'duedate',
+      'customfield_10016',
+      'customfield_10026',
+      'customfield_10004',
+      'customfield_10008',
+      'customfield_10028',
+      'customfield_10024',
+      cachedStoryPointsFieldId
+    ]
+      .filter(Boolean)
+      .join(',');
+
+    // 1. 若無明確 sprintId，從當前看板的 active/future sprints 清單比對
+    if (!sprintId && boardId && cleanTitle) {
+      try {
+        const boardSprints = await fetchActiveAndFutureSprintsForBoard(boardId);
+        const lowerTarget = cleanTitle.toLowerCase();
+        const found =
+          boardSprints.find((s) => (s.name || '').trim().toLowerCase() === lowerTarget) ||
+          boardSprints.find((s) => (s.name || '').trim().toLowerCase().includes(lowerTarget)) ||
+          boardSprints.find((s) => lowerTarget.includes((s.name || '').trim().toLowerCase()));
+        if (found && found.id) {
+          sprintId = String(found.id);
+          item.meta.sprintId = sprintId;
+        }
+      } catch {}
+    }
+
+    // 2. 若找到 sprintId，優先呼叫 Agile Sprint Issues API
     if (sprintId) {
       try {
         const res = await fetch(
@@ -1799,24 +2224,41 @@
       } catch {}
     }
 
-    if (title) {
-      const escaped = title.replace(/"/g, '\\"');
-      const jql = `sprint = "${escaped}" ORDER BY key ASC`;
-      try {
-        const res = await fetch(
-          `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`,
-          { credentials: 'include', headers: { Accept: 'application/json' } }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.issues) && data.issues.length > 0) {
-            return data.issues.map(normalizeJiraIssue);
-          }
+    // 3. JQL 搜尋備援
+    if (cleanTitle) {
+      const escaped = cleanTitle.replace(/"/g, '\\"');
+      const jqlCandidates = [];
+      if (projectKey) {
+        jqlCandidates.push(`project = "${projectKey}" AND sprint = "${escaped}" ORDER BY key ASC`);
+      }
+      jqlCandidates.push(`sprint = "${escaped}" ORDER BY key ASC`);
+
+      for (const jql of jqlCandidates) {
+        const searchEndpoints = [
+          `${window.location.origin}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`,
+          `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`,
+          `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`
+        ];
+
+        for (const ep of searchEndpoints) {
+          try {
+            const res = await fetch(ep, {
+              credentials: 'include',
+              headers: { Accept: 'application/json' }
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.issues) && data.issues.length > 0) {
+                return data.issues.map(normalizeJiraIssue);
+              }
+            }
+          } catch {}
         }
-      } catch {}
+      }
     }
 
-    if (/backlog/i.test(title) && boardId) {
+    // 4. Backlog 待辦池備援
+    if (/backlog/i.test(cleanTitle) && boardId) {
       try {
         const res = await fetch(
           `${window.location.origin}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/backlog?maxResults=200&fields=${fieldsParam}`,
@@ -1855,6 +2297,13 @@
         }
         activeSprintCache.set(key, cached);
 
+        const stats = calculateSprintStatistics(apiIssues);
+        item.meta.cardCount = stats.totalIssues;
+        item.meta.storyPoints = stats.totalPoints;
+
+        // 同步更新左側欄 Tab 的徽章數值
+        updateSidebarBadgeForSprint(key, stats.totalPoints, stats.totalIssues);
+
         if (activeSprintKey === key) {
           renderActiveSprintBranch(item);
         }
@@ -1879,12 +2328,45 @@
         key,
         title: item.meta.title,
         issues: domIssues,
-        filterKeyword: ''
+        filterKeyword: '',
+        dateRange: ''
       };
       activeSprintCache.set(key, sprintData);
 
       // 非同步發起 API 補充更完整資料
       syncActiveSprintIssuesFromApi(item);
+    }
+
+    // 從原生標頭提取日期區間 (例如 "22 10月 - 4 11月")
+    let dateRange = sprintData.dateRange || '';
+    const headerNodes = [
+      item.headerPartner,
+      branchEl.querySelector('[data-testid*="header"], .ghx-backlog-header, header')
+    ].filter(Boolean);
+
+    if (!dateRange) {
+      for (const hdr of headerNodes) {
+        const text = (hdr.innerText || hdr.textContent || '').replace(/\s+/g, ' ');
+        const dateMatch =
+          text.match(/(\d{1,4}[-/年\s]?\d{1,2}[-/月\s]?\d{1,2}[日]?\s*[-~至到–—]\s*\d{1,4}[-/年\s]?\d{1,2}[-/月\s]?\d{1,2}[日]?)/i) ||
+          text.match(/(\d{1,2}\s*[^\d\s\(\)]+\s*[-~至到–—]\s*\d{1,2}\s*[^\d\s\(\)]+)/i);
+        if (dateMatch) {
+          dateRange = dateMatch[1].trim();
+          break;
+        }
+      }
+      sprintData.dateRange = dateRange;
+    }
+
+    // 尋找原生「完成衝刺」按鈕以利在自定義 Banner 中支援轉發點擊
+    let nativeCompleteBtn = null;
+    for (const hdr of headerNodes) {
+      const btns = Array.from(hdr.querySelectorAll('button'));
+      const found = btns.find((b) => /完成衝刺|complete sprint/i.test((b.textContent || '').trim()));
+      if (found) {
+        nativeCompleteBtn = found;
+        break;
+      }
     }
 
     // 2. 建立或取得自定義容器
@@ -1909,16 +2391,15 @@
         )
       : sprintData.issues;
 
-    const doneCount = sprintData.issues.filter((i) => i.statusCategory === 'done').length;
-    const inProgressCount = sprintData.issues.filter(
-      (i) => i.statusCategory === 'indeterminate'
-    ).length;
-    const todoCount = Math.max(0, sprintData.issues.length - doneCount - inProgressCount);
+    const stats = calculateSprintStatistics(sprintData.issues);
+    const displayTitle = cleanSprintTitle(sprintData.title);
 
     const sig = JSON.stringify({
       key,
       count: sprintData.issues.length,
+      points: stats.totalPoints,
       filterKw,
+      dateRange,
       theme: currentSettings.themeStyle
     });
 
@@ -1927,33 +2408,58 @@
     }
     customView.setAttribute('data-bjwt-render-sig', sig);
 
+    const isBacklogPool = /backlog/i.test(sprintData.title);
+    const badgeText = isBacklogPool ? '待辦池' : '進行中';
+    const badgeClass = isBacklogPool ? 'badge-future' : 'badge-active';
+
     customView.innerHTML = `
-      <div class="bjwt-active-sprint-container sprint-container">
-        <div class="bjwt-active-sprint-controls">
-          <div class="bjwt-active-controls-left">
-            <span class="bjwt-history-status-counters" title="待辦 / 進行中 / 完成">
-              <span class="bjwt-counter-pill counter-todo">${todoCount}</span>
-              <span class="bjwt-counter-pill counter-inprogress">${inProgressCount}</span>
-              <span class="bjwt-counter-pill counter-done">${doneCount}</span>
+      <div class="bjwt-history-sprint-container sprint-container">
+        <!-- 全新設計的 Sprint 標題 Banner (與歷史衝刺一體呈現) -->
+        <div class="bjwt-history-sprint-banner">
+          <div class="bjwt-history-banner-main">
+            <span class="bjwt-history-banner-badge ${badgeClass}">
+              <svg class="bjwt-icon-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              ${badgeText}
             </span>
-            <span class="bjwt-active-sprint-stat">(${sprintData.issues.length} 個工作項目)</span>
+            <h2 class="bjwt-history-banner-title">${escapeHtml(displayTitle)}</h2>
+            ${dateRange ? `<span class="bjwt-history-banner-dates">${escapeHtml(dateRange)}</span>` : ''}
+            <span class="bjwt-history-banner-stats">
+              (${stats.totalIssues} 個工作項目 · 共 ${stats.totalPoints} 點)
+            </span>
           </div>
-          <div class="bjwt-active-controls-right">
+          <div class="bjwt-history-banner-controls">
+            <span class="bjwt-history-status-counters" title="Story Points (待辦 / 進行中 / 完成)">
+              <span class="bjwt-counter-pill counter-todo" title="待辦: ${stats.todoPoints} 點 (${stats.todoCount} 個工作項目)">${stats.todoPoints}</span>
+              <span class="bjwt-counter-pill counter-inprogress" title="進行中: ${stats.inProgressPoints} 點 (${stats.inProgressCount} 個工作項目)">${stats.inProgressPoints}</span>
+              <span class="bjwt-counter-pill counter-done" title="完成: ${stats.donePoints} 點 (${stats.doneCount} 個工作項目)">${stats.donePoints}</span>
+            </span>
             <input
               type="search"
               class="bjwt-history-card-filter"
               placeholder="篩選卡片 (Key / 標題 / 負責人)..."
               value="${escapeHtml(sprintData.filterKeyword || '')}"
             />
-            <button type="button" class="bjwt-active-refresh-btn" title="從 Jira 重新同步此衝刺">
+            <button type="button" class="bjwt-history-refresh-btn" title="從 Jira 重新同步此衝刺">
               ↻ 重新整理
             </button>
+            ${
+              nativeCompleteBtn
+                ? `<button type="button" class="bjwt-active-complete-btn" title="完成此衝刺">完成衝刺</button>`
+                : ''
+            }
           </div>
         </div>
+        ${
+          sprintData.goal
+            ? `<div class="bjwt-history-sprint-goal"><strong>衝刺目標：</strong>${escapeHtml(sprintData.goal)}</div>`
+            : ''
+        }
         <div class="bjwt-history-card-list">
           ${
             visibleIssues.length === 0
-              ? `<div class="bjwt-history-empty-cards">目前沒有符合條件的卡片。</div>`
+              ? `<div class="bjwt-history-empty-cards">目前沒有符合條件的待辦事項卡片。</div>`
               : visibleIssues.map(renderIssueCardHtml).join('')
           }
         </div>
@@ -1978,7 +2484,7 @@
     }
 
     // 綁定重新整理按鈕
-    const refreshBtn = customView.querySelector('.bjwt-active-refresh-btn');
+    const refreshBtn = customView.querySelector('.bjwt-history-refresh-btn');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
         refreshBtn.disabled = true;
@@ -1990,6 +2496,16 @@
         await syncActiveSprintIssuesFromApi(item);
         refreshBtn.disabled = false;
         refreshBtn.textContent = '↻ 重新整理';
+      });
+    }
+
+    // 綁定完成衝刺按鈕
+    const completeBtn = customView.querySelector('.bjwt-active-complete-btn');
+    if (completeBtn && nativeCompleteBtn) {
+      completeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        nativeCompleteBtn.click();
       });
     }
 
@@ -2029,9 +2545,13 @@
         )
       : histItem.issues;
 
+    const stats = calculateSprintStatistics(histItem.issues);
+    const displayTitle = cleanSprintTitle(histItem.title);
+
     const sig = JSON.stringify({
       key: histItem.key,
       count: histItem.issues.length,
+      points: stats.totalPoints,
       filterKw,
       theme: currentSettings.themeStyle
     });
@@ -2048,12 +2568,6 @@
       .filter(Boolean)
       .join(' ~ ');
 
-    const doneCount = histItem.issues.filter((i) => i.statusCategory === 'done').length;
-    const inProgressCount = histItem.issues.filter(
-      (i) => i.statusCategory === 'indeterminate'
-    ).length;
-    const todoCount = Math.max(0, histItem.issues.length - doneCount - inProgressCount);
-
     branchEl.innerHTML = `
       <div class="bjwt-history-sprint-container sprint-container">
         <div class="bjwt-history-sprint-banner">
@@ -2065,17 +2579,17 @@
               </svg>
               已結束
             </span>
-            <h2 class="bjwt-history-banner-title">${escapeHtml(histItem.title)}</h2>
+            <h2 class="bjwt-history-banner-title">${escapeHtml(displayTitle)}</h2>
             ${dateRange ? `<span class="bjwt-history-banner-dates">${escapeHtml(dateRange)}</span>` : ''}
             <span class="bjwt-history-banner-stats">
-              (${histItem.issues.length} 個工作項目)
+              (${stats.totalIssues} 個工作項目 · 共 ${stats.totalPoints} 點)
             </span>
           </div>
           <div class="bjwt-history-banner-controls">
-            <span class="bjwt-history-status-counters" title="待辦 / 進行中 / 完成">
-              <span class="bjwt-counter-pill counter-todo">${todoCount}</span>
-              <span class="bjwt-counter-pill counter-inprogress">${inProgressCount}</span>
-              <span class="bjwt-counter-pill counter-done">${doneCount}</span>
+            <span class="bjwt-history-status-counters" title="Story Points (待辦 / 進行中 / 完成)">
+              <span class="bjwt-counter-pill counter-todo" title="待辦: ${stats.todoPoints} 點 (${stats.todoCount} 個工作項目)">${stats.todoPoints}</span>
+              <span class="bjwt-counter-pill counter-inprogress" title="進行中: ${stats.inProgressPoints} 點 (${stats.inProgressCount} 個工作項目)">${stats.inProgressPoints}</span>
+              <span class="bjwt-counter-pill counter-done" title="完成: ${stats.donePoints} 點 (${stats.doneCount} 個工作項目)">${stats.donePoints}</span>
             </span>
             <input
               type="search"
