@@ -967,87 +967,87 @@
       });
     });
 
-    // 輔助函式：擷取按鈕本身與內部節點的選取外框 (box-shadow / outline / border) 特徵
-    function getAvatarRingInfo(btn) {
-      const nodes = [btn, ...Array.from(btn.querySelectorAll('span, div, img'))];
-      for (const n of nodes) {
-        const cs = window.getComputedStyle(n);
-        const bs = cs.boxShadow || 'none';
-        const ol = cs.outline || 'none';
-        // 檢查是否有明顯的 2px~4px 選取外框陰影 (排除純透明或純黑底色間距)
-        if (bs && bs !== 'none') {
-          const shadows = bs.split(/,(?![^(]*\))/).map((s) => s.trim());
-          // 若有多層 box-shadow (Atlassian 頭像選取時會有內圈間距 + 外圈亮色光環兩層 shadow)
-          if (shadows.length >= 2) {
-            return { hasMultiRing: true, rawShadow: bs };
-          }
-          // 單層但帶有亮色 (非深灰黑底色) 的 2px+ 擴散環
-          const spreadMatch = bs.match(/0px\s+0px\s+0px\s+([234](?:\.\d+)?)px/);
-          if (spreadMatch) {
-            const colorMatch = bs.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-            if (colorMatch) {
-              const r = parseInt(colorMatch[1], 10);
-              const g = parseInt(colorMatch[2], 10);
-              const b = parseInt(colorMatch[3], 10);
-              // 亮度較高的選取色 (如橘色 RAY、藍色選取框，排除深色背景 #1d2125)
-              if (r > 80 || g > 80 || b > 120) {
-                return { hasBrightRing: true, rawShadow: bs };
-              }
-            }
-          }
-        }
-        if (ol && ol !== 'none' && !/0px/.test(ol)) {
-          return { hasBrightRing: true, rawShadow: ol };
-        }
-      }
-      return { hasMultiRing: false, hasBrightRing: false, rawShadow: 'none' };
-    }
-
-    // 檢查每個候選人員按鈕是否處於「已選取」狀態
+    // 檢查每個候選人員按鈕是否處於「已選取 (Pressed / Selected / Checked)」狀態
     const selectedElements = [];
     candidateButtons.forEach((btn) => {
-      const checkNodes = [
-        btn,
-        btn.parentElement,
-        ...Array.from(btn.querySelectorAll('[aria-checked], [aria-pressed], [aria-selected], [data-selected], input'))
-      ].filter(Boolean);
+      // 1. 若元素自身明確宣告為未選取 / 未按下，絕對排除 (絕不落入任何模糊猜測)
+      const ariaPressed = btn.getAttribute('aria-pressed');
+      const ariaChecked = btn.getAttribute('aria-checked');
+      const ariaSelected = btn.getAttribute('aria-selected');
+      const dataState = btn.getAttribute('data-state');
+      const dataSelected = btn.getAttribute('data-selected');
 
+      if (
+        ariaPressed === 'false' ||
+        ariaChecked === 'false' ||
+        ariaSelected === 'false' ||
+        dataState === 'unselected' ||
+        dataState === 'inactive' ||
+        dataSelected === 'false'
+      ) {
+        return;
+      }
+
+      // 若有內部 checkbox/radio 且未打勾，明確排除
+      const innerInput = btn.querySelector('input[type="checkbox"], input[type="radio"]');
+      if (innerInput && !innerInput.checked && !innerInput.hasAttribute('checked')) {
+        return;
+      }
+
+      // 2. 檢查明確的肯定選取標記
       let isSelected = false;
-      for (const n of checkNodes) {
-        if (
-          n.getAttribute('aria-checked') === 'true' ||
-          n.getAttribute('aria-pressed') === 'true' ||
-          n.getAttribute('aria-selected') === 'true' ||
-          n.getAttribute('data-selected') === 'true'
-        ) {
+
+      // a. 按鈕本體標準 ARIA 屬性 (Atlassian ADS ToggleButton 規範：選取時必為 aria-pressed="true")
+      if (
+        ariaPressed === 'true' ||
+        ariaChecked === 'true' ||
+        ariaSelected === 'true' ||
+        dataState === 'selected' ||
+        dataState === 'active' ||
+        dataSelected === 'true'
+      ) {
+        isSelected = true;
+      }
+
+      // b. 檢查按鈕內部是否包含已勾選的 input
+      if (!isSelected && innerInput && (innerInput.checked || innerInput.hasAttribute('checked'))) {
+        isSelected = true;
+      }
+
+      // c. 檢查按鈕內部帶有 aria-pressed="true" 或 aria-checked="true" 的子節點
+      if (!isSelected) {
+        const pressedDescendant = btn.querySelector(
+          '[aria-pressed="true"], [aria-checked="true"], [data-state="selected"], [data-selected="true"]'
+        );
+        if (pressedDescendant) {
           isSelected = true;
-          break;
-        }
-        if (n.tagName === 'INPUT' && (n.checked || n.hasAttribute('checked'))) {
-          isSelected = true;
-          break;
-        }
-        const cls = typeof n.className === 'string' ? n.className : '';
-        if (/(?:^|[-_\s])(?:selected|is-selected|isSelected|checked|is-checked|isChecked)(?:$|[-_\s])/.test(cls)) {
-          isSelected = true;
-          break;
         }
       }
 
+      // d. 檢查按鈕自身的 class (僅限 btn 自身，嚴禁檢查 parentElement 避免外層群組容器樣式污染)
+      if (!isSelected) {
+        const ownCls = typeof btn.className === 'string' ? btn.className : '';
+        if (
+          /(?:^|[\s_-])(?:is-selected|is-checked|isSelected|isChecked)(?:$|[\s_-])/.test(ownCls) &&
+          !/(?:not-selected|unselected)/i.test(ownCls)
+        ) {
+          isSelected = true;
+        }
+      }
+
+      // e. 檢查按鈕內明確的無歧義「已選取」螢幕報讀文字 (嚴格排除「未選取」)
       if (!isSelected) {
         const srTexts = Array.from(
           btn.querySelectorAll('[class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]')
         )
           .map((e) => e.textContent || '')
-          .join(' ');
-        if (/(?:已選取|selected)/i.test(srTexts) && !/(?:未選取|not\s+selected|unselected)/i.test(srTexts)) {
-          isSelected = true;
-        }
-      }
-
-      if (!isSelected && !btn.matches(':hover')) {
-        const ring = getAvatarRingInfo(btn);
-        if (ring.hasMultiRing || ring.hasBrightRing) {
+          .join(' ')
+          .trim();
+        if (
+          srTexts &&
+          /(?:已選取|選取已啟用|已選中|currently\s+selected)/i.test(srTexts) &&
+          !/(?:未選取|未選中|not\s+selected|unselected)/i.test(srTexts)
+        ) {
           isSelected = true;
         }
       }
@@ -1062,7 +1062,6 @@
       const rawLabels = [];
       const attrNodes = [
         btn,
-        btn.parentElement,
         ...Array.from(btn.querySelectorAll('[aria-label], [title], img[alt], img[title], [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]'))
       ].filter(Boolean);
 
