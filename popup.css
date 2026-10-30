@@ -31,8 +31,8 @@ body[data-theme="MaterialDesign"] {
 }
 
 body {
-  width: 360px;
-  min-height: 380px;
+  width: 340px;
+  min-height: 270px;
   font-family: var(--font-family);
   background-color: var(--bg-color);
   color: var(--text-main);
@@ -42,7 +42,7 @@ body {
 .app-container {
   display: flex;
   flex-direction: column;
-  min-height: 380px;
+  min-height: 270px;
   position: relative;
 }
 
@@ -368,14 +368,14 @@ body[data-theme="MaterialDesign"] .theme-badge {
 .style-options {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .style-option-card {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1.5px solid var(--border-color);
   border-radius: var(--card-radius);
   cursor: pointer;
@@ -392,7 +392,7 @@ body[data-theme="MaterialDesign"] .theme-badge {
 }
 
 .style-option-card input[type="radio"] {
-  margin-top: 4px;
+  margin: 0;
   accent-color: var(--primary-color);
 }
 
