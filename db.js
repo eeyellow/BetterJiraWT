@@ -7,9 +7,15 @@ const BetterJiraDB = (() => {
   const DB_VERSION = 1;
   const STORE_NAME = 'settings';
 
+  const STYLE_LABELS = {
+    Default: '預設',
+    Bootstrap: 'Bootstrap',
+    MaterialDesign: 'MaterialDesign'
+  };
+
   const DEFAULT_SETTINGS = {
     backlogUrl: '',
-    themeStyle: 'Bootstrap' // 'Bootstrap' | 'MaterialDesign' | 'Default'
+    themeStyle: 'Default' // 'Default' | 'Bootstrap' | 'MaterialDesign'
   };
 
   function openDB() {
@@ -135,10 +141,16 @@ const BetterJiraDB = (() => {
     await Promise.all(tasks);
   }
 
+  function getStyleLabel(styleKey) {
+    return STYLE_LABELS[styleKey] || styleKey || '預設';
+  }
+
   return {
     getSettings,
     saveSetting,
     syncFromObject,
+    getStyleLabel,
+    STYLE_LABELS,
     DEFAULT_SETTINGS
   };
 })();
