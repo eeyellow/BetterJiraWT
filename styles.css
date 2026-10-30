@@ -4,7 +4,7 @@
  */
 
 /* =========================================================
-   待辦事項雙欄排版 (左欄約 20% 衝刺清單 / 右欄約 80% 選取衝刺的卡片)
+   待辦事項雙欄排版 (左欄約 20% 衝刺清單 / 右欄約 80% 選取衝刺的卡片，各自擁有獨立卷軸)
    ========================================================= */
 html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"] {
   display: flex !important;
@@ -14,6 +14,7 @@ html[data-betterjira-layout="two-column"] [data-bjwt-layout-host="true"] {
   gap: 16px !important;
   width: 100% !important;
   box-sizing: border-box !important;
+  overflow: hidden !important;
 }
 
 /* 保留非衝刺的頂部篩選列或橫幅佔滿整列 */
@@ -22,17 +23,16 @@ html[data-betterjira-layout="two-column"] [data-bjwt-non-sprint-child="true"] {
   width: 100% !important;
 }
 
-/* 左欄：約 20%，放衝刺清單，每次只能切換一個衝刺，支援捲動 */
+/* 左欄：約 20%，放衝刺清單，擁有獨立卷軸，不隨右欄捲動 */
 html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar {
   flex: 0 0 20% !important;
   width: 20% !important;
   max-width: 20% !important;
   min-width: 180px !important;
-  max-height: var(--bjwt-sidebar-max-h, calc(100vh - 140px)) !important;
+  height: var(--bjwt-pane-h, calc(100vh - 150px)) !important;
+  max-height: var(--bjwt-pane-h, calc(100vh - 150px)) !important;
   display: flex !important;
   flex-direction: column !important;
-  position: sticky !important;
-  top: 12px !important;
   box-sizing: border-box !important;
   background: var(--ds-surface-raised, #ffffff);
   border: 1px solid var(--ds-border, #dfe1e6);
@@ -152,15 +152,38 @@ html[data-betterjira-layout="two-column"] #bjwt-sprint-sidebar {
   color: #ffffff;
 }
 
-/* 右欄：約 80%，只顯示當前選取的一個衝刺及其卡片 */
+/* 右欄：約 80%，只顯示當前選取的一個衝刺及其卡片，擁有自己的獨立卷軸 */
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="true"] {
   flex: 1 1 calc(80% - 16px) !important;
   width: calc(80% - 16px) !important;
   max-width: calc(80% - 16px) !important;
   min-width: 0 !important;
+  height: var(--bjwt-pane-h, calc(100vh - 150px)) !important;
+  max-height: var(--bjwt-pane-h, calc(100vh - 150px)) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
   display: block !important;
   margin-top: 0 !important;
+  padding-right: 6px !important;
   box-sizing: border-box !important;
+}
+
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="true"]::-webkit-scrollbar {
+  width: 8px;
+}
+
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="true"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="true"]::-webkit-scrollbar-thumb {
+  background: rgba(9, 30, 66, 0.24);
+  border-radius: 999px;
+}
+
+html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"][data-bjwt-sprint-active="true"]::-webkit-scrollbar-thumb:hover {
+  background: rgba(9, 30, 66, 0.42);
 }
 
 html[data-betterjira-layout="two-column"] [data-bjwt-sprint-header-partner="true"][data-bjwt-sprint-active="true"] {
@@ -182,13 +205,14 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-container="true"][da
 }
 
 /* =========================================================
-   點擊卡片後：改以置中 Modal 彈出完整卡片內容，防止右欄被切半
+   點擊卡片後：改以置中 Modal 彈出完整卡片內容，防止右欄被切半，並關閉外層共用卷軸
    ========================================================= */
 html[data-betterjira-layout="two-column"] [data-bjwt-backlog-pane="true"],
 html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.scrollable-container"] {
   width: 100% !important;
   max-width: 100% !important;
   flex: 1 1 100% !important;
+  overflow: hidden !important;
 }
 
 html[data-betterjira-layout="two-column"] [data-bjwt-resizer-hide="true"],

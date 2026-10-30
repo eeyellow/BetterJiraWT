@@ -476,21 +476,28 @@
       sprintsHost.insertBefore(sidebar, firstTarget);
     }
 
-    updateSidebarMaxHeight(sidebar);
+    updateColumnsViewportHeight(sprintsHost, sidebar);
     renderSidebarContents(sidebar, sprintBranches, resolvedIndex);
 
     return sprintsHost;
   }
 
   /**
-   * 動態計算左欄可用高度，確保衝刺清單過長時可順暢捲動且不被裁切
+   * 動態計算左右兩欄各自獨立捲動區域的可用視窗高度，
+   * 確保左欄與右欄各自擁有獨立卷軸、互不連帶捲動。
    */
-  function updateSidebarMaxHeight(sidebar) {
-    if (!sidebar) return;
-    const rect = sidebar.getBoundingClientRect();
-    const topOffset = rect.top > 0 ? rect.top : 120;
-    const maxH = Math.max(220, window.innerHeight - topOffset - 20);
-    sidebar.style.setProperty('--bjwt-sidebar-max-h', `${maxH}px`);
+  function updateColumnsViewportHeight(sprintsHost, sidebar) {
+    const targetEl = sidebar || sprintsHost;
+    if (!targetEl) return;
+    const rect = targetEl.getBoundingClientRect();
+    const topOffset = rect.top > 0 ? rect.top : 140;
+    const paneH = Math.max(240, Math.floor(window.innerHeight - topOffset - 16));
+    if (sprintsHost) {
+      sprintsHost.style.setProperty('--bjwt-pane-h', `${paneH}px`);
+    }
+    if (sidebar) {
+      sidebar.style.setProperty('--bjwt-pane-h', `${paneH}px`);
+    }
   }
 
   /**
@@ -541,6 +548,9 @@
         activeSprintIndex = idx;
         activeSprintKey = item.meta.key;
         applyTwoColumnBacklogLayout();
+        if (item.branch) {
+          item.branch.scrollTop = 0;
+        }
         // 僅在使用者主動點擊左欄衝刺時，若該衝刺原本是收合的，才展開其標頭
         expandSprintHeaderOnUserSelect(item.branch, item.sprintEl, item.headerPartner);
       });
@@ -833,8 +843,9 @@
 
   window.addEventListener('resize', () => {
     const sidebar = document.getElementById(SIDEBAR_ID);
-    if (sidebar) {
-      updateSidebarMaxHeight(sidebar);
+    const host = document.querySelector('[data-bjwt-layout-host="true"]');
+    if (sidebar || host) {
+      updateColumnsViewportHeight(host, sidebar);
     }
   });
 
