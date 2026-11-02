@@ -232,6 +232,7 @@
         'aria-selected',
         'aria-expanded',
         'data-selected',
+        'data-state',
         'class',
         'value'
       ]

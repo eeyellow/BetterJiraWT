@@ -560,6 +560,72 @@
   }
 
   /**
+   * 檢查卡片 DOM 元素是否被 Jira 原生篩選器標記為隱藏或過濾
+   * 支援 Jira Classic/Server 的 ghx-filtered、ghx-hidden，
+   * 以及現代 Jira Cloud 常見之 hidden、aria-hidden="true"、
+   * [data-is-filtered="true"]、inline style display: none 等。
+   *
+   * @param {Element} cardEl - 卡片 DOM 元素
+   * @param {Element|null} [stopAncestor=null] - 停止向上遍歷的祖先節點
+   * @returns {boolean} 是否處於被過濾或隱藏狀態
+   */
+  function isDomCardFilteredOrHidden(cardEl, stopAncestor = null) {
+    if (!cardEl || !(cardEl instanceof Element)) return true;
+
+    const isFilteredNode = (el) => {
+      if (!el || !(el instanceof Element)) return false;
+
+      // 1. 檢查 Jira 經典與現代篩選 class (ghx-filtered, is-filtered, filtered 等)
+      const cls = typeof el.className === 'string' ? el.className : '';
+      if (
+        /(?:^|[\s_-])(?:ghx-filtered|is-filtered|ghx-hidden|filtered)(?:$|[\s_-])/.test(cls)
+      ) {
+        return true;
+      }
+
+      // 2. 檢查原生 hidden 屬性與 aria-hidden="true"
+      if (el.hasAttribute('hidden') || el.getAttribute('aria-hidden') === 'true') {
+        return true;
+      }
+
+      // 3. 檢查 Jira 標記篩選的 data 屬性
+      if (
+        el.getAttribute('data-is-filtered') === 'true' ||
+        el.getAttribute('data-filtered') === 'true' ||
+        el.getAttribute('data-hidden') === 'true'
+      ) {
+        return true;
+      }
+
+      // 4. 檢查元素 inline style display: none
+      if (el.style && el.style.display === 'none') {
+        return true;
+      }
+
+      return false;
+    };
+
+    if (isFilteredNode(cardEl)) return true;
+
+    // 向上走訪至 stopAncestor 或衝刺容器，確認卡片外層包裹容器 (例如 li.ghx-issue) 是否被標記為篩選隱藏
+    let curr = cardEl.parentElement;
+    while (
+      curr &&
+      curr !== document.body &&
+      curr !== stopAncestor &&
+      !curr.hasAttribute('data-bjwt-sprint-branch') &&
+      !curr.hasAttribute('data-bjwt-layout-host')
+    ) {
+      if (isFilteredNode(curr)) {
+        return true;
+      }
+      curr = curr.parentElement;
+    }
+
+    return false;
+  }
+
+  /**
    * 從未結束衝刺的原生 DOM 中提取所有卡片
    *
    * @param {Element|null} branchEl - 衝刺 branch 節點
@@ -578,6 +644,7 @@
         (c) =>
           !c.classList.contains('bjwt-history-card') &&
           !c.closest('[data-bjwt-custom-view]') &&
+          !isDomCardFilteredOrHidden(c, root) &&
           !nodes.some((other) => other !== c && other.contains(c))
       );
       if (filtered.length > 0) {
@@ -602,6 +669,7 @@
   BetterJira.CardDomParser = {
     extractCleanSummaryFromDom,
     parseIssueFromDomCard,
+    isDomCardFilteredOrHidden,
     parseIssuesFromBranch
   };
 })();

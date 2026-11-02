@@ -252,15 +252,23 @@
       title = `衝刺 ${index + 1}`;
     }
 
-    // 計算原生 DOM 中的真實卡片數量 (嚴格排除自定義檢視卡片與容器節點)
+    // 計算原生 DOM 中的真實卡片數量 (嚴格排除自定義檢視卡片、容器節點與被 Jira 篩選隱藏的卡片)
     let cardNodes = [];
+    const isFilteredCard = (c, r) => {
+      const { CardDomParser } = BetterJira;
+      return CardDomParser && typeof CardDomParser.isDomCardFilteredOrHidden === 'function'
+        ? CardDomParser.isDomCardFilteredOrHidden(c, r)
+        : false;
+    };
+
     for (const root of [branchEl, sprintEl]) {
       if (!root) continue;
       for (const cardSel of CARD_SELECTORS) {
         const foundCards = Array.from(root.querySelectorAll(cardSel)).filter(
           (c) =>
             !c.classList.contains('bjwt-history-card') &&
-            !c.closest('[data-bjwt-custom-view]')
+            !c.closest('[data-bjwt-custom-view]') &&
+            !isFilteredCard(c, root)
         );
         if (foundCards.length > 0) {
           cardNodes = foundCards.filter(
@@ -306,10 +314,10 @@
 
     const isCollapsed = isNativeSprintCollapsed(branchEl, sprintEl, headerPartner);
     let cardCount = cardNodes.length;
-    if (cardCount === 0 && isCollapsed) {
-      if (headerFilteredCount !== null) {
-        cardCount = headerFilteredCount;
-      } else if (headerTotalCount !== null) {
+    if (headerFilteredCount !== null) {
+      cardCount = headerFilteredCount;
+    } else if (cardCount === 0 && isCollapsed) {
+      if (headerTotalCount !== null) {
         cardCount = headerTotalCount;
       }
     }
