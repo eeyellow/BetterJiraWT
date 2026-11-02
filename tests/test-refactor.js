@@ -478,6 +478,193 @@ assert(updatedRuntimeStylesJs.includes('[data-bjwt-edit-mode="true"]'), 'runtime
 
 console.log('✓ 留言 HTML 解析與卡片編輯模式測試通過！');
 
+console.log('--- 測試 12: Jira 原生全方位篩選同步檢查 (Type, Epic, Status, Label, Quick Filter, Hidden DOM) ---');
+const { CardDomParser } = BetterJira;
+
+class MockElement {
+  constructor(tagName = 'div') {
+    this.tagName = tagName.toUpperCase();
+    this.attributes = {};
+    this.classList = {
+      _classes: new Set(),
+      contains(c) { return this._classes.has(c); },
+      add(c) { this._classes.add(c); },
+      remove(c) { this._classes.delete(c); }
+    };
+    this.style = {};
+    this.children = [];
+    this.parentElement = null;
+    this.textContent = '';
+  }
+  setAttribute(k, v) {
+    this.attributes[k] = String(v);
+  }
+  getAttribute(k) {
+    return this.attributes[k] !== undefined ? this.attributes[k] : null;
+  }
+  hasAttribute(k) {
+    return this.attributes[k] !== undefined;
+  }
+  removeAttribute(k) {
+    delete this.attributes[k];
+  }
+  get className() {
+    return Array.from(this.classList._classes).join(' ');
+  }
+  set className(val) {
+    this.classList._classes = new Set((val || '').split(/\s+/).filter(Boolean));
+  }
+  appendChild(child) {
+    child.parentElement = this;
+    this.children.push(child);
+    return child;
+  }
+  querySelector(sel) {
+    return null;
+  }
+  querySelectorAll(sel) {
+    return [];
+  }
+  closest(sel) {
+    return null;
+  }
+  matches(sel) {
+    return false;
+  }
+}
+global.Element = MockElement;
+
+// 1. 測試 isDomCardFilteredOrHidden
+const divClean = new MockElement('div');
+assert.strictEqual(CardDomParser.isDomCardFilteredOrHidden(divClean), false, '普通無標記節點不應被判斷為過濾隱藏');
+
+const divGhxFiltered = new MockElement('div');
+divGhxFiltered.className = 'ghx-issue ghx-filtered';
+assert.strictEqual(CardDomParser.isDomCardFilteredOrHidden(divGhxFiltered), true, 'ghx-filtered 節點應被判斷為過濾隱藏');
+
+const divDisplayNone = new MockElement('div');
+divDisplayNone.style.display = 'none';
+assert.strictEqual(CardDomParser.isDomCardFilteredOrHidden(divDisplayNone), true, 'display: none 節點應被判斷為過濾隱藏');
+
+const divAriaHidden = new MockElement('div');
+divAriaHidden.setAttribute('aria-hidden', 'true');
+assert.strictEqual(CardDomParser.isDomCardFilteredOrHidden(divAriaHidden), true, 'aria-hidden="true" 節點應被判斷為過濾隱藏');
+
+const divParentFiltered = new MockElement('li');
+divParentFiltered.className = 'ghx-filtered';
+const divChild = new MockElement('div');
+divParentFiltered.appendChild(divChild);
+assert.strictEqual(CardDomParser.isDomCardFilteredOrHidden(divChild), true, '父層有 ghx-filtered 時子卡片應被判斷為過濾隱藏');
+
+// 2. 測試 FilterService.filterIssuesByNativeFilter 各維度過濾
+const testIssueList = [
+  {
+    key: 'TEST-1',
+    summary: 'Login page crash',
+    issueTypeName: 'Bug',
+    statusName: '進行中',
+    statusCategory: 'indeterminate',
+    parentSummary: 'Auth Epic',
+    parentKey: 'AUTH-1',
+    labels: ['frontend', 'auth'],
+    assigneeName: 'Ray Huang',
+    assigneeInitials: 'RH'
+  },
+  {
+    key: 'TEST-2',
+    summary: 'Design checkout UI',
+    issueTypeName: 'Story',
+    statusName: '待處理',
+    statusCategory: 'new',
+    parentSummary: 'Checkout Epic',
+    parentKey: 'CHK-1',
+    labels: ['ui'],
+    assigneeName: 'Alice Wang',
+    assigneeInitials: 'AW'
+  },
+  {
+    key: 'TEST-3',
+    summary: 'Setup backend DB',
+    issueTypeName: 'Task',
+    statusName: '完成',
+    statusCategory: 'done',
+    parentSummary: 'Infra Epic',
+    parentKey: 'INF-1',
+    labels: ['backend'],
+    assigneeName: 'Bob Lee',
+    assigneeInitials: 'BL'
+  }
+];
+
+// 測試 Type 篩選 (只選 Bug)
+const typeFilter = {
+  selectedTypes: ['bug'],
+  hasDirectFilter: true,
+  isFiltered: true
+};
+const bugOnly = FilterService.filterIssuesByNativeFilter(testIssueList, typeFilter);
+assert.strictEqual(bugOnly.length, 1);
+assert.strictEqual(bugOnly[0].key, 'TEST-1', 'Type 篩選應精確匹配 Bug');
+
+// 測試 Epic 篩選 (只選 Checkout Epic)
+const epicFilter = {
+  selectedEpics: ['checkout epic'],
+  hasDirectFilter: true,
+  isFiltered: true
+};
+const epicOnly = FilterService.filterIssuesByNativeFilter(testIssueList, epicFilter);
+assert.strictEqual(epicOnly.length, 1);
+assert.strictEqual(epicOnly[0].key, 'TEST-2', 'Epic 篩選應精確匹配 Checkout Epic');
+
+// 測試 Status 篩選 (只選 待處理)
+const statusFilter = {
+  selectedStatuses: ['待處理'],
+  hasDirectFilter: true,
+  isFiltered: true
+};
+const statusOnly = FilterService.filterIssuesByNativeFilter(testIssueList, statusFilter);
+assert.strictEqual(statusOnly.length, 1);
+assert.strictEqual(statusOnly[0].key, 'TEST-2', 'Status 篩選應精確匹配 待處理');
+
+// 測試 Label 篩選 (只選 backend)
+const labelFilter = {
+  selectedLabels: ['backend'],
+  hasDirectFilter: true,
+  isFiltered: true
+};
+const labelOnly = FilterService.filterIssuesByNativeFilter(testIssueList, labelFilter);
+assert.strictEqual(labelOnly.length, 1);
+assert.strictEqual(labelOnly[0].key, 'TEST-3', 'Label 篩選應精確匹配 backend');
+
+// 測試 Quick Filter 快速篩選 (如 'Bug')
+const qfFilter = {
+  selectedQuickFilters: ['Bug'],
+  hasDirectFilter: true,
+  isFiltered: true
+};
+const qfOnly = FilterService.filterIssuesByNativeFilter(testIssueList, qfFilter);
+assert.strictEqual(qfOnly.length, 1);
+assert.strictEqual(qfOnly[0].key, 'TEST-1', 'Quick Filter 應正確識別 Bug 類型');
+
+// 3. 測試 DOM 篩選狀態偵測
+const origDocQuerySelectorAll = global.document.querySelectorAll;
+global.document.querySelectorAll = (sel) => {
+  if (sel.includes('board-filter') || sel.includes('filters')) {
+    const btn = new MockElement('button');
+    btn.setAttribute('aria-pressed', 'true');
+    btn.textContent = 'Only My Issues';
+    return [btn];
+  }
+  return [];
+};
+
+const detectedState = FilterService.getNativeBacklogFilterState();
+assert.strictEqual(detectedState.isFiltered, true, '按下快速篩選按鈕時 isFiltered 應為 true');
+assert(detectedState.selectedQuickFilters.includes('Only My Issues'), '應偵測到按下之快速篩選按鈕');
+global.document.querySelectorAll = origDocQuerySelectorAll;
+
+console.log('✓ Jira 原生全方位篩選同步檢查通過！');
+
 console.log('============================================');
 console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
 console.log('============================================');

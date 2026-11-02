@@ -76,6 +76,8 @@
       ActiveSprintView.syncActiveSprintIssuesFromApi(item);
     }
 
+    const isFiltered = Boolean(nativeFilter && (nativeFilter.isFiltered || nativeFilter.hasDirectFilter));
+
     let resolvedIssues = [];
     if (domIssues.length > 0) {
       // 原生 DOM 已有展開的卡片：先以原生 DOM 卡片為基底 (已受 Jira 所有原生篩選器過濾)，再套用本地雙重確認篩選
@@ -83,7 +85,7 @@
     } else if (!meta.isCollapsed) {
       // 衝刺處於展開狀態，但原生 DOM 內有 0 張卡片 (代表目前篩選條件下此衝刺為 0 張卡片，或原本即為空衝刺)
       if (
-        !nativeFilter.isFiltered &&
+        !isFiltered &&
         meta.headerTotalCount > 0 &&
         Array.isArray(cached.allApiIssues) &&
         cached.allApiIssues.length > 0
@@ -103,14 +105,17 @@
     }
 
     cached.issues = resolvedIssues;
-    cached.nativeFilterSig = nativeFilter.sig;
+    cached.nativeFilterSig = nativeFilter ? nativeFilter.sig : '';
 
     const stats = SprintStatsService.calculateSprintStatistics(resolvedIssues);
-    if (domIssues.length > 0 || !meta.isCollapsed || Array.isArray(cached.allApiIssues)) {
+    if (isFiltered && meta.headerFilteredCount !== null) {
+      meta.cardCount = meta.headerFilteredCount;
+      meta.storyPoints = stats.totalPoints;
+    } else if (domIssues.length > 0 || !meta.isCollapsed || Array.isArray(cached.allApiIssues)) {
       meta.cardCount = stats.totalIssues;
       meta.storyPoints = stats.totalPoints;
-    } else if (nativeFilter.isFiltered) {
-      meta.cardCount = meta.headerFilteredCount !== null ? meta.headerFilteredCount : 0;
+    } else if (isFiltered) {
+      meta.cardCount = 0;
       meta.storyPoints = 0;
     } else {
       meta.cardCount = meta.headerTotalCount !== null ? meta.headerTotalCount : meta.cardCount;

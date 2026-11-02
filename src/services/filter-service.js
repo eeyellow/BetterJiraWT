@@ -18,6 +18,92 @@
    */
 
   /**
+   * 檢查元素是否處於「已選取 (Pressed / Selected / Checked / Active)」狀態
+   *
+   * @param {Element} btn - 目標 DOM 元素
+   * @returns {boolean} 是否選取
+   */
+  function isElementSelected(btn) {
+    if (!btn || !(btn instanceof Element)) return false;
+
+    // 1. 若元素自身明確宣告為未選取 / 未按下，絕對排除
+    const ariaPressed = btn.getAttribute('aria-pressed');
+    const ariaChecked = btn.getAttribute('aria-checked');
+    const ariaSelected = btn.getAttribute('aria-selected');
+    const dataState = btn.getAttribute('data-state');
+    const dataSelected = btn.getAttribute('data-selected');
+
+    if (
+      ariaPressed === 'false' ||
+      ariaChecked === 'false' ||
+      ariaSelected === 'false' ||
+      dataState === 'unselected' ||
+      dataState === 'inactive' ||
+      dataSelected === 'false'
+    ) {
+      return false;
+    }
+
+    // 若有內部 checkbox/radio 且未打勾，明確排除
+    const innerInput = btn.querySelector('input[type="checkbox"], input[type="radio"]');
+    if (innerInput && !innerInput.checked && !innerInput.hasAttribute('checked')) {
+      return false;
+    }
+
+    // 2. 檢查明確的肯定選取標記
+    // a. 標準 ARIA 屬性
+    if (
+      ariaPressed === 'true' ||
+      ariaChecked === 'true' ||
+      ariaSelected === 'true' ||
+      dataState === 'selected' ||
+      dataState === 'active' ||
+      dataSelected === 'true'
+    ) {
+      return true;
+    }
+
+    // b. 檢查按鈕內部是否包含已勾選的 input
+    if (innerInput && (innerInput.checked || innerInput.hasAttribute('checked'))) {
+      return true;
+    }
+
+    // c. 檢查子節點帶有明確選取狀態
+    const pressedDescendant = btn.querySelector(
+      '[aria-pressed="true"], [aria-checked="true"], [data-state="selected"], [data-selected="true"]'
+    );
+    if (pressedDescendant) {
+      return true;
+    }
+
+    // d. 檢查自身 class (is-selected, ghx-active 等)
+    const ownCls = typeof btn.className === 'string' ? btn.className : '';
+    if (
+      /(?:^|[\s_-])(?:is-selected|is-checked|isSelected|isChecked|ghx-active)(?:$|[\s_-])/.test(ownCls) &&
+      !/(?:not-selected|unselected)/i.test(ownCls)
+    ) {
+      return true;
+    }
+
+    // e. 檢查螢幕報讀文字 (ScreenReader)
+    const srTexts = Array.from(
+      btn.querySelectorAll('[class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]')
+    )
+      .map((e) => e.textContent || '')
+      .join(' ')
+      .trim();
+    if (
+      srTexts &&
+      /(?:已選取|選取已啟用|已選中|currently\s+selected)/i.test(srTexts) &&
+      !/(?:未選取|未選中|not\s+selected|unselected)/i.test(srTexts)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * 偵測 Jira 原生篩選搜尋區 (搜尋框、人員頭像篩選、未指派篩選、快速篩選等) 的目前狀態
    *
    * @returns {NativeBacklogFilterState} 篩選狀態結構
@@ -35,7 +121,15 @@
       searchKeyword: '',
       includeUnassigned: false,
       selectedAssignees: [],
+      selectedQuickFilters: [],
+      selectedTypes: [],
+      selectedEpics: [],
+      selectedLabels: [],
+      selectedStatuses: [],
+      hasClearFilterBtn: false,
+      hasHeaderFilteredCount: false,
       hasDirectFilter: false,
+      isFiltered: false,
       sig: ''
     };
 
@@ -63,7 +157,7 @@
       }
     }
 
-    // 檢查網址參數是否有搜尋字或 assignee
+    // 檢查網址參數 (text, quickFilter, epics, issueType, labels, status)
     try {
       const url = new URL(window.location.href);
       if (!state.searchKeyword) {
@@ -72,11 +166,46 @@
           state.searchKeyword = urlText.trim().toLowerCase();
         }
       }
+      const qf = url.searchParams.get('quickFilter');
+      if (qf) {
+        qf.split(',').forEach((q) => {
+          const s = q.trim();
+          if (s && !state.selectedQuickFilters.includes(s)) state.selectedQuickFilters.push(s);
+        });
+      }
+      const epics = url.searchParams.get('epics') || url.searchParams.get('epic');
+      if (epics) {
+        epics.split(',').forEach((e) => {
+          const s = e.trim().toLowerCase();
+          if (s && !state.selectedEpics.includes(s)) state.selectedEpics.push(s);
+        });
+      }
+      const it = url.searchParams.get('issueType') || url.searchParams.get('issuetype') || url.searchParams.get('type');
+      if (it) {
+        it.split(',').forEach((t) => {
+          const s = t.trim().toLowerCase();
+          if (s && !state.selectedTypes.includes(s)) state.selectedTypes.push(s);
+        });
+      }
+      const lb = url.searchParams.get('labels') || url.searchParams.get('label');
+      if (lb) {
+        lb.split(',').forEach((l) => {
+          const s = l.trim().toLowerCase();
+          if (s && !state.selectedLabels.includes(s)) state.selectedLabels.push(s);
+        });
+      }
+      const st = url.searchParams.get('status') || url.searchParams.get('statuses');
+      if (st) {
+        st.split(',').forEach((s) => {
+          const val = s.trim().toLowerCase();
+          if (val && !state.selectedStatuses.includes(val)) state.selectedStatuses.push(val);
+        });
+      }
     } catch {
       // ignore
     }
 
-    // 2. 尋找原生篩選列中的人員頭像篩選按鈕與下拉選單項目
+    // 2. 尋找原生篩選列候選根容器 (搜尋列、篩選工具列、人員頭像、下拉選單按鈕、快速篩選)
     const filterRootCandidates = new Set();
     searchInputs.forEach((inp) => {
       let curr = inp.parentElement;
@@ -90,7 +219,7 @@
 
     document
       .querySelectorAll(
-        '[data-testid*="assignee-filter"], [data-testid*="ak-avatar"], [data-testid*="avatar-group"], [data-testid*="backlog-filter"], [data-testid*="filters"]'
+        '[data-testid*="assignee-filter"], [data-testid*="ak-avatar"], [data-testid*="avatar-group"], [data-testid*="backlog-filter"], [data-testid*="filters"], [data-testid*="filter-bar"], [data-testid*="quickfilter"], [data-testid*="quick-filters"], [data-testid*="board-filter"], .ghx-controls-filters, #ghx-quick-filters, [data-testid*="epic-panel"], #ghx-epic-column'
       )
       .forEach((el) => {
         if (
@@ -106,36 +235,20 @@
         }
       });
 
-    // 若使用者點開了「+11」更多人員下拉選單，將該彈出選單也納入檢查
-    document
-      .querySelectorAll(
-        '[role="dialog"], [role="menu"], [role="listbox"], [data-testid*="popup"], [data-testid*="dropdown"]'
-      )
-      .forEach((popup) => {
-        if (
-          popup.id !== HISTORY_PICKER_MODAL_ID &&
-          popup.id !== HISTORY_ISSUE_MODAL_ID &&
-          !popup.hasAttribute('data-bjwt-issue-modal') &&
-          !popup.closest(`#${SIDEBAR_ID}`) &&
-          !popup.closest('[data-bjwt-sprint-branch]')
-        ) {
-          if (
-            popup.querySelector(
-              '[data-testid*="assignee"], [data-testid*="avatar"], [role="checkbox"], [role="menuitemcheckbox"], input[type="checkbox"]'
-            )
-          ) {
-            filterRootCandidates.add(popup);
-          }
-        }
-      });
-
-    const candidateButtons = [];
+    const candidateAssigneeButtons = [];
     const seenEls = new Set();
 
     filterRootCandidates.forEach((root) => {
-      const items = root.querySelectorAll(
-        'button, [role="checkbox"], [role="menuitemcheckbox"], [role="option"], label'
-      );
+      const items = [
+        root,
+        ...Array.from(
+          root.querySelectorAll
+            ? root.querySelectorAll(
+                'button, [role="checkbox"], [role="menuitemcheckbox"], [role="option"], [role="button"], a.ghx-active, label'
+              )
+            : []
+        )
+      ];
       items.forEach((el) => {
         if (seenEls.has(el)) return;
         if (
@@ -155,124 +268,172 @@
         }
 
         const txt = (el.textContent || '').replace(/\s+/g, ' ').trim();
-        // 排除「+11」展開更多按鈕、「篩選條件」、「自訂篩選條件」、「清除篩選」等非單一人員按鈕
+        // 排除「+11」展開更多按鈕
         if (/^\+\d+$/.test(txt)) return;
+
+        // 檢查是否為「清除篩選條件」按鈕
         if (
-          /^(?:篩選條件|自訂篩選條件|快速篩選|清除|重設|更多|檢視設定|深入分析|filters?|custom\s+filters?|quick\s+filters?|clear|reset|more|insights?)$/i.test(
-            txt
-          )
+          /^(?:清除所有篩選條件|清除篩選|清除|重設|clear\s+all(?:\s+filters?)?|clear\s+filters?|reset\s+filters?)$/i.test(txt) ||
+          /clear-all|reset-filter|clear-filters/i.test(el.getAttribute('data-testid') || '')
         ) {
-          return;
-        }
-        if (el.getAttribute('aria-haspopup') === 'true' || el.getAttribute('aria-haspopup') === 'menu' || el.getAttribute('aria-haspopup') === 'dialog') {
+          seenEls.add(el);
+          if (el.offsetParent !== null || (el.style && el.style.display !== 'none')) {
+            state.hasClearFilterBtn = true;
+          }
           return;
         }
 
+        // 排除非篩選的視圖功能按鈕
+        if (/^(?:檢視設定|深入分析|view\s+settings|insights?)$/i.test(txt)) {
+          return;
+        }
+
+        seenEls.add(el);
+
         const isAvatarLike = Boolean(
-          el.matches('[data-testid*="assignee"], [data-testid*="avatar"], [ role="checkbox" ], [ role="menuitemcheckbox" ]') ||
-            el.closest('[data-testid*="assignee"], [data-testid*="avatar-group"]') ||
-            el.querySelector('[data-testid*="avatar"], [class*="Avatar"], [class*="avatar"], img[src*="avatar"], [role="img"], svg, input[type="checkbox"]')
+          (el.matches && el.matches('[data-testid*="assignee"], [data-testid*="avatar"], [ role="checkbox" ], [ role="menuitemcheckbox" ]')) ||
+            (el.closest && el.closest('[data-testid*="assignee"], [data-testid*="avatar-group"]')) ||
+            (el.querySelector && el.querySelector('[data-testid*="avatar"], [class*="Avatar"], [class*="avatar"], img[src*="avatar"], [role="img"], svg, input[type="checkbox"]'))
         );
 
         if (isAvatarLike) {
-          seenEls.add(el);
-          candidateButtons.push(el);
+          if (isElementSelected(el)) {
+            candidateAssigneeButtons.push(el);
+          }
+          return;
+        }
+
+        // 檢查是否為選取中的快速篩選或下拉篩選按鈕
+        const isSelected = isElementSelected(el);
+        const lowerTxt = txt.toLowerCase();
+        const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+
+        if (isSelected) {
+          // 判斷是否為工作項目類型 (Type)
+          if (/類型|type|issuetype/.test(testId) || /類型|type|issuetype/.test(ariaLabel)) {
+            const m = txt.match(/(?:類型|Type|Issue\s*type)\s*[:：]\s*(.+)/i);
+            const val = m ? m[1].trim().toLowerCase() : lowerTxt;
+            if (val && !state.selectedTypes.includes(val)) state.selectedTypes.push(val);
+          }
+          // 判斷是否為史詩 (Epic)
+          else if (/史詩|epic/.test(testId) || /史詩|epic/.test(ariaLabel)) {
+            const m = txt.match(/(?:史詩|Epic)\s*[:：]\s*(.+)/i);
+            const val = m ? m[1].trim().toLowerCase() : lowerTxt;
+            if (val && !state.selectedEpics.includes(val)) state.selectedEpics.push(val);
+          }
+          // 判斷是否為標籤 (Label)
+          else if (/標籤|label/.test(testId) || /標籤|label/.test(ariaLabel)) {
+            const m = txt.match(/(?:標籤|Label)\s*[:：]\s*(.+)/i);
+            const val = m ? m[1].trim().toLowerCase() : lowerTxt;
+            if (val && !state.selectedLabels.includes(val)) state.selectedLabels.push(val);
+          }
+          // 判斷是否為狀態 (Status)
+          else if (/狀態|status/.test(testId) || /狀態|status/.test(ariaLabel)) {
+            const m = txt.match(/(?:狀態|Status)\s*[:：]\s*(.+)/i);
+            const val = m ? m[1].trim().toLowerCase() : lowerTxt;
+            if (val && !state.selectedStatuses.includes(val)) state.selectedStatuses.push(val);
+          }
+          // 否則視為快速篩選按鈕 (Quick Filter)
+          else if (txt && !/^(?:篩選條件|自訂篩選條件|快速篩選|更多|filters?|custom\s+filters?|quick\s+filters?|more)$/i.test(txt)) {
+            if (!state.selectedQuickFilters.includes(txt)) {
+              state.selectedQuickFilters.push(txt);
+            }
+          }
+        } else {
+          // 檢查按鈕是否含有選取計數徽章 (例如 Type: 1 或含有 badge)
+          const badge = el.querySelector('[data-testid*="badge"], [class*="Badge"]');
+          if (badge || /:\s*\d+/.test(txt)) {
+            if (/類型|type|issuetype/.test(testId) || /類型|type|issuetype/.test(ariaLabel) || /類型|type/i.test(txt)) {
+              if (!state.selectedTypes.includes('__has_type_filter__')) state.selectedTypes.push('__has_type_filter__');
+            } else if (/史詩|epic/.test(testId) || /史詩|epic/.test(ariaLabel) || /史詩|epic/i.test(txt)) {
+              if (!state.selectedEpics.includes('__has_epic_filter__')) state.selectedEpics.push('__has_epic_filter__');
+            } else if (/標籤|label/.test(testId) || /標籤|label/.test(ariaLabel) || /標籤|label/i.test(txt)) {
+              if (!state.selectedLabels.includes('__has_label_filter__')) state.selectedLabels.push('__has_label_filter__');
+            } else if (/狀態|status/.test(testId) || /狀態|status/.test(ariaLabel) || /狀態|status/i.test(txt)) {
+              if (!state.selectedStatuses.includes('__has_status_filter__')) state.selectedStatuses.push('__has_status_filter__');
+            }
+          }
         }
       });
     });
 
-    // 檢查每個候選人員按鈕是否處於「已選取 (Pressed / Selected / Checked)」狀態
-    const selectedElements = [];
-    candidateButtons.forEach((btn) => {
-      // 1. 若元素自身明確宣告為未選取 / 未按下，絕對排除 (絕不落入任何模糊猜測)
-      const ariaPressed = btn.getAttribute('aria-pressed');
-      const ariaChecked = btn.getAttribute('aria-checked');
-      const ariaSelected = btn.getAttribute('aria-selected');
-      const dataState = btn.getAttribute('data-state');
-      const dataSelected = btn.getAttribute('data-selected');
+    // 檢查已開啟之下拉清單中勾選的選項 (Type, Epic, Label, Status)
+    document
+      .querySelectorAll(
+        '[role="dialog"], [role="menu"], [role="listbox"], [data-testid*="popup"], [data-testid*="dropdown"]'
+      )
+      .forEach((popup) => {
+        if (
+          popup.id === HISTORY_PICKER_MODAL_ID ||
+          popup.id === HISTORY_ISSUE_MODAL_ID ||
+          popup.hasAttribute('data-bjwt-issue-modal') ||
+          popup.closest(`#${SIDEBAR_ID}`) ||
+          popup.closest('[data-bjwt-sprint-branch]')
+        ) {
+          return;
+        }
 
-      if (
-        ariaPressed === 'false' ||
-        ariaChecked === 'false' ||
-        ariaSelected === 'false' ||
-        dataState === 'unselected' ||
-        dataState === 'inactive' ||
-        dataSelected === 'false'
-      ) {
-        return;
-      }
+        const popupText = (popup.textContent || '').toLowerCase();
+        const popupAria = (popup.getAttribute('aria-label') || '').toLowerCase();
+        const popupHeader = popupText.slice(0, 100) + ' ' + popupAria;
 
-      // 若有內部 checkbox/radio 且未打勾，明確排除
-      const innerInput = btn.querySelector('input[type="checkbox"], input[type="radio"]');
-      if (innerInput && !innerInput.checked && !innerInput.hasAttribute('checked')) {
-        return;
-      }
+        let category = '';
+        if (/類型|type|issuetype/.test(popupHeader)) category = 'type';
+        else if (/史詩|epic/.test(popupHeader)) category = 'epic';
+        else if (/標籤|label/.test(popupHeader)) category = 'label';
+        else if (/狀態|status/.test(popupHeader)) category = 'status';
 
-      // 2. 檢查明確的肯定選取標記
-      let isSelected = false;
+        if (!category) return;
 
-      // a. 按鈕本體標準 ARIA 屬性 (Atlassian ADS ToggleButton 規範：選取時必為 aria-pressed="true")
-      if (
-        ariaPressed === 'true' ||
-        ariaChecked === 'true' ||
-        ariaSelected === 'true' ||
-        dataState === 'selected' ||
-        dataState === 'active' ||
-        dataSelected === 'true'
-      ) {
-        isSelected = true;
-      }
-
-      // b. 檢查按鈕內部是否包含已勾選的 input
-      if (!isSelected && innerInput && (innerInput.checked || innerInput.hasAttribute('checked'))) {
-        isSelected = true;
-      }
-
-      // c. 檢查按鈕內部帶有 aria-pressed="true" 或 aria-checked="true" 的子節點
-      if (!isSelected) {
-        const pressedDescendant = btn.querySelector(
-          '[aria-pressed="true"], [aria-checked="true"], [data-state="selected"], [data-selected="true"]'
+        const checkedOptions = popup.querySelectorAll(
+          '[role="menuitemcheckbox"][aria-checked="true"], [role="checkbox"][aria-checked="true"], input[type="checkbox"]:checked, [aria-selected="true"]'
         );
-        if (pressedDescendant) {
-          isSelected = true;
-        }
-      }
+        checkedOptions.forEach((opt) => {
+          const optText = (opt.textContent || opt.value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (!optText) return;
+          if (category === 'type' && !state.selectedTypes.includes(optText)) state.selectedTypes.push(optText);
+          if (category === 'epic' && !state.selectedEpics.includes(optText)) state.selectedEpics.push(optText);
+          if (category === 'label' && !state.selectedLabels.includes(optText)) state.selectedLabels.push(optText);
+          if (category === 'status' && !state.selectedStatuses.includes(optText)) state.selectedStatuses.push(optText);
+        });
+      });
 
-      // d. 檢查按鈕自身的 class (僅限 btn 自身，嚴禁檢查 parentElement 避免外層群組容器樣式污染)
-      if (!isSelected) {
-        const ownCls = typeof btn.className === 'string' ? btn.className : '';
-        if (
-          /(?:^|[\s_-])(?:is-selected|is-checked|isSelected|isChecked)(?:$|[\s_-])/.test(ownCls) &&
-          !/(?:not-selected|unselected)/i.test(ownCls)
-        ) {
-          isSelected = true;
-        }
+    // 檢查衝刺標頭是否顯示原生篩選計數 (如「29 個工作項目中的 5 個」或「5 of 29 issues」)
+    const headers = Array.from(
+      document.querySelectorAll('[data-testid*="header"], .ghx-backlog-header, header')
+    );
+    for (const hdr of headers) {
+      if (hdr.closest(`#${SIDEBAR_ID}`) || hdr.closest('[data-bjwt-custom-view]')) continue;
+      const t = hdr.innerText || hdr.textContent || '';
+      if (
+        /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)\s*中的\s*(\d+)/i.test(t) ||
+        /(\d+)\s*(?:of|\/)\s*(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i.test(t)
+      ) {
+        state.hasHeaderFilteredCount = true;
+        break;
       }
+    }
 
-      // e. 檢查按鈕內明確的無歧義「已選取」螢幕報讀文字 (嚴格排除「未選取」)
-      if (!isSelected) {
-        const srTexts = Array.from(
-          btn.querySelectorAll('[class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"], [hidden]')
-        )
-          .map((e) => e.textContent || '')
-          .join(' ')
-          .trim();
-        if (
-          srTexts &&
-          /(?:已選取|選取已啟用|已選中|currently\s+selected)/i.test(srTexts) &&
-          !/(?:未選取|未選中|not\s+selected|unselected)/i.test(srTexts)
-        ) {
-          isSelected = true;
-        }
+    if (!state.hasClearFilterBtn) {
+      const clearBtn = Array.from(document.querySelectorAll('button, a')).find((b) => {
+        if (b.closest(`#${SIDEBAR_ID}`) || b.closest('[data-bjwt-sprint-branch]')) return false;
+        const txt = (b.textContent || '').trim();
+        const testid = b.getAttribute('data-testid') || '';
+        const aria = b.getAttribute('aria-label') || '';
+        return (
+          /^(?:清除所有篩選條件|清除篩選|清除|重設|clear\s+all(?:\s+filters?)?|clear\s+filters?|reset\s+filters?)$/i.test(txt) ||
+          /clear-all|reset-filter|clear-filters/i.test(testid) ||
+          /clear\s+filters?|清除篩選/i.test(aria)
+        );
+      });
+      if (clearBtn && (clearBtn.offsetParent !== null || (clearBtn.style && clearBtn.style.display !== 'none'))) {
+        state.hasClearFilterBtn = true;
       }
-
-      if (isSelected) {
-        selectedElements.push(btn);
-      }
-    });
+    }
 
     // 解析每個已選取人員按鈕的代表名稱、縮寫與頭像
-    selectedElements.forEach((btn) => {
+    candidateAssigneeButtons.forEach((btn) => {
       const rawLabels = [];
       const attrNodes = [
         btn,
@@ -356,8 +517,18 @@
     });
 
     state.hasDirectFilter = Boolean(
-      state.searchKeyword || state.includeUnassigned || state.selectedAssignees.length > 0
+      state.searchKeyword ||
+      state.includeUnassigned ||
+      state.selectedAssignees.length > 0 ||
+      state.selectedQuickFilters.length > 0 ||
+      state.selectedTypes.length > 0 ||
+      state.selectedEpics.length > 0 ||
+      state.selectedLabels.length > 0 ||
+      state.selectedStatuses.length > 0 ||
+      state.hasClearFilterBtn ||
+      state.hasHeaderFilteredCount
     );
+    state.isFiltered = state.hasDirectFilter;
 
     state.sig = JSON.stringify({
       kw: state.searchKeyword,
@@ -366,7 +537,14 @@
         i: a.initials,
         n: a.cleanedNames,
         av: a.avatarSrc
-      }))
+      })),
+      qf: state.selectedQuickFilters,
+      types: state.selectedTypes,
+      epics: state.selectedEpics,
+      labels: state.selectedLabels,
+      statuses: state.selectedStatuses,
+      clearBtn: state.hasClearFilterBtn,
+      hdrFiltered: state.hasHeaderFilteredCount
     });
 
     return state;
@@ -382,7 +560,10 @@
   function doesIssueMatchAssigneeFilter(iss, filterState) {
     const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants, normalizeAvatarUrl } = BetterJira.AssigneeUtils;
 
-    if (!filterState.includeUnassigned && filterState.selectedAssignees.length === 0) {
+    if (!filterState) return true;
+    const selectedAssignees = Array.isArray(filterState.selectedAssignees) ? filterState.selectedAssignees : [];
+
+    if (!filterState.includeUnassigned && selectedAssignees.length === 0) {
       return true;
     }
 
@@ -391,7 +572,7 @@
       return Boolean(filterState.includeUnassigned);
     }
 
-    if (filterState.selectedAssignees.length === 0) {
+    if (selectedAssignees.length === 0) {
       return false;
     }
 
@@ -408,7 +589,7 @@
     if (issName) issTokens.add(issName);
     if (issInitials) issTokens.add(issInitials);
 
-    return filterState.selectedAssignees.some((sel) => {
+    return selectedAssignees.some((sel) => {
       // 1. 若雙方皆有真實使用者頭像 URL 且一致
       if (sel.avatarSrc && issAvatar && sel.avatarSrc === issAvatar) {
         return true;
@@ -451,6 +632,7 @@
 
   /**
    * 根據 Jira 原生篩選搜尋區狀態過濾卡片陣列
+   * 支援經辦人、搜尋關鍵字、工作項目類型 (Type)、史詩/父項 (Epic)、狀態 (Status)、標籤 (Label) 與快速篩選 (Quick Filters)。
    *
    * @param {Array<Object>} issues - 待過濾卡片清單
    * @param {NativeBacklogFilterState} filterState - 篩選狀態物件
@@ -458,13 +640,22 @@
    */
   function filterIssuesByNativeFilter(issues, filterState) {
     if (!Array.isArray(issues) || issues.length === 0) return [];
-    if (!filterState || !filterState.hasDirectFilter) return issues;
+    if (!filterState || (!filterState.hasDirectFilter && !filterState.isFiltered)) return issues;
 
     const kw = filterState.searchKeyword;
+    const selectedTypes = (filterState.selectedTypes || []).map((t) => t.toLowerCase().trim()).filter((t) => t && !t.startsWith('__'));
+    const selectedEpics = (filterState.selectedEpics || []).map((e) => e.toLowerCase().trim()).filter((e) => e && !e.startsWith('__'));
+    const selectedStatuses = (filterState.selectedStatuses || []).map((s) => s.toLowerCase().trim()).filter((s) => s && !s.startsWith('__'));
+    const selectedLabels = (filterState.selectedLabels || []).map((l) => l.toLowerCase().trim()).filter((l) => l && !l.startsWith('__'));
+    const quickFilters = (filterState.selectedQuickFilters || []).map((q) => q.toLowerCase().trim()).filter(Boolean);
+
     return issues.filter((iss) => {
+      // 1. 經辦人篩選
       if (!doesIssueMatchAssigneeFilter(iss, filterState)) {
         return false;
       }
+
+      // 2. 搜尋關鍵字
       if (kw) {
         const haystacks = [
           iss.key,
@@ -473,7 +664,8 @@
           iss.assigneeInitials,
           iss.statusName,
           iss.parentKey,
-          iss.parentSummary
+          iss.parentSummary,
+          iss.issueTypeName
         ]
           .filter(Boolean)
           .map((s) => String(s).toLowerCase());
@@ -481,6 +673,70 @@
           return false;
         }
       }
+
+      // 3. 工作項目類型篩選 (Type)
+      if (selectedTypes.length > 0) {
+        const issType = (iss.issueTypeName || '').trim().toLowerCase();
+        const matches = selectedTypes.some((t) => {
+          if (!issType) return iss.summary && iss.summary.toLowerCase().includes(t);
+          return issType === t || issType.includes(t) || t.includes(issType);
+        });
+        if (!matches) return false;
+      }
+
+      // 4. 史詩/父項篩選 (Epic / Parent)
+      if (selectedEpics.length > 0) {
+        const issParentKey = (iss.parentKey || '').trim().toLowerCase();
+        const issParentSummary = (iss.parentSummary || '').trim().toLowerCase();
+        const issEpic = (iss.epic || iss.epicKey || iss.epicName || '').trim().toLowerCase();
+        const matches = selectedEpics.some((e) => {
+          if (issParentKey && (issParentKey === e || issParentKey.includes(e))) return true;
+          if (issParentSummary && (issParentSummary === e || issParentSummary.includes(e) || e.includes(issParentSummary))) return true;
+          if (issEpic && (issEpic === e || issEpic.includes(e) || e.includes(issEpic))) return true;
+          return false;
+        });
+        if (!matches) return false;
+      }
+
+      // 5. 狀態篩選 (Status)
+      if (selectedStatuses.length > 0) {
+        const issStatus = (iss.statusName || '').trim().toLowerCase();
+        const issStatusCat = (iss.statusCategory || '').trim().toLowerCase();
+        const matches = selectedStatuses.some((s) => {
+          if (issStatus && (issStatus === s || issStatus.includes(s) || s.includes(issStatus))) return true;
+          if (issStatusCat && (issStatusCat === s || issStatusCat.includes(s))) return true;
+          return false;
+        });
+        if (!matches) return false;
+      }
+
+      // 6. 標籤篩選 (Labels)
+      if (selectedLabels.length > 0) {
+        const issLabels = Array.isArray(iss.labels) ? iss.labels.map((l) => String(l).toLowerCase()) : [];
+        const matches = selectedLabels.some((l) => {
+          if (issLabels.includes(l)) return true;
+          if (iss.summary && iss.summary.toLowerCase().includes(l)) return true;
+          return false;
+        });
+        if (!matches) return false;
+      }
+
+      // 7. 快速篩選 (Quick Filters: 類型與優先級等特徵吻合)
+      if (quickFilters.length > 0) {
+        for (const qf of quickFilters) {
+          if (/^(?:bug|缺陷|問題)$/i.test(qf)) {
+            const issType = (iss.issueTypeName || '').toLowerCase();
+            if (issType && !/bug|缺陷|問題/i.test(issType)) return false;
+          } else if (/^(?:story|故事)$/i.test(qf)) {
+            const issType = (iss.issueTypeName || '').toLowerCase();
+            if (issType && !/story|故事/i.test(issType)) return false;
+          } else if (/^(?:task|任務)$/i.test(qf)) {
+            const issType = (iss.issueTypeName || '').toLowerCase();
+            if (issType && !/task|任務/i.test(issType)) return false;
+          }
+        }
+      }
+
       return true;
     });
   }
