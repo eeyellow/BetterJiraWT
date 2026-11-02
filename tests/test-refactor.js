@@ -527,6 +527,36 @@ class MockElement {
     this.children.push(child);
     return child;
   }
+  remove() {
+    if (this.parentElement) {
+      const idx = this.parentElement.children.indexOf(this);
+      if (idx !== -1) {
+        this.parentElement.children.splice(idx, 1);
+      }
+      this.parentElement = null;
+    }
+  }
+  cloneNode(deep = false) {
+    const clone = new MockElement(this.tagName);
+    Object.assign(clone.attributes, this.attributes);
+    clone._textContent = this._textContent;
+    this.classList._classes.forEach((c) => clone.classList.add(c));
+    if (deep) {
+      for (const child of this.children) {
+        clone.appendChild(child.cloneNode(true));
+      }
+    }
+    return clone;
+  }
+  contains(other) {
+    if (!other) return false;
+    let curr = other;
+    while (curr) {
+      if (curr === this) return true;
+      curr = curr.parentElement;
+    }
+    return false;
+  }
   closest(sel) {
     let curr = this;
     while (curr) {
@@ -975,6 +1005,84 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
 
   global.fetch = originalFetch;
   console.log('✓ Jira API 衝刺卡片請求去重、快取與冷卻退避測試通過！');
+
+  console.log('--- 測試 15: 擴充功能快捷開關 (Enable/Disable Switch) 與設定檢查 ---');
+  const popupHtml = fs.readFileSync(path.resolve(__dirname, '..', 'popup.html'), 'utf8');
+  assert(popupHtml.includes('id="powerToggle"'), 'popup.html 應包含快捷開關 checkbox (id="powerToggle")');
+  assert(popupHtml.includes('id="powerBar"'), 'popup.html 應包含快捷開關容器 (id="powerBar")');
+  assert(popupHtml.includes('id="powerStatusDesc"'), 'popup.html 應包含狀態描述文字 (id="powerStatusDesc")');
+
+  const popupCss = fs.readFileSync(path.resolve(__dirname, '..', 'popup.css'), 'utf8');
+  assert(popupCss.includes('.toggle-switch'), 'popup.css 應包含 .toggle-switch 樣式');
+  assert(popupCss.includes('.toggle-slider'), 'popup.css 應包含 .toggle-slider 樣式');
+  assert(popupCss.includes('.power-bar'), 'popup.css 應包含 .power-bar 樣式');
+  assert(popupCss.includes('body.is-disabled'), 'popup.css 應包含停用狀態樣式');
+
+  const contentJs = fs.readFileSync(path.resolve(__dirname, '..', 'content.js'), 'utf8');
+  assert(contentJs.includes('isEnabled && matched'), 'content.js 應根據 enabled 設定決定是否套用版面');
+
+  console.log('✓ 擴充功能快捷開關與設定檢查通過！');
+
+  console.log('--- 測試 16: 方案 B：Bootstrap 5 與 Material Design 3 完整元件級樣式檢查 ---');
+  const updatedStylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+
+  // Bootstrap 5 元件檢查
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-sprint-tab'), '應包含 Bootstrap 側邊欄清單樣式');
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-active-create-btn'), '應包含 Bootstrap 新增按鈕樣式');
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-history-card-filter'), '應包含 Bootstrap 搜尋輸入框樣式');
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-history-status-badge'), '應包含 Bootstrap 狀態徽章樣式');
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-history-card'), '應包含 Bootstrap 卡片樣式');
+
+  // Material Design 3 元件檢查
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-sprint-tab'), '應包含 M3 側邊欄清單膠囊樣式');
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-active-create-btn'), '應包含 M3 Filled 按鈕樣式');
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-history-card-filter'), '應包含 M3 Search Bar 樣式');
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-history-status-badge'), '應包含 M3 狀態膠囊 Chip 樣式');
+  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-history-card'), '應包含 M3 Elevated 卡片樣式');
+
+  console.log('✓ 方案 B 元件級樣式檢查通過！');
+
+  console.log('--- 測試 17: CardDomParser.parseIssueFromDomCard DOM 解析與變數範疇檢查 ---');
+  const { CardDomParser } = BetterJira;
+  assert(CardDomParser, 'CardDomParser 模組應存在');
+  assert.strictEqual(typeof CardDomParser.parseIssueFromDomCard, 'function', 'parseIssueFromDomCard 應為函式');
+
+  if (!global.window.getComputedStyle) {
+    global.window.getComputedStyle = () => ({ textDecorationLine: '', backgroundImage: '' });
+  }
+
+  // 建立包含 issue-type 與 assignee 候選元素的 mock card
+  const mockCardEl = new MockElement('div');
+  mockCardEl.setAttribute('data-testid', 'software-backlog.card-list.card');
+
+  const mockKeyLink = new MockElement('a');
+  mockKeyLink.setAttribute('href', '/browse/WMC-200');
+  mockKeyLink.textContent = 'WMC-200 Task Title';
+  mockCardEl.appendChild(mockKeyLink);
+
+  const mockTypeEl = new MockElement('div');
+  mockTypeEl.setAttribute('data-testid', 'issue-type');
+  const mockTypeImg = new MockElement('img');
+  mockTypeImg.setAttribute('src', 'https://avatar/issuetype/task.png');
+  mockTypeImg.setAttribute('alt', 'Task');
+  mockTypeEl.appendChild(mockTypeImg);
+  mockCardEl.appendChild(mockTypeEl);
+
+  const mockAssigneeEl = new MockElement('div');
+  mockAssigneeEl.setAttribute('data-testid', 'assignee-avatar');
+  mockAssigneeEl.setAttribute('aria-label', '負責人: Ray Huang');
+  const mockAvatarImg = new MockElement('img');
+  mockAvatarImg.setAttribute('src', 'https://avatar/user/ray.png');
+  mockAvatarImg.setAttribute('alt', 'Ray Huang');
+  mockAssigneeEl.appendChild(mockAvatarImg);
+  mockCardEl.appendChild(mockAssigneeEl);
+
+  const parsedDomIssue = CardDomParser.parseIssueFromDomCard(mockCardEl);
+  assert(parsedDomIssue, 'parseIssueFromDomCard 應成功解析卡片物件');
+  assert.strictEqual(parsedDomIssue.key, 'WMC-200', '解析之 key 應為 WMC-200');
+  assert.strictEqual(parsedDomIssue.issueTypeName, 'Task', '問題類型應解析為 Task');
+  assert.strictEqual(parsedDomIssue.assigneeName, 'Ray Huang', '經辦人應解析為 Ray Huang');
+  console.log('✓ CardDomParser.parseIssueFromDomCard DOM 解析與變數範疇檢查通過！');
 
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');

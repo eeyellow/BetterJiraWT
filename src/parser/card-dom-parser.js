@@ -204,15 +204,21 @@
 
     let issueTypeIcon = '';
     let issueTypeName = '';
+    let typeImg = null;
     const typeEl = cardEl.querySelector(
       '[data-testid*="issue-type"], [data-testid*="issuetype"], [data-testid*="type-icon"], [aria-label*="Issue Type"], [aria-label*="工作項目類型"], [aria-label*="問題類型"], img[src*="issuetype"], img[src*="avatar/type"]'
     );
     if (typeEl) {
-      const img = typeEl.tagName === 'IMG' ? typeEl : typeEl.querySelector('img');
+      typeImg = typeEl.tagName === 'IMG' ? typeEl : typeEl.querySelector('img');
       const svg = typeEl.tagName === 'SVG' ? typeEl : typeEl.querySelector('svg');
-      if (img && img.src) {
-        issueTypeIcon = img.src;
-        issueTypeName = img.alt || img.title || '';
+      const imgSrc = typeImg ? (typeImg.src || (typeof typeImg.getAttribute === 'function' && typeImg.getAttribute('src'))) : '';
+      if (typeImg && imgSrc) {
+        issueTypeIcon = imgSrc;
+        issueTypeName =
+          (typeof typeImg.getAttribute === 'function' && (typeImg.getAttribute('alt') || typeImg.getAttribute('title'))) ||
+          typeImg.alt ||
+          typeImg.title ||
+          '';
       }
       if (!issueTypeName) {
         issueTypeName =
@@ -333,7 +339,14 @@
 
     const isIssueTypeElement = (el) => {
       if (!el || !(el instanceof Element)) return true;
-      if (typeImg && (el === typeImg || el.contains(typeImg) || typeImg.contains(el))) return true;
+      if (
+        typeImg &&
+        (el === typeImg ||
+          (typeof el.contains === 'function' && el.contains(typeImg)) ||
+          (typeof typeImg.contains === 'function' && typeImg.contains(el)))
+      ) {
+        return true;
+      }
       if (el.closest('[data-testid*="issue-type"], [data-testid*="issuetype"], [data-testid*="type-icon"], [data-testid*="priority"]')) {
         return true;
       }

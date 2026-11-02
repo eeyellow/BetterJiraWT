@@ -20,11 +20,12 @@ const BetterJiraDB = (() => {
 
   /**
    * 預設擴充功能設定物件
-   * @type {{backlogUrl: string, themeStyle: string}}
+   * @type {{backlogUrl: string, themeStyle: string, enabled: boolean}}
    */
   const DEFAULT_SETTINGS = {
     backlogUrl: '',
-    themeStyle: 'Default' // 'Default' | 'Bootstrap' | 'MaterialDesign'
+    themeStyle: 'Default', // 'Default' | 'Bootstrap' | 'MaterialDesign'
+    enabled: true
   };
 
   /**
@@ -126,13 +127,14 @@ const BetterJiraDB = (() => {
 
   /**
    * 整合讀取 IndexedDB 與 chrome.storage.local 的目前設定
-   * @returns {Promise<{backlogUrl: string, themeStyle: string}>}
+   * @returns {Promise<{backlogUrl: string, themeStyle: string, enabled: boolean}>}
    */
   async function getSettings() {
-    const [idbBacklogUrl, idbThemeStyle, extStorage] = await Promise.all([
+    const [idbBacklogUrl, idbThemeStyle, idbEnabled, extStorage] = await Promise.all([
       idbGet('backlogUrl'),
       idbGet('themeStyle'),
-      storageGet(['backlogUrl', 'themeStyle'])
+      idbGet('enabled'),
+      storageGet(['backlogUrl', 'themeStyle', 'enabled'])
     ]);
 
     const backlogUrl =
@@ -149,6 +151,13 @@ const BetterJiraDB = (() => {
         ? extStorage.themeStyle
         : DEFAULT_SETTINGS.themeStyle;
 
+    const enabled =
+      idbEnabled !== undefined
+        ? Boolean(idbEnabled)
+        : extStorage.enabled !== undefined
+        ? Boolean(extStorage.enabled)
+        : DEFAULT_SETTINGS.enabled;
+
     // 確保當前頁面的 IndexedDB 與 chrome.storage 保持同步
     if (idbBacklogUrl === undefined && backlogUrl) {
       await idbSet('backlogUrl', backlogUrl);
@@ -156,15 +165,18 @@ const BetterJiraDB = (() => {
     if (idbThemeStyle === undefined && themeStyle) {
       await idbSet('themeStyle', themeStyle);
     }
+    if (idbEnabled === undefined) {
+      await idbSet('enabled', enabled);
+    }
 
-    return { backlogUrl, themeStyle };
+    return { backlogUrl, themeStyle, enabled };
   }
 
   /**
    * 儲存單一設定值並同步至 IndexedDB 與 chrome.storage.local
    * @param {string} key - 設定鍵名
    * @param {*} value - 設定數值
-   * @returns {Promise<{backlogUrl: string, themeStyle: string}>} 更新後之全域設定
+   * @returns {Promise<{backlogUrl: string, themeStyle: string, enabled: boolean}>} 更新後之全域設定
    */
   async function saveSetting(key, value) {
     await Promise.all([
@@ -186,6 +198,9 @@ const BetterJiraDB = (() => {
     }
     if (settingsObj.themeStyle !== undefined) {
       tasks.push(idbSet('themeStyle', settingsObj.themeStyle));
+    }
+    if (settingsObj.enabled !== undefined) {
+      tasks.push(idbSet('enabled', Boolean(settingsObj.enabled)));
     }
     await Promise.all(tasks);
   }
