@@ -1,6 +1,7 @@
 /**
  * @fileoverview Jira 原生待辦事項篩選與搜尋狀態同步服務
- * 偵測 Jira 原生搜尋框、經辦人頭像按鈕選取狀態、快速篩選，並套用至卡片清單。
+ * 偵測 Jira 原生搜尋框、經辦人頭像按鈕選取狀態、「篩選條件」與「自訂篩選條件」下拉與彈出選單，
+ * 並即時同步套用至左右兩欄卡片清單與統計數字。
  * @module services/filter-service
  */
 
@@ -9,13 +10,37 @@
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
   /**
-   * @typedef {Object} NativeBacklogFilterState
-   * @property {string} searchKeyword - 搜尋關鍵字 (小寫)
-   * @property {boolean} includeUnassigned - 是否選取了「未指派」篩選
-   * @property {Array<{initials: string, cleanedNames: string[], tokens: string[], avatarSrc: string}>} selectedAssignees - 選取之經辦人條件清單
-   * @property {boolean} hasDirectFilter - 當前是否有任何生效的篩選條件
-   * @property {string} sig - 篩選狀態唯一簽章字串
+   * 持久化篩選狀態存儲 (Persistent Filter Store)
+   * 解決 Jira React 動態卸載 (unmount) 下拉選單導致勾選條件遺失的問題。
+   * 當使用者在「篩選條件」或「自訂篩選條件」勾選後關閉選單，此存儲保留勾選條件，
+   * 直到使用者主動取消、點擊「清除所有篩選條件」或按鈕狀態恢復未選中為止。
    */
+  const persistentFilterStore = {
+    customFilters: new Set(),
+    types: new Set(),
+    epics: new Set(),
+    statuses: new Set(),
+    labels: new Set(),
+    isCustomFilterActive: false,
+    isFilterActive: false,
+    lastKnownCustomBadge: 0,
+    lastKnownFilterBadge: 0
+  };
+
+  /**
+   * 重設所有持久化篩選條件
+   */
+  function resetPersistentFilters() {
+    persistentFilterStore.customFilters.clear();
+    persistentFilterStore.types.clear();
+    persistentFilterStore.epics.clear();
+    persistentFilterStore.statuses.clear();
+    persistentFilterStore.labels.clear();
+    persistentFilterStore.isCustomFilterActive = false;
+    persistentFilterStore.isFilterActive = false;
+    persistentFilterStore.lastKnownCustomBadge = 0;
+    persistentFilterStore.lastKnownFilterBadge = 0;
+  }
 
   /**
    * 檢查元素是否處於「已選取 (Pressed / Selected / Checked / Active)」狀態
@@ -24,7 +49,7 @@
    * @returns {boolean} 是否選取
    */
   function isElementSelected(btn) {
-    if (!btn || !(btn instanceof Element)) return false;
+    if (!btn || typeof btn.getAttribute !== 'function') return false;
 
     // 1. 若元素自身明確宣告為未選取 / 未按下，絕對排除
     const ariaPressed = btn.getAttribute('aria-pressed');
@@ -76,11 +101,11 @@
       return true;
     }
 
-    // d. 檢查自身 class (is-selected, ghx-active 等)
+    // d. 檢查自身 class (is-selected, ghx-active, active, is-active 等)
     const ownCls = typeof btn.className === 'string' ? btn.className : '';
     if (
-      /(?:^|[\s_-])(?:is-selected|is-checked|isSelected|isChecked|ghx-active)(?:$|[\s_-])/.test(ownCls) &&
-      !/(?:not-selected|unselected)/i.test(ownCls)
+      /(?:^|[\s_-])(?:is-selected|is-checked|isSelected|isChecked|ghx-active|active|is-active)(?:$|[\s_-])/.test(ownCls) &&
+      !/(?:not-selected|unselected|inactive)/i.test(ownCls)
     ) {
       return true;
     }
@@ -104,18 +129,258 @@
   }
 
   /**
-   * 偵測 Jira 原生篩選搜尋區 (搜尋框、人員頭像篩選、未指派篩選、快速篩選等) 的目前狀態
+   * 嘗試取得目前 Jira 登入使用者的姓名或縮寫
+   * 用於「Only My Issues」或「我的待辦事項」等自訂篩選條件
    *
-   * @returns {NativeBacklogFilterState} 篩選狀態結構
+   * @returns {Object|null} 使用者物件 { name, initials, avatarSrc }
+   */
+  function getCurrentJiraUser() {
+    if (typeof window !== 'undefined' && window.__bjwt_currentUser) {
+      return window.__bjwt_currentUser;
+    }
+    if (typeof document === 'undefined') return null;
+
+    const profileSelectors = [
+      '[data-testid="atlassian-navigation--profile"]',
+      '[data-testid*="profile-button"]',
+      'button[data-testid*="profile"]',
+      '#profile-button',
+      'header [role="banner"] [aria-label*="profile" i]',
+      'header [role="banner"] [aria-label*="帳戶" i]',
+      'header [role="banner"] [aria-label*="個人" i]'
+    ];
+
+    for (const sel of profileSelectors) {
+      const el = document.querySelector(sel);
+      if (el) {
+        const aria = el.getAttribute('aria-label') || '';
+        const title = el.getAttribute('title') || '';
+        const txt = (el.textContent || '').trim();
+        const m = (aria + ' ' + title).match(/(?:profile|account|帳戶|個人資料|使用者)[:：\s]*([^\(,\.]+)/i);
+        const name = m ? m[1].trim() : (txt || aria || title);
+        const img = el.querySelector('img[src]');
+        const avatarSrc = img ? img.src : '';
+        if (name) {
+          const u = { name, initials: txt && txt.length <= 4 ? txt : '', avatarSrc };
+          if (typeof window !== 'undefined') window.__bjwt_currentUser = u;
+          return u;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 主動掃描畫面上任何開啟中的彈出選單 (Popup / Dialog / Menu / Dropdown)，
+   * 即時提取使用者勾選的項目並持久化存入 persistentFilterStore。
+   *
+   * @returns {boolean} 是否有偵測到開啟且含有勾選項的選單
+   */
+  function syncFromOpenPopups() {
+    if (typeof document === 'undefined') return false;
+
+    const { Constants } = BetterJira;
+    const SIDEBAR_ID = Constants ? Constants.SIDEBAR_ID : 'bjwt-sprint-sidebar';
+    const HISTORY_PICKER_MODAL_ID = Constants ? Constants.HISTORY_PICKER_MODAL_ID : 'bjwt-history-picker-modal';
+    const HISTORY_ISSUE_MODAL_ID = Constants ? Constants.HISTORY_ISSUE_MODAL_ID : 'bjwt-historical-issue-modal';
+
+    const popups = Array.from(
+      document.querySelectorAll(
+        '[role="dialog"], [role="menu"], [role="listbox"], [data-testid*="popup"], [data-testid*="dropdown"], [data-testid*="quickfilter"], [data-testid*="custom-filter"], [class*="atlaskit-portal"]'
+      )
+    ).filter((p) => {
+      if (!p) return false;
+      if (
+        p.id === HISTORY_PICKER_MODAL_ID ||
+        p.id === HISTORY_ISSUE_MODAL_ID ||
+        p.hasAttribute('data-bjwt-issue-modal') ||
+        p.closest(`#${SIDEBAR_ID}`) ||
+        p.closest('[data-bjwt-sprint-branch]')
+      ) {
+        return false;
+      }
+      if (p.closest('header[role="banner"]') || p.querySelector('[data-testid="atlassian-navigation"]')) {
+        return false;
+      }
+      return true;
+    });
+
+    if (popups.length === 0) return false;
+
+    let anyUpdated = false;
+
+    for (const popup of popups) {
+      const popupText = (popup.textContent || '').replace(/\s+/g, ' ').toLowerCase();
+      const popupAria = (popup.getAttribute('aria-label') || '').toLowerCase();
+      const popupTestId = (popup.getAttribute('data-testid') || '').toLowerCase();
+      const popupHeader = (popupText.slice(0, 150) + ' ' + popupAria + ' ' + popupTestId).toLowerCase();
+
+      // 判斷選單所屬維度：檢查是否為包含多個維度分組的通用「篩選條件」面板
+      const hasMultipleSections =
+        (/類型|type|issuetype/.test(popupText) ? 1 : 0) +
+        (/狀態|status/.test(popupText) ? 1 : 0) +
+        (/史詩|epic|parent/.test(popupText) ? 1 : 0) +
+        (/標籤|label/.test(popupText) ? 1 : 0) >= 2;
+
+      const isCustomFilterMenu = /自訂篩選|自訂|custom[\s_-]*filter|quick[\s_-]*filter|快速篩選/.test(popupHeader);
+      const isGeneralFilterMenu =
+        !isCustomFilterMenu &&
+        (hasMultipleSections ||
+          /^(?:篩選條件|filters?|board[\s_-]*filter)$/i.test(popupAria) ||
+          /board[\s_-]*filter|backlog[\s_-]*filter/i.test(popupTestId));
+
+      const isTypeMenu = !isCustomFilterMenu && !isGeneralFilterMenu && /工作項目類型|類型|issuetype|issue[\s_-]*type/.test(popupHeader);
+      const isStatusMenu = !isCustomFilterMenu && !isGeneralFilterMenu && /狀態|status/.test(popupHeader);
+      const isEpicMenu = !isCustomFilterMenu && !isGeneralFilterMenu && /史詩|epic|parent/.test(popupHeader);
+      const isLabelMenu = !isCustomFilterMenu && !isGeneralFilterMenu && /標籤|label/.test(popupHeader);
+
+      // 尋找選單內所有可供勾選的選項
+      const allOptions = Array.from(
+        popup.querySelectorAll(
+          '[role="menuitemcheckbox"], [role="checkbox"], [role="option"], [role="menuitem"], label, button, input[type="checkbox"]'
+        )
+      );
+
+      const checkedNodes = allOptions.filter((opt) => {
+        if (opt.tagName !== 'INPUT' && opt.querySelector('input[type="checkbox"]')) {
+          const inp = opt.querySelector('input[type="checkbox"]');
+          return inp.checked || inp.hasAttribute('checked') || isElementSelected(inp);
+        }
+        return isElementSelected(opt);
+      });
+
+      if (isCustomFilterMenu) {
+        if (allOptions.length > 0) {
+          if (checkedNodes.length > 0) {
+            persistentFilterStore.customFilters.clear();
+            checkedNodes.forEach((node) => {
+              const raw = (node.textContent || node.value || node.getAttribute('aria-label') || '').trim();
+              const cleaned = raw.replace(/\s+/g, ' ').trim();
+              if (cleaned && !/^(?:自訂篩選條件|快速篩選|custom\s+filters?)$/i.test(cleaned)) {
+                persistentFilterStore.customFilters.add(cleaned);
+                anyUpdated = true;
+              }
+            });
+            persistentFilterStore.isCustomFilterActive = persistentFilterStore.customFilters.size > 0;
+          } else {
+            // 選單有選項但 0 個被勾選，代表使用者已取消全部自訂篩選
+            persistentFilterStore.customFilters.clear();
+            persistentFilterStore.isCustomFilterActive = false;
+            anyUpdated = true;
+          }
+        }
+      } else if (isTypeMenu) {
+        if (allOptions.length > 0) {
+          persistentFilterStore.types.clear();
+          checkedNodes.forEach((node) => {
+            const raw = (node.textContent || node.value || node.getAttribute('aria-label') || '').trim();
+            if (raw) {
+              persistentFilterStore.types.add(raw.toLowerCase());
+              anyUpdated = true;
+            }
+          });
+        }
+      } else if (isStatusMenu) {
+        if (allOptions.length > 0) {
+          persistentFilterStore.statuses.clear();
+          checkedNodes.forEach((node) => {
+            const raw = (node.textContent || node.value || node.getAttribute('aria-label') || '').trim();
+            if (raw) {
+              persistentFilterStore.statuses.add(raw.toLowerCase());
+              anyUpdated = true;
+            }
+          });
+        }
+      } else if (isEpicMenu) {
+        if (allOptions.length > 0) {
+          persistentFilterStore.epics.clear();
+          checkedNodes.forEach((node) => {
+            const raw = (node.textContent || node.value || node.getAttribute('aria-label') || '').trim();
+            if (raw) {
+              persistentFilterStore.epics.add(raw.toLowerCase());
+              anyUpdated = true;
+            }
+          });
+        }
+      } else if (isLabelMenu) {
+        if (allOptions.length > 0) {
+          persistentFilterStore.labels.clear();
+          checkedNodes.forEach((node) => {
+            const raw = (node.textContent || node.value || node.getAttribute('aria-label') || '').trim();
+            if (raw) {
+              persistentFilterStore.labels.add(raw.toLowerCase());
+              anyUpdated = true;
+            }
+          });
+        }
+      } else {
+        // 通用「篩選條件」彈出面板（內含多個分組）
+        if (checkedNodes.length > 0) {
+          checkedNodes.forEach((node) => {
+            const raw = (node.textContent || node.value || node.getAttribute('aria-label') || '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (!raw || /^(?:篩選條件|filters?|重設|清除|clear|reset)$/i.test(raw)) return;
+
+            // 尋找其分組標題
+            let groupHeading = '';
+            let p = node.parentElement;
+            for (let i = 0; i < 4 && p && p !== popup; i++) {
+              const h = p.querySelector('h1, h2, h3, h4, h5, [role="heading"], [class*="heading"], [class*="title"], [data-testid*="heading"]');
+              if (h && h !== node) {
+                groupHeading = (h.textContent || '').toLowerCase();
+                break;
+              }
+              p = p.parentElement;
+            }
+
+            if (/類型|type|issuetype/.test(groupHeading)) {
+              persistentFilterStore.types.add(raw.toLowerCase());
+            } else if (/狀態|status/.test(groupHeading)) {
+              persistentFilterStore.statuses.add(raw.toLowerCase());
+            } else if (/史詩|epic/.test(groupHeading)) {
+              persistentFilterStore.epics.add(raw.toLowerCase());
+            } else if (/標籤|label/.test(groupHeading)) {
+              persistentFilterStore.labels.add(raw.toLowerCase());
+            } else {
+              if (/^(?:bug|story|task|epic|sub-task|缺陷|故事|任務|子任務)$/i.test(raw)) {
+                persistentFilterStore.types.add(raw.toLowerCase());
+              } else if (/^(?:待辦事項|進行中|已完成|done|in progress|to do|testing|verify)$/i.test(raw)) {
+                persistentFilterStore.statuses.add(raw.toLowerCase());
+              } else {
+                persistentFilterStore.customFilters.add(raw);
+              }
+            }
+            anyUpdated = true;
+          });
+          persistentFilterStore.isFilterActive = true;
+        }
+      }
+    }
+
+    return anyUpdated;
+  }
+
+  /**
+   * 偵測 Jira 原生篩選搜尋區 (搜尋框、人員頭像篩選、未指派篩選、篩選條件、自訂篩選條件等) 的目前狀態
+   *
+   * @returns {Object} 篩選狀態結構
    */
   function getNativeBacklogFilterState() {
     const { Constants, AssigneeUtils } = BetterJira;
-    const {
-      SIDEBAR_ID,
-      HISTORY_PICKER_MODAL_ID,
-      HISTORY_ISSUE_MODAL_ID
-    } = Constants;
-    const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants, normalizeAvatarUrl } = AssigneeUtils;
+    const SIDEBAR_ID = Constants ? Constants.SIDEBAR_ID : 'bjwt-sprint-sidebar';
+    const HISTORY_PICKER_MODAL_ID = Constants ? Constants.HISTORY_PICKER_MODAL_ID : 'bjwt-history-picker-modal';
+    const HISTORY_ISSUE_MODAL_ID = Constants ? Constants.HISTORY_ISSUE_MODAL_ID : 'bjwt-historical-issue-modal';
+
+    const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants, normalizeAvatarUrl } = AssigneeUtils || {
+      cleanAssigneeLabel: (s) => (s || '').trim(),
+      isUnassignedText: (s) => /未指派|unassigned/i.test(s || ''),
+      deriveInitialsVariants: () => [],
+      normalizeAvatarUrl: (s) => s || ''
+    };
+
+    // 每次偵測時先主動掃描是否有開啟中的選單並同步至 persistentFilterStore
+    syncFromOpenPopups();
 
     const state = {
       searchKeyword: '',
@@ -126,6 +391,8 @@
       selectedEpics: [],
       selectedLabels: [],
       selectedStatuses: [],
+      isCustomFilterBtnActive: false,
+      isFilterBtnActive: false,
       hasClearFilterBtn: false,
       hasHeaderFilteredCount: false,
       hasDirectFilter: false,
@@ -159,47 +426,49 @@
 
     // 檢查網址參數 (text, quickFilter, epics, issueType, labels, status)
     try {
-      const url = new URL(window.location.href);
-      if (!state.searchKeyword) {
-        const urlText = url.searchParams.get('text') || url.searchParams.get('search') || '';
-        if (urlText.trim()) {
-          state.searchKeyword = urlText.trim().toLowerCase();
+      if (typeof window !== 'undefined' && window.location && window.location.href) {
+        const url = new URL(window.location.href);
+        if (!state.searchKeyword) {
+          const urlText = url.searchParams.get('text') || url.searchParams.get('search') || '';
+          if (urlText.trim()) {
+            state.searchKeyword = urlText.trim().toLowerCase();
+          }
         }
-      }
-      const qf = url.searchParams.get('quickFilter');
-      if (qf) {
-        qf.split(',').forEach((q) => {
-          const s = q.trim();
-          if (s && !state.selectedQuickFilters.includes(s)) state.selectedQuickFilters.push(s);
-        });
-      }
-      const epics = url.searchParams.get('epics') || url.searchParams.get('epic');
-      if (epics) {
-        epics.split(',').forEach((e) => {
-          const s = e.trim().toLowerCase();
-          if (s && !state.selectedEpics.includes(s)) state.selectedEpics.push(s);
-        });
-      }
-      const it = url.searchParams.get('issueType') || url.searchParams.get('issuetype') || url.searchParams.get('type');
-      if (it) {
-        it.split(',').forEach((t) => {
-          const s = t.trim().toLowerCase();
-          if (s && !state.selectedTypes.includes(s)) state.selectedTypes.push(s);
-        });
-      }
-      const lb = url.searchParams.get('labels') || url.searchParams.get('label');
-      if (lb) {
-        lb.split(',').forEach((l) => {
-          const s = l.trim().toLowerCase();
-          if (s && !state.selectedLabels.includes(s)) state.selectedLabels.push(s);
-        });
-      }
-      const st = url.searchParams.get('status') || url.searchParams.get('statuses');
-      if (st) {
-        st.split(',').forEach((s) => {
-          const val = s.trim().toLowerCase();
-          if (val && !state.selectedStatuses.includes(val)) state.selectedStatuses.push(val);
-        });
+        const qf = url.searchParams.get('quickFilter');
+        if (qf) {
+          qf.split(',').forEach((q) => {
+            const s = q.trim();
+            if (s && !state.selectedQuickFilters.includes(s)) state.selectedQuickFilters.push(s);
+          });
+        }
+        const epics = url.searchParams.get('epics') || url.searchParams.get('epic');
+        if (epics) {
+          epics.split(',').forEach((e) => {
+            const s = e.trim().toLowerCase();
+            if (s && !state.selectedEpics.includes(s)) state.selectedEpics.push(s);
+          });
+        }
+        const it = url.searchParams.get('issueType') || url.searchParams.get('issuetype') || url.searchParams.get('type');
+        if (it) {
+          it.split(',').forEach((t) => {
+            const s = t.trim().toLowerCase();
+            if (s && !state.selectedTypes.includes(s)) state.selectedTypes.push(s);
+          });
+        }
+        const lb = url.searchParams.get('labels') || url.searchParams.get('label');
+        if (lb) {
+          lb.split(',').forEach((l) => {
+            const s = l.trim().toLowerCase();
+            if (s && !state.selectedLabels.includes(s)) state.selectedLabels.push(s);
+          });
+        }
+        const st = url.searchParams.get('status') || url.searchParams.get('statuses');
+        if (st) {
+          st.split(',').forEach((s) => {
+            const val = s.trim().toLowerCase();
+            if (val && !state.selectedStatuses.includes(val)) state.selectedStatuses.push(val);
+          });
+        }
       }
     } catch {
       // ignore
@@ -219,7 +488,7 @@
 
     document
       .querySelectorAll(
-        '[data-testid*="assignee-filter"], [data-testid*="ak-avatar"], [data-testid*="avatar-group"], [data-testid*="backlog-filter"], [data-testid*="filters"], [data-testid*="filter-bar"], [data-testid*="quickfilter"], [data-testid*="quick-filters"], [data-testid*="board-filter"], .ghx-controls-filters, #ghx-quick-filters, [data-testid*="epic-panel"], #ghx-epic-column'
+        '[data-testid*="assignee-filter"], [data-testid*="ak-avatar"], [data-testid*="avatar-group"], [data-testid*="backlog-filter"], [data-testid*="filters"], [data-testid*="filter-bar"], [data-testid*="quickfilter"], [data-testid*="quick-filters"], [data-testid*="custom-filter"], [data-testid*="board-filter"], .ghx-controls-filters, #ghx-quick-filters, [data-testid*="epic-panel"], #ghx-epic-column'
       )
       .forEach((el) => {
         if (
@@ -303,101 +572,134 @@
           return;
         }
 
-        // 檢查是否為選取中的快速篩選或下拉篩選按鈕
-        const isSelected = isElementSelected(el);
-        const lowerTxt = txt.toLowerCase();
         const testId = (el.getAttribute('data-testid') || '').toLowerCase();
         const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+        const isSelected = isElementSelected(el);
+        const combinedText = (txt + ' ' + ariaLabel + ' ' + testId).toLowerCase();
 
-        if (isSelected) {
-          // 判斷是否為工作項目類型 (Type)
-          if (/類型|type|issuetype/.test(testId) || /類型|type|issuetype/.test(ariaLabel)) {
+        // 檢查是否包含徽章或數量 (例: "自訂篩選條件 (1)", "篩選條件 · 2", "Type: 1")
+        const badgeEl = el.querySelector('[data-testid*="badge"], [class*="Badge"], span');
+        let badgeCount = 0;
+        const countMatch = combinedText.match(/(?:[(·\s]|^)(\d+)[)]?$/) || txt.match(/\b(\d+)\b/);
+        if (countMatch) {
+          badgeCount = parseInt(countMatch[1], 10);
+        } else if (badgeEl) {
+          const bTxt = (badgeEl.textContent || '').trim();
+          if (/^\d+$/.test(bTxt)) {
+            badgeCount = parseInt(bTxt, 10);
+          }
+        }
+
+        // A. 判斷是否為「自訂篩選條件 (Custom Filters)」按鈕
+        const isCustomFilterBtn = /自訂篩選|custom[\s_-]*filter|quick[\s_-]*filter|快速篩選/.test(combinedText);
+        if (isCustomFilterBtn) {
+          const isActive = isSelected || badgeCount > 0;
+          if (isActive) {
+            state.isCustomFilterBtnActive = true;
+            persistentFilterStore.isCustomFilterActive = true;
+            persistentFilterStore.lastKnownCustomBadge = badgeCount || 1;
+          } else {
+            const ariaPressed = el.getAttribute('aria-pressed');
+            if (ariaPressed === 'false' && badgeCount === 0) {
+              persistentFilterStore.customFilters.clear();
+              persistentFilterStore.isCustomFilterActive = false;
+              persistentFilterStore.lastKnownCustomBadge = 0;
+            }
+          }
+          return;
+        }
+
+        // B. 判斷是否為「篩選條件 (Filters)」原生主按鈕
+        const isGeneralFilterBtn =
+          !isCustomFilterBtn &&
+          (/^(?:☰\s*)?(?:篩選條件|篩選|filters?)(?:\s*[(·]?\s*\d+\s*[)]?)?$/i.test(txt) ||
+            /(?:backlog[\s_-]*filter|board[\s_-]*filter|filter[\s_-]*button)/i.test(testId));
+        if (isGeneralFilterBtn) {
+          const isActive = isSelected || badgeCount > 0;
+          if (isActive) {
+            state.isFilterBtnActive = true;
+            persistentFilterStore.isFilterActive = true;
+            persistentFilterStore.lastKnownFilterBadge = badgeCount || 1;
+          } else {
+            const ariaPressed = el.getAttribute('aria-pressed');
+            if (ariaPressed === 'false' && badgeCount === 0) {
+              persistentFilterStore.types.clear();
+              persistentFilterStore.statuses.clear();
+              persistentFilterStore.epics.clear();
+              persistentFilterStore.labels.clear();
+              persistentFilterStore.isFilterActive = false;
+              persistentFilterStore.lastKnownFilterBadge = 0;
+            }
+          }
+          return;
+        }
+
+        // C. 各維度獨立篩選按鈕 (Type, Epic, Label, Status, QuickFilter 按鈕)
+        const lowerTxt = txt.toLowerCase();
+        if (isSelected || badgeCount > 0) {
+          if (/類型|type|issuetype/.test(combinedText)) {
             const m = txt.match(/(?:類型|Type|Issue\s*type)\s*[:：]\s*(.+)/i);
             const val = m ? m[1].trim().toLowerCase() : lowerTxt;
             if (val && !state.selectedTypes.includes(val)) state.selectedTypes.push(val);
-          }
-          // 判斷是否為史詩 (Epic)
-          else if (/史詩|epic/.test(testId) || /史詩|epic/.test(ariaLabel)) {
+          } else if (/史詩|epic/.test(combinedText)) {
             const m = txt.match(/(?:史詩|Epic)\s*[:：]\s*(.+)/i);
             const val = m ? m[1].trim().toLowerCase() : lowerTxt;
             if (val && !state.selectedEpics.includes(val)) state.selectedEpics.push(val);
-          }
-          // 判斷是否為標籤 (Label)
-          else if (/標籤|label/.test(testId) || /標籤|label/.test(ariaLabel)) {
+          } else if (/標籤|label/.test(combinedText)) {
             const m = txt.match(/(?:標籤|Label)\s*[:：]\s*(.+)/i);
             const val = m ? m[1].trim().toLowerCase() : lowerTxt;
             if (val && !state.selectedLabels.includes(val)) state.selectedLabels.push(val);
-          }
-          // 判斷是否為狀態 (Status)
-          else if (/狀態|status/.test(testId) || /狀態|status/.test(ariaLabel)) {
+          } else if (/狀態|status/.test(combinedText)) {
             const m = txt.match(/(?:狀態|Status)\s*[:：]\s*(.+)/i);
             const val = m ? m[1].trim().toLowerCase() : lowerTxt;
             if (val && !state.selectedStatuses.includes(val)) state.selectedStatuses.push(val);
-          }
-          // 否則視為快速篩選按鈕 (Quick Filter)
-          else if (txt && !/^(?:篩選條件|自訂篩選條件|快速篩選|更多|filters?|custom\s+filters?|quick\s+filters?|more)$/i.test(txt)) {
+          } else if (txt && !/^(?:更多|more)$/i.test(txt)) {
             if (!state.selectedQuickFilters.includes(txt)) {
               state.selectedQuickFilters.push(txt);
-            }
-          }
-        } else {
-          // 檢查按鈕是否含有選取計數徽章 (例如 Type: 1 或含有 badge)
-          const badge = el.querySelector('[data-testid*="badge"], [class*="Badge"]');
-          if (badge || /:\s*\d+/.test(txt)) {
-            if (/類型|type|issuetype/.test(testId) || /類型|type|issuetype/.test(ariaLabel) || /類型|type/i.test(txt)) {
-              if (!state.selectedTypes.includes('__has_type_filter__')) state.selectedTypes.push('__has_type_filter__');
-            } else if (/史詩|epic/.test(testId) || /史詩|epic/.test(ariaLabel) || /史詩|epic/i.test(txt)) {
-              if (!state.selectedEpics.includes('__has_epic_filter__')) state.selectedEpics.push('__has_epic_filter__');
-            } else if (/標籤|label/.test(testId) || /標籤|label/.test(ariaLabel) || /標籤|label/i.test(txt)) {
-              if (!state.selectedLabels.includes('__has_label_filter__')) state.selectedLabels.push('__has_label_filter__');
-            } else if (/狀態|status/.test(testId) || /狀態|status/.test(ariaLabel) || /狀態|status/i.test(txt)) {
-              if (!state.selectedStatuses.includes('__has_status_filter__')) state.selectedStatuses.push('__has_status_filter__');
             }
           }
         }
       });
     });
 
-    // 檢查已開啟之下拉清單中勾選的選項 (Type, Epic, Label, Status)
-    document
-      .querySelectorAll(
-        '[role="dialog"], [role="menu"], [role="listbox"], [data-testid*="popup"], [data-testid*="dropdown"]'
-      )
-      .forEach((popup) => {
-        if (
-          popup.id === HISTORY_PICKER_MODAL_ID ||
-          popup.id === HISTORY_ISSUE_MODAL_ID ||
-          popup.hasAttribute('data-bjwt-issue-modal') ||
-          popup.closest(`#${SIDEBAR_ID}`) ||
-          popup.closest('[data-bjwt-sprint-branch]')
-        ) {
-          return;
-        }
-
-        const popupText = (popup.textContent || '').toLowerCase();
-        const popupAria = (popup.getAttribute('aria-label') || '').toLowerCase();
-        const popupHeader = popupText.slice(0, 100) + ' ' + popupAria;
-
-        let category = '';
-        if (/類型|type|issuetype/.test(popupHeader)) category = 'type';
-        else if (/史詩|epic/.test(popupHeader)) category = 'epic';
-        else if (/標籤|label/.test(popupHeader)) category = 'label';
-        else if (/狀態|status/.test(popupHeader)) category = 'status';
-
-        if (!category) return;
-
-        const checkedOptions = popup.querySelectorAll(
-          '[role="menuitemcheckbox"][aria-checked="true"], [role="checkbox"][aria-checked="true"], input[type="checkbox"]:checked, [aria-selected="true"]'
-        );
-        checkedOptions.forEach((opt) => {
-          const optText = (opt.textContent || opt.value || '').replace(/\s+/g, ' ').trim().toLowerCase();
-          if (!optText) return;
-          if (category === 'type' && !state.selectedTypes.includes(optText)) state.selectedTypes.push(optText);
-          if (category === 'epic' && !state.selectedEpics.includes(optText)) state.selectedEpics.push(optText);
-          if (category === 'label' && !state.selectedLabels.includes(optText)) state.selectedLabels.push(optText);
-          if (category === 'status' && !state.selectedStatuses.includes(optText)) state.selectedStatuses.push(optText);
+    // 將持久化存儲中的篩選條件合併至當前篩選狀態
+    if (state.isCustomFilterBtnActive || persistentFilterStore.isCustomFilterActive) {
+      if (persistentFilterStore.customFilters.size > 0) {
+        persistentFilterStore.customFilters.forEach((q) => {
+          if (!state.selectedQuickFilters.includes(q)) state.selectedQuickFilters.push(q);
         });
+      } else {
+        // 自訂篩選按鈕被啟動，但選單關閉後未能捕捉具體條件名
+        state.selectedQuickFilters.push('__custom_filter_active__');
+      }
+    }
+
+    if (state.isFilterBtnActive || persistentFilterStore.isFilterActive) {
+      persistentFilterStore.types.forEach((t) => {
+        if (!state.selectedTypes.includes(t)) state.selectedTypes.push(t);
       });
+      persistentFilterStore.statuses.forEach((s) => {
+        if (!state.selectedStatuses.includes(s)) state.selectedStatuses.push(s);
+      });
+      persistentFilterStore.epics.forEach((e) => {
+        if (!state.selectedEpics.includes(e)) state.selectedEpics.push(e);
+      });
+      persistentFilterStore.labels.forEach((l) => {
+        if (!state.selectedLabels.includes(l)) state.selectedLabels.push(l);
+      });
+      persistentFilterStore.customFilters.forEach((q) => {
+        if (!state.selectedQuickFilters.includes(q)) state.selectedQuickFilters.push(q);
+      });
+      if (
+        state.selectedTypes.length === 0 &&
+        state.selectedStatuses.length === 0 &&
+        state.selectedEpics.length === 0 &&
+        state.selectedLabels.length === 0 &&
+        state.selectedQuickFilters.length === 0
+      ) {
+        state.selectedTypes.push('__filter_btn_active__');
+      }
+    }
 
     // 檢查衝刺標頭是否顯示原生篩選計數 (如「29 個工作項目中的 5 個」或「5 of 29 issues」)
     const headers = Array.from(
@@ -525,6 +827,10 @@
       state.selectedEpics.length > 0 ||
       state.selectedLabels.length > 0 ||
       state.selectedStatuses.length > 0 ||
+      state.isCustomFilterBtnActive ||
+      state.isFilterBtnActive ||
+      persistentFilterStore.isCustomFilterActive ||
+      persistentFilterStore.isFilterActive ||
       state.hasClearFilterBtn ||
       state.hasHeaderFilteredCount
     );
@@ -543,8 +849,10 @@
       epics: state.selectedEpics,
       labels: state.selectedLabels,
       statuses: state.selectedStatuses,
-      clearBtn: state.hasClearFilterBtn,
-      hdrFiltered: state.hasHeaderFilteredCount
+      customActive: Boolean(state.isCustomFilterBtnActive || persistentFilterStore.isCustomFilterActive),
+      filterActive: Boolean(state.isFilterBtnActive || persistentFilterStore.isFilterActive),
+      clearBtn: Boolean(state.hasClearFilterBtn),
+      hdrFiltered: Boolean(state.hasHeaderFilteredCount)
     });
 
     return state;
@@ -554,11 +862,17 @@
    * 判斷單張卡片是否符合選取的負責人篩選條件
    *
    * @param {Object} iss - 卡片資料物件
-   * @param {NativeBacklogFilterState} filterState - 篩選狀態物件
+   * @param {Object} filterState - 篩選狀態物件
    * @returns {boolean} 是否符合負責人條件
    */
   function doesIssueMatchAssigneeFilter(iss, filterState) {
-    const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants, normalizeAvatarUrl } = BetterJira.AssigneeUtils;
+    const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants, normalizeAvatarUrl } =
+      BetterJira.AssigneeUtils || {
+        cleanAssigneeLabel: (s) => (s || '').trim(),
+        isUnassignedText: (s) => /未指派|unassigned/i.test(s || ''),
+        deriveInitialsVariants: () => [],
+        normalizeAvatarUrl: (s) => s || ''
+      };
 
     if (!filterState) return true;
     const selectedAssignees = Array.isArray(filterState.selectedAssignees) ? filterState.selectedAssignees : [];
@@ -600,13 +914,12 @@
         if (sel.initials === issInitials) {
           return true;
         }
-        // 若兩者都是從 Jira 頭像圓圈取得的縮寫且不相同，除非完整姓名完全相同，否則視為不同人
         if (sel.cleanedNames.length === 0 || (sel.cleanedNames.length === 1 && sel.cleanedNames[0] === sel.initials)) {
           return false;
         }
       }
 
-      // 3. 比對完整姓名與標籤 (例如 "ray huang")
+      // 3. 比對完整姓名與標籤
       for (const selName of sel.cleanedNames) {
         if (!selName) continue;
         if (issName && issName === selName) return true;
@@ -616,7 +929,7 @@
         }
       }
 
-      // 4. 若篩選按鈕只有縮寫 (如 "ray" 或 "bp")，而卡片來自 API 只有全名 (如 "Ray Huang" 或 "Bruce Peng")
+      // 4. 若篩選按鈕只有縮寫 (如 "ray" 或 "bp")
       if (sel.initials) {
         if (issTokens.has(sel.initials)) {
           return true;
@@ -632,10 +945,10 @@
 
   /**
    * 根據 Jira 原生篩選搜尋區狀態過濾卡片陣列
-   * 支援經辦人、搜尋關鍵字、工作項目類型 (Type)、史詩/父項 (Epic)、狀態 (Status)、標籤 (Label) 與快速篩選 (Quick Filters)。
+   * 支援經辦人、搜尋關鍵字、工作項目類型 (Type)、史詩/父項 (Epic)、狀態 (Status)、標籤 (Label) 與自訂/快速篩選 (Quick Filters)。
    *
    * @param {Array<Object>} issues - 待過濾卡片清單
-   * @param {NativeBacklogFilterState} filterState - 篩選狀態物件
+   * @param {Object} filterState - 篩選狀態物件
    * @returns {Array<Object>} 過濾後的卡片清單
    */
   function filterIssuesByNativeFilter(issues, filterState) {
@@ -721,18 +1034,87 @@
         if (!matches) return false;
       }
 
-      // 7. 快速篩選 (Quick Filters: 類型與優先級等特徵吻合)
+      // 7. 自訂篩選條件 / 快速篩選 (Quick Filters: 支援 Only My Issues, 優先級, 狀態, 類型, 標籤等)
       if (quickFilters.length > 0) {
         for (const qf of quickFilters) {
-          if (/^(?:bug|缺陷|問題)$/i.test(qf)) {
-            const issType = (iss.issueTypeName || '').toLowerCase();
-            if (issType && !/bug|缺陷|問題/i.test(issType)) return false;
-          } else if (/^(?:story|故事)$/i.test(qf)) {
-            const issType = (iss.issueTypeName || '').toLowerCase();
-            if (issType && !/story|故事/i.test(issType)) return false;
-          } else if (/^(?:task|任務)$/i.test(qf)) {
-            const issType = (iss.issueTypeName || '').toLowerCase();
-            if (issType && !/task|任務/i.test(issType)) return false;
+          if (!qf || qf.startsWith('__')) continue;
+          const lowerQf = qf.toLowerCase().trim();
+
+          // A. 只有我的問題 (Only My Issues / 我的待辦事項)
+          if (/^(?:only\s+my\s+issues?|my\s+issues?|我的待辦事項|我的問題|指派給我|我的)$/i.test(lowerQf)) {
+            const currentUser = getCurrentJiraUser();
+            const issName = (iss.assigneeName || '').toLowerCase();
+            const issInitials = (iss.assigneeInitials || '').toLowerCase();
+            if (currentUser) {
+              const myName = (currentUser.name || '').toLowerCase();
+              const myInitials = (currentUser.initials || '').toLowerCase();
+              const matches =
+                (myName && issName && (issName.includes(myName) || myName.includes(issName))) ||
+                (myInitials && issInitials && issInitials === myInitials);
+              if (!matches) return false;
+            } else {
+              if (iss.isUnassigned || !iss.assigneeName) return false;
+            }
+            continue;
+          }
+
+          // B. 工作項目類型
+          if (/^(?:bug|缺陷|問題)$/i.test(lowerQf)) {
+            const t = (iss.issueTypeName || '').toLowerCase();
+            if (t && !/bug|缺陷|問題/i.test(t)) return false;
+            continue;
+          }
+          if (/^(?:story|故事)$/i.test(lowerQf)) {
+            const t = (iss.issueTypeName || '').toLowerCase();
+            if (t && !/story|故事/i.test(t)) return false;
+            continue;
+          }
+          if (/^(?:task|任務)$/i.test(lowerQf)) {
+            const t = (iss.issueTypeName || '').toLowerCase();
+            if (t && !/task|任務/i.test(t)) return false;
+            continue;
+          }
+
+          // C. 優先順序 (Priority)
+          if (/^(?:高優先級|最高|重大|緊急|high|highest)$/i.test(lowerQf)) {
+            const pri = (iss.priorityName || '').toLowerCase();
+            if (pri && !/high|highest|高|最高|重大|緊急/i.test(pri)) return false;
+            continue;
+          }
+          if (/^(?:低優先級|最低|low|lowest)$/i.test(lowerQf)) {
+            const pri = (iss.priorityName || '').toLowerCase();
+            if (pri && !/low|lowest|低|最低/i.test(pri)) return false;
+            continue;
+          }
+
+          // D. 狀態名稱匹配
+          const issStatus = (iss.statusName || '').toLowerCase();
+          if (issStatus && (issStatus === lowerQf || issStatus.includes(lowerQf) || lowerQf.includes(issStatus))) {
+            continue;
+          }
+
+          // E. 史詩/父項匹配
+          const issEpic = ((iss.parentSummary || '') + ' ' + (iss.parentKey || '') + ' ' + (iss.epic || '')).toLowerCase();
+          if (issEpic && issEpic.includes(lowerQf)) {
+            continue;
+          }
+
+          // F. 標籤匹配
+          const issLabels = Array.isArray(iss.labels) ? iss.labels.map((l) => String(l).toLowerCase()) : [];
+          if (issLabels.some((l) => l.includes(lowerQf) || lowerQf.includes(l))) {
+            continue;
+          }
+
+          // G. 標題或編號文字匹配
+          const issKey = (iss.key || '').toLowerCase();
+          const issSummary = (iss.summary || '').toLowerCase();
+          if (issKey.includes(lowerQf) || issSummary.includes(lowerQf)) {
+            continue;
+          }
+
+          // 若非上述任何特徵，且卡片來自原生 DOM，由原生 DOM 過濾機制決定，不予誤殺
+          if (iss.fromDom || iss._isFromDom) {
+            continue;
           }
         }
       }
@@ -744,6 +1126,10 @@
   BetterJira.FilterService = {
     getNativeBacklogFilterState,
     doesIssueMatchAssigneeFilter,
-    filterIssuesByNativeFilter
+    filterIssuesByNativeFilter,
+    syncFromOpenPopups,
+    resetPersistentFilters,
+    getCurrentJiraUser,
+    getPersistentFilterStore: () => persistentFilterStore
   };
 })();

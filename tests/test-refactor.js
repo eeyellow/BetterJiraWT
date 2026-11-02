@@ -494,7 +494,15 @@ class MockElement {
     this.style = {};
     this.children = [];
     this.parentElement = null;
-    this.textContent = '';
+    this._textContent = undefined;
+  }
+  get textContent() {
+    if (this._textContent !== undefined) return this._textContent;
+    if (this.children.length === 0) return '';
+    return this.children.map((c) => c.textContent).join(' ');
+  }
+  set textContent(val) {
+    this._textContent = val;
   }
   setAttribute(k, v) {
     this.attributes[k] = String(v);
@@ -519,17 +527,54 @@ class MockElement {
     this.children.push(child);
     return child;
   }
-  querySelector(sel) {
-    return null;
-  }
-  querySelectorAll(sel) {
-    return [];
-  }
   closest(sel) {
+    let curr = this;
+    while (curr) {
+      if (curr.matches && curr.matches(sel)) return curr;
+      curr = curr.parentElement;
+    }
     return null;
   }
   matches(sel) {
-    return false;
+    if (!sel) return false;
+    const parts = sel.split(',').map((s) => s.trim());
+    return parts.some((part) => {
+      if (part.startsWith('.')) return this.classList.contains(part.slice(1));
+      if (part.startsWith('#')) return this.getAttribute('id') === part.slice(1);
+      if (part.includes('[')) {
+        const m = part.match(/\[([a-zA-Z0-9_-]+)(?:([*^$]?=)(?:"([^"]*)"|'([^']*)'|([^\]]+)))?\]/);
+        if (m) {
+          const attr = m[1];
+          const op = m[2];
+          const val = m[3] || m[4] || m[5] || '';
+          const actual = this.getAttribute(attr);
+          if (actual === null) return false;
+          if (!op) return true;
+          if (op === '=') return actual === val;
+          if (op === '*=') return actual.includes(val);
+          if (op === '^=') return actual.startsWith(val);
+          if (op === '$=') return actual.endsWith(val);
+        }
+      }
+      return this.tagName.toLowerCase() === part.toLowerCase();
+    });
+  }
+  querySelectorAll(sel) {
+    const res = [];
+    const walk = (node) => {
+      for (const child of node.children) {
+        if (child.matches(sel)) {
+          res.push(child);
+        }
+        walk(child);
+      }
+    };
+    walk(this);
+    return res;
+  }
+  querySelector(sel) {
+    const all = this.querySelectorAll(sel);
+    return all.length > 0 ? all[0] : null;
   }
 }
 global.Element = MockElement;
@@ -664,6 +709,129 @@ assert(detectedState.selectedQuickFilters.includes('Only My Issues'), '應偵測
 global.document.querySelectorAll = origDocQuerySelectorAll;
 
 console.log('✓ Jira 原生全方位篩選同步檢查通過！');
+
+console.log('--- 測試 13: 「自訂篩選條件」與「篩選條件」下拉選單勾選與狀態持久化 ---');
+FilterService.resetPersistentFilters();
+
+// 1. 模擬開啟「自訂篩選條件」下拉選單，並在選單內勾選「高優先級」
+const customFilterPopup = new MockElement('div');
+customFilterPopup.setAttribute('role', 'menu');
+customFilterPopup.setAttribute('data-testid', 'custom-filter-dropdown');
+const customHeading = new MockElement('h3');
+customHeading.textContent = '自訂篩選條件';
+customFilterPopup.appendChild(customHeading);
+
+const option1 = new MockElement('div');
+option1.setAttribute('role', 'menuitemcheckbox');
+option1.setAttribute('aria-checked', 'true');
+option1.textContent = '高優先級';
+customFilterPopup.appendChild(option1);
+
+const origDocQuerySelectorAll13 = global.document.querySelectorAll;
+global.document.querySelectorAll = (sel) => {
+  if (sel.includes('menu') || sel.includes('popup') || sel.includes('dropdown')) {
+    return [customFilterPopup];
+  }
+  return [];
+};
+
+// 執行同步
+FilterService.syncFromOpenPopups();
+const store = FilterService.getPersistentFilterStore();
+assert.strictEqual(store.isCustomFilterActive, true, '自訂篩選選單有勾選項時 isCustomFilterActive 應為 true');
+assert(store.customFilters.has('高優先級'), '持久化存儲應記錄 高優先級');
+
+// 2. 模擬選單被 React 卸載 (關閉選單)，此時 DOM 內無彈出層，只有頂部工具列按鈕「自訂篩選條件 (1)」
+const customFilterToolbarBtn = new MockElement('button');
+customFilterToolbarBtn.textContent = '自訂篩選條件 (1)';
+customFilterToolbarBtn.setAttribute('aria-pressed', 'true');
+
+global.document.querySelectorAll = (sel) => {
+  if (sel.includes('custom-filter') || sel.includes('filters') || sel.includes('board-filter')) {
+    return [customFilterToolbarBtn];
+  }
+  return [];
+};
+
+const stateAfterClose = FilterService.getNativeBacklogFilterState();
+assert.strictEqual(stateAfterClose.isFiltered, true, '選單關閉後只要按鈕處於 active，isFiltered 應為 true');
+assert.strictEqual(stateAfterClose.isCustomFilterBtnActive, true, 'isCustomFilterBtnActive 應為 true');
+assert(stateAfterClose.selectedQuickFilters.includes('高優先級'), 'selectedQuickFilters 應正確繼承持久化的高優先級條件');
+
+// 3. 測試 filterIssuesByNativeFilter 對「高優先級」的過濾
+const priorityIssues = [
+  { key: 'P-1', summary: 'Critical bug', priorityName: 'Highest', statusName: 'To Do' },
+  { key: 'P-2', summary: 'Minor task', priorityName: 'Low', statusName: 'In Progress' }
+];
+const filteredByPriority = FilterService.filterIssuesByNativeFilter(priorityIssues, stateAfterClose);
+assert.strictEqual(filteredByPriority.length, 1, '高優先級篩選應只留下一張卡片');
+assert.strictEqual(filteredByPriority[0].key, 'P-1', '應正確匹配 Highest 優先級');
+
+// 4. 測試「清除所有篩選條件」按鈕觸發重設
+FilterService.resetPersistentFilters();
+const storeAfterReset = FilterService.getPersistentFilterStore();
+assert.strictEqual(storeAfterReset.isCustomFilterActive, false, '重設後 isCustomFilterActive 應為 false');
+assert.strictEqual(storeAfterReset.customFilters.size, 0, '重設後 customFilters 應為空');
+
+// 5. 測試 Only My Issues 與當前登入者匹配
+global.window.__bjwt_currentUser = { name: 'Ray Huang', initials: 'RH' };
+const myIssuesFilter = {
+  selectedQuickFilters: ['Only My Issues'],
+  hasDirectFilter: true,
+  isFiltered: true
+};
+const issuesForMyTest = [
+  { key: 'M-1', summary: 'Issue for Ray', assigneeName: 'Ray Huang', assigneeInitials: 'RH' },
+  { key: 'M-2', summary: 'Issue for Alice', assigneeName: 'Alice Wang', assigneeInitials: 'AW' },
+  { key: 'M-3', summary: 'Unassigned issue', isUnassigned: true }
+];
+const myIssuesResult = FilterService.filterIssuesByNativeFilter(issuesForMyTest, myIssuesFilter);
+assert.strictEqual(myIssuesResult.length, 1, 'Only My Issues 應只保留 Ray 的卡片');
+assert.strictEqual(myIssuesResult[0].key, 'M-1');
+
+// 6. 測試「篩選條件」通用彈出面板同時包含工作項目類型與狀態
+const filterPopup = new MockElement('div');
+filterPopup.setAttribute('role', 'dialog');
+filterPopup.setAttribute('data-testid', 'board-filter-popup');
+
+const typeGroup = new MockElement('div');
+const typeHeading = new MockElement('h4');
+typeHeading.textContent = '工作項目類型';
+typeGroup.appendChild(typeHeading);
+const bugOption = new MockElement('label');
+bugOption.setAttribute('aria-checked', 'true');
+bugOption.textContent = 'Bug';
+typeGroup.appendChild(bugOption);
+filterPopup.appendChild(typeGroup);
+
+const statusGroup = new MockElement('div');
+const statusHeading = new MockElement('h4');
+statusHeading.textContent = '狀態';
+statusGroup.appendChild(statusHeading);
+const inProgressOption = new MockElement('label');
+inProgressOption.setAttribute('aria-checked', 'true');
+inProgressOption.textContent = '進行中';
+statusGroup.appendChild(inProgressOption);
+filterPopup.appendChild(statusGroup);
+
+global.document.querySelectorAll = (sel) => {
+  if (sel.includes('dialog') || sel.includes('popup')) {
+    return [filterPopup];
+  }
+  return [];
+};
+
+FilterService.syncFromOpenPopups();
+const storeFromDialog = FilterService.getPersistentFilterStore();
+assert.strictEqual(storeFromDialog.isFilterActive, true, '篩選條件面板有勾選時 isFilterActive 應為 true');
+assert(storeFromDialog.types.has('bug'), '類型持久化應包含 bug');
+assert(storeFromDialog.statuses.has('進行中'), '狀態持久化應包含 進行中');
+
+global.document.querySelectorAll = origDocQuerySelectorAll13;
+delete global.window.__bjwt_currentUser;
+
+global.document.querySelectorAll = origDocQuerySelectorAll13;
+console.log('✓ 「自訂篩選條件」與「篩選條件」下拉選單勾選與狀態持久化測試通過！');
 
 console.log('============================================');
 console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');

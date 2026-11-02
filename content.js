@@ -83,6 +83,15 @@
       }
 
       if (!isInsideExtensionUi(target)) {
+        const isClearBtn =
+          /清除所有篩選條件|清除篩選|clear\s+all|clear\s+filters?/i.test(target.textContent || '') ||
+          /clear-all|clear-filters/i.test(target.getAttribute('data-testid') || '');
+        if (isClearBtn && BetterJira.FilterService && typeof BetterJira.FilterService.resetPersistentFilters === 'function') {
+          BetterJira.FilterService.resetPersistentFilters();
+        }
+        if (BetterJira.FilterService && typeof BetterJira.FilterService.syncFromOpenPopups === 'function') {
+          BetterJira.FilterService.syncFromOpenPopups();
+        }
         triggerNativeFilterSyncBurst();
       }
     },
@@ -216,6 +225,9 @@
     });
 
     if (isExternalChange) {
+      if (BetterJira.FilterService && typeof BetterJira.FilterService.syncFromOpenPopups === 'function') {
+        BetterJira.FilterService.syncFromOpenPopups();
+      }
       scheduleLayoutRefresh(evaluateAndApply);
     }
   });
