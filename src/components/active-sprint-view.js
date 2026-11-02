@@ -50,6 +50,85 @@
   }
 
   /**
+   * 觸發 Jira 原生「建立問題 (Create Issue)」操作
+   * 依序嘗試 Jira 頂部導航列之全域「建立 / Create」按鈕、導航列文字按鈕或原生快捷鍵 'c'，
+   * 喚起官方彈窗以確保包含完整必填欄位驗證、檔案上傳與衝刺指派。
+   *
+   * @param {Object|null} [item=null] - 衝刺結構物件
+   * @returns {boolean} 是否成功觸發按鈕或分發快捷鍵
+   */
+  function triggerCreateIssue(item = null) {
+    // 1. 優先尋找 Jira 頂部導航列之全域「建立 / Create」按鈕
+    const globalCreateSelectors = [
+      '#createGlobalItem',
+      '[data-testid="atlassian-navigation--create"]',
+      '[data-testid="atlassian-navigation--primary-actions--create"]',
+      '#create-menu',
+      '#quick-create-button',
+      'button[aria-label="Create"]',
+      'button[aria-label="建立"]',
+      'button[aria-label*="Create issue"]',
+      'button[aria-label*="建立問題"]'
+    ];
+
+    for (const selector of globalCreateSelectors) {
+      const btn = document.querySelector(selector);
+      if (btn && typeof btn.click === 'function') {
+        btn.click();
+        return true;
+      }
+    }
+
+    // 2. 尋找頂部導航列包含「建立」或「Create」文字的按鈕
+    const navButtons = Array.from(
+      document.querySelectorAll('header button, nav button, [role="banner"] button, [data-testid*="navigation"] button')
+    );
+    const matchedNavBtn = navButtons.find((btn) => {
+      const text = (btn.textContent || '').trim();
+      const aria = btn.getAttribute('aria-label') || '';
+      return /^(建立|create)$/i.test(text) || /^(建立|create)/i.test(aria);
+    });
+    if (matchedNavBtn && typeof matchedNavBtn.click === 'function') {
+      matchedNavBtn.click();
+      return true;
+    }
+
+    // 3. 嘗試衝刺容器或 partner 內部的原生建立按鈕（若存在且非自定義檢視內的按鈕）
+    if (item) {
+      const containers = [item.branch, item.headerPartner].filter(Boolean);
+      for (const container of containers) {
+        const nativeBtn = container.querySelector(
+          'button[data-testid*="create-issue"], button[data-testid*="inline-issue-create"], .ghx-create-issue, button[aria-label*="建立"], button[aria-label*="Create"]'
+        );
+        if (nativeBtn && !nativeBtn.classList.contains('bjwt-active-create-btn') && !nativeBtn.classList.contains('bjwt-active-inline-create-btn')) {
+          nativeBtn.click();
+          return true;
+        }
+      }
+    }
+
+    // 4. 退回方案：分發 Jira 原生快捷鍵 'c' 觸發建立對話框
+    try {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
+        activeEl.blur();
+      }
+      const keyboardEvent = new KeyboardEvent('keydown', {
+        key: 'c',
+        code: 'KeyC',
+        keyCode: 67,
+        which: 67,
+        bubbles: true,
+        cancelable: true
+      });
+      document.dispatchEvent(keyboardEvent);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * 渲染未結束衝刺的自定義卡片檢視 (與歷史衝刺一體呈現，並即時連動 Jira 原生篩選搜尋區)
    *
    * @param {Object} item - 衝刺結構物件
@@ -203,6 +282,13 @@
               placeholder="篩選卡片 (Key / 標題 / 負責人)..."
               value="${escapeHtml(sprintData.filterKeyword || '')}"
             />
+            <button type="button" class="bjwt-active-create-btn" title="在此衝刺新增卡片">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              ＋ 新增卡片
+            </button>
             <button type="button" class="bjwt-history-refresh-btn" title="從 Jira 重新同步此衝刺">
               ↻ 重新整理
             </button>
@@ -224,6 +310,15 @@
               ? `<div class="bjwt-history-empty-cards">目前沒有符合篩選條件的待辦事項卡片。</div>`
               : visibleIssues.map(renderIssueCardHtml).join('')
           }
+        </div>
+        <div class="bjwt-active-create-card-row">
+          <button type="button" class="bjwt-active-inline-create-btn" title="在此衝刺建立卡片">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            ＋ 建立問題 (Create Issue)
+          </button>
         </div>
       </div>
     `;
@@ -273,6 +368,25 @@
       });
     }
 
+    // 綁定新增卡片按鈕 (頂部 Banner 控制列按鈕與卡片清單底部行內按鈕)
+    const createBtn = customView.querySelector('.bjwt-active-create-btn');
+    if (createBtn) {
+      createBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerCreateIssue(item);
+      });
+    }
+
+    const inlineCreateBtn = customView.querySelector('.bjwt-active-inline-create-btn');
+    if (inlineCreateBtn) {
+      inlineCreateBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerCreateIssue(item);
+      });
+    }
+
     // 綁定卡片點擊事件以置中 Modal 預覽
     customView.querySelectorAll('.bjwt-history-card').forEach((cardEl) => {
       const issueKey = cardEl.getAttribute('data-bjwt-history-issue-key');
@@ -297,6 +411,7 @@
 
   BetterJira.ActiveSprintView = {
     syncActiveSprintIssuesFromApi,
-    renderActiveSprintBranch
+    renderActiveSprintBranch,
+    triggerCreateIssue
   };
 })();

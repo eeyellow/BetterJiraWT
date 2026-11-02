@@ -349,6 +349,44 @@ assert(runtimeStylesJs.includes('.bjwt-card-col-duedate'), 'runtime-styles.js �
 assert(runtimeStylesJs.includes('.bjwt-card-col-right'), 'runtime-styles.js 應包含 .bjwt-card-col-right 樣式');
 console.log('✓ 卡片第二列 flex n 欄排版樣式測試通過！');
 
+console.log('--- 測試 10: 未結束衝刺自定義檢視新增卡片按鈕與 triggerCreateIssue 檢查 ---');
+const { ActiveSprintView } = BetterJira;
+assert(ActiveSprintView, 'ActiveSprintView 模組應存在');
+assert.strictEqual(typeof ActiveSprintView.triggerCreateIssue, 'function', 'triggerCreateIssue 應為函式');
+
+const activeSprintViewJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/active-sprint-view.js'), 'utf8');
+assert(activeSprintViewJs.includes('bjwt-active-create-btn'), 'active-sprint-view.js 應包含頂部橫幅新增卡片按鈕 class');
+assert(activeSprintViewJs.includes('bjwt-active-inline-create-btn'), 'active-sprint-view.js 應包含卡片清單底部行內建立按鈕 class');
+assert(activeSprintViewJs.includes('bjwt-active-create-card-row'), 'active-sprint-view.js 應包含建立按鈕容器列 class');
+
+assert(stylesCss.includes('.bjwt-active-create-btn'), 'styles.css 應包含 .bjwt-active-create-btn 樣式');
+assert(stylesCss.includes('.bjwt-active-inline-create-btn'), 'styles.css 應包含 .bjwt-active-inline-create-btn 樣式');
+assert(stylesCss.includes('.bjwt-active-create-card-row'), 'styles.css 應包含 .bjwt-active-create-card-row 樣式');
+
+assert(runtimeStylesJs.includes('.bjwt-active-create-btn'), 'runtime-styles.js 應包含 .bjwt-active-create-btn 樣式');
+assert(runtimeStylesJs.includes('.bjwt-active-inline-create-btn'), 'runtime-styles.js 應包含 .bjwt-active-inline-create-btn 樣式');
+assert(runtimeStylesJs.includes('.bjwt-active-create-card-row'), 'runtime-styles.js 應包含 .bjwt-active-create-card-row 樣式');
+
+// 測試 triggerCreateIssue 觸發全域建立按鈕
+let clicked = false;
+const origQuerySelector = global.document.querySelector;
+global.document.querySelector = (sel) => {
+  if (sel === '#createGlobalItem') {
+    return {
+      click: () => {
+        clicked = true;
+      }
+    };
+  }
+  return null;
+};
+const triggerResult = ActiveSprintView.triggerCreateIssue();
+assert.strictEqual(triggerResult, true, '找到建立按鈕時應回傳 true');
+assert.strictEqual(clicked, true, 'triggerCreateIssue 應成功點擊全域建立按鈕');
+global.document.querySelector = origQuerySelector;
+
+console.log('✓ 未結束衝刺自定義檢視新增卡片按鈕與 triggerCreateIssue 測試通過！');
+
 console.log('============================================');
 console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
 console.log('============================================');
