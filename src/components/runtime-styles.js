@@ -733,6 +733,16 @@
         font-size: 12px !important;
         line-height: 1.4 !important;
       }
+      .bjwt-edit-warning-banner {
+        padding: 8px 12px !important;
+        margin-bottom: 12px !important;
+        border-radius: 6px !important;
+        background: rgba(245, 158, 11, 0.18) !important;
+        border: 1px solid #f59e0b !important;
+        color: #fde68a !important;
+        font-size: 12px !important;
+        line-height: 1.4 !important;
+      }
       .bjwt-edit-native-box {
         margin-top: 24px !important;
         padding: 12px !important;
