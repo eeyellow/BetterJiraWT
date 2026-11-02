@@ -50,15 +50,30 @@
     applyThemeAndLayout(matched, settings.themeStyle);
   }
 
+  let filterSyncTimer = null;
+
   /**
    * 當使用者在 Jira 原生篩選搜尋區 (人員頭像、搜尋框、下拉選單、清除篩選按鈕) 操作時，
-   * 立即排程多次微延遲刷新，確保 React 完成狀態更新與虛擬列表重繪後，左右兩欄 100% 即時同步。
+   * 透過 60ms 防抖 (Debounce) 單次平滑刷新，確保 Jira React 先完成狀態更新，
+   * 絕不狂轟式重複觸發 DOM 修改，避免引發 Jira 官方重複查詢與 Sentry 遙測報警。
+   *
+   * @param {number} [delayMs=60] - 防抖微延遲毫秒數
    */
-  function triggerNativeFilterSyncBurst() {
-    scheduleLayoutRefresh(evaluateAndApply);
-    setTimeout(() => scheduleLayoutRefresh(evaluateAndApply), 32);
-    setTimeout(() => scheduleLayoutRefresh(evaluateAndApply), 120);
-    setTimeout(() => scheduleLayoutRefresh(evaluateAndApply), 280);
+  function triggerNativeFilterSyncBurst(delayMs = 60) {
+    if (filterSyncTimer) {
+      clearTimeout(filterSyncTimer);
+    }
+    filterSyncTimer = setTimeout(() => {
+      filterSyncTimer = null;
+      try {
+        if (BetterJira.FilterService && typeof BetterJira.FilterService.syncFromOpenPopups === 'function') {
+          BetterJira.FilterService.syncFromOpenPopups();
+        }
+      } catch {
+        // ignore
+      }
+      scheduleLayoutRefresh(evaluateAndApply);
+    }, delayMs);
   }
 
   // 將 evaluateAndApply 掛載至 BetterJira.App 供全域或組件排程刷新呼叫
@@ -67,8 +82,7 @@
     triggerNativeFilterSyncBurst
   };
 
-  // 當點擊卡片時，立即在同一個 frame 及後續微任務偵測右側面板並轉為 Modal (0 延遲)；
-  // 當點擊 Jira 原生篩選搜尋區 (如人員頭像、篩選條件、清除篩選) 時，立即同步左右側欄
+  // 當點擊卡片時，在 Capture 階段以 0 延遲偵測右側面板並轉為置中 Modal
   document.addEventListener(
     'click',
     (e) => {
@@ -79,35 +93,44 @@
         requestAnimationFrame(() => applyIssueDetailModalTransform());
         setTimeout(() => applyIssueDetailModalTransform(), 16);
         setTimeout(() => applyIssueDetailModalTransform(), 60);
-        return;
       }
+    },
+    true
+  );
 
-      if (!isInsideExtensionUi(target)) {
+  // 當點擊非卡片之篩選工具列、下拉選單或清除按鈕時，在 Bubble 階段等 Jira React 處理完成後再平滑同步
+  document.addEventListener(
+    'click',
+    (e) => {
+      const target = e.target;
+      if (!target || !(target instanceof Element)) return;
+      if (isInsideCard(target) || isInsideExtensionUi(target)) return;
+
+      try {
         const isClearBtn =
           /清除所有篩選條件|清除篩選|clear\s+all|clear\s+filters?/i.test(target.textContent || '') ||
           /clear-all|clear-filters/i.test(target.getAttribute('data-testid') || '');
         if (isClearBtn && BetterJira.FilterService && typeof BetterJira.FilterService.resetPersistentFilters === 'function') {
           BetterJira.FilterService.resetPersistentFilters();
         }
-        if (BetterJira.FilterService && typeof BetterJira.FilterService.syncFromOpenPopups === 'function') {
-          BetterJira.FilterService.syncFromOpenPopups();
-        }
-        triggerNativeFilterSyncBurst();
+        triggerNativeFilterSyncBurst(50);
+      } catch {
+        // ignore
       }
     },
-    true
+    false
   );
 
-  // 監聽原生搜尋框輸入與變更事件，即時連動左右側欄
+  // 監聽原生搜尋框輸入與變更事件，在 Bubble 階段防抖連動左右側欄
   document.addEventListener(
     'input',
     (e) => {
       const target = e.target;
       if (target && target instanceof Element && !isInsideExtensionUi(target)) {
-        triggerNativeFilterSyncBurst();
+        triggerNativeFilterSyncBurst(150);
       }
     },
-    true
+    false
   );
 
   document.addEventListener(
@@ -115,10 +138,10 @@
     (e) => {
       const target = e.target;
       if (target && target instanceof Element && !isInsideExtensionUi(target)) {
-        triggerNativeFilterSyncBurst();
+        triggerNativeFilterSyncBurst(50);
       }
     },
-    true
+    false
   );
 
   document.addEventListener(
@@ -225,8 +248,12 @@
     });
 
     if (isExternalChange) {
-      if (BetterJira.FilterService && typeof BetterJira.FilterService.syncFromOpenPopups === 'function') {
-        BetterJira.FilterService.syncFromOpenPopups();
+      try {
+        if (BetterJira.FilterService && typeof BetterJira.FilterService.syncFromOpenPopups === 'function') {
+          BetterJira.FilterService.syncFromOpenPopups();
+        }
+      } catch {
+        // ignore
       }
       scheduleLayoutRefresh(evaluateAndApply);
     }
