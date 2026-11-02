@@ -420,6 +420,51 @@ const { JiraApiService } = BetterJira;
 assert.strictEqual(typeof JiraApiService.updateIssue, 'function', 'updateIssue 應為函式');
 assert.strictEqual(typeof JiraApiService.fetchIssueTransitions, 'function', 'fetchIssueTransitions 應為函式');
 assert.strictEqual(typeof JiraApiService.transitionIssue, 'function', 'transitionIssue 應為函式');
+assert.strictEqual(typeof JiraApiService.fetchIssueEditMeta, 'function', 'fetchIssueEditMeta 應為函式');
+assert.strictEqual(typeof JiraApiService.updateIssueEstimation, 'function', 'updateIssueEstimation 應為函式');
+
+// 測試 updateIssue 遭遇 Screen 不支援 customfield 時的自我修復容錯機制
+(async () => {
+  let callCount = 0;
+  const originalFetch = global.fetch;
+  global.fetch = async (url, opts) => {
+    callCount++;
+    if (url.includes('/editmeta')) {
+      // 模擬 editmeta 中沒有任何 customfield (不在畫面上)
+      return {
+        ok: true,
+        json: async () => ({ fields: { summary: {}, description: {} } })
+      };
+    }
+    if (url.includes('/rest/api/2/issue/TEST-1')) {
+      const body = JSON.parse(opts.body);
+      if (body.fields.customfield_10046 !== undefined) {
+        // 第一次嘗試帶了 customfield_10046，Jira 回傳不在畫面上的錯誤
+        return {
+          ok: false,
+          json: async () => ({
+            errors: {
+              customfield_10046: "Field 'customfield_10046' cannot be set. It is not on the appropriate screen, or unknown."
+            }
+          })
+        };
+      }
+      // 重試後只帶 summary/description，成功
+      return { ok: true, status: 204 };
+    }
+    if (url.includes('/estimation')) {
+      return { ok: true, status: 204 };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const res = await JiraApiService.updateIssue('TEST-1', {
+    summary: 'Updated title',
+    storyPoints: 5
+  });
+  assert.strictEqual(res.success, true, '自訂欄位不在畫面上時應自動修復重試並回傳 success: true');
+  global.fetch = originalFetch;
+})();
 
 // 4. 測試 IssueModal 編輯模式相關類別與樣式
 const issueModalJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/issue-modal.js'), 'utf8');

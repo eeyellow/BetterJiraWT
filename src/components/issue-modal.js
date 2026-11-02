@@ -562,27 +562,42 @@
         const newPoints = newPointsStr === '' ? null : Number(newPointsStr);
         const transitionId = statusSelect ? statusSelect.value : '';
 
+        // 檢查是否有實質修改 (Dirty Check)
+        const summaryChanged = newSummary !== currentRawSummary;
+        const descChanged = newDesc !== currentRawDesc;
+        const origPointsStr =
+          currentRawPoints !== null && currentRawPoints !== undefined && currentRawPoints !== '-'
+            ? String(currentRawPoints).trim()
+            : '';
+        const pointsChanged = newPointsStr !== origPointsStr;
+        const statusChanged = Boolean(transitionId);
+
+        if (!summaryChanged && !descChanged && !pointsChanged && !statusChanged) {
+          setEditMode(false);
+          return;
+        }
+
         saveBtn.disabled = true;
         saveBtn.textContent = '儲存中...';
         if (msgBanner) msgBanner.style.display = 'none';
 
         try {
-          const updates = {
-            summary: newSummary,
-            description: newDesc
-          };
-          if (newPoints !== null && !isNaN(newPoints)) {
-            updates.storyPoints = newPoints;
-          } else if (newPointsStr === '') {
-            updates.storyPoints = null;
+          const updates = {};
+          if (summaryChanged) updates.summary = newSummary;
+          if (descChanged) updates.description = newDesc;
+          if (pointsChanged) {
+            updates.storyPoints = newPoints !== null && !isNaN(newPoints) ? newPoints : null;
           }
 
-          const updateRes = await JiraApiService.updateIssue(issueKey, updates);
-          if (!updateRes.success) {
-            throw new Error(updateRes.error || '儲存失敗');
+          let updateRes = { success: true };
+          if (Object.keys(updates).length > 0) {
+            updateRes = await JiraApiService.updateIssue(issueKey, updates);
+            if (!updateRes.success) {
+              throw new Error(updateRes.error || '儲存失敗');
+            }
           }
 
-          if (transitionId) {
+          if (statusChanged && transitionId) {
             const transRes = await JiraApiService.transitionIssue(issueKey, transitionId);
             if (!transRes.success) {
               console.warn('狀態轉換未成功:', transRes.error);
@@ -591,7 +606,9 @@
 
           currentRawSummary = newSummary;
           currentRawDesc = newDesc;
-          currentRawPoints = newPoints !== null ? newPoints : '';
+          if (pointsChanged) {
+            currentRawPoints = newPoints !== null ? newPoints : '';
+          }
 
           const headerSummary = modalEl.querySelector('#bjwt-history-modal-header-summary');
           if (headerSummary) {
@@ -607,15 +624,18 @@
           }
 
           const pointsBadge = modalEl.querySelector('#bjwt-points-badge-val');
-          if (pointsBadge) {
+          if (pointsBadge && pointsChanged) {
             pointsBadge.textContent = String(newPoints !== null && newPoints !== undefined ? newPoints : '-');
           }
 
-          IssueStore.mergeAndCacheIssue({
+          const cacheUpdate = {
             key: issueKey,
-            summary: newSummary,
-            storyPoints: newPoints
-          });
+            summary: newSummary
+          };
+          if (pointsChanged) {
+            cacheUpdate.storyPoints = newPoints;
+          }
+          IssueStore.mergeAndCacheIssue(cacheUpdate);
 
           const { LayoutManager } = BetterJira;
           if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
@@ -625,14 +645,20 @@
           setEditMode(false);
 
           if (msgBanner) {
-            msgBanner.className = 'bjwt-edit-success-banner';
-            msgBanner.textContent = '✓ 卡片已成功儲存！';
-            msgBanner.style.display = 'block';
+            if (updateRes.warning) {
+              msgBanner.className = 'bjwt-edit-warning-banner';
+              msgBanner.textContent = `✓ 儲存完成：${updateRes.warning}`;
+              msgBanner.style.display = 'block';
+            } else {
+              msgBanner.className = 'bjwt-edit-success-banner';
+              msgBanner.textContent = '✓ 卡片已成功儲存！';
+              msgBanner.style.display = 'block';
+            }
             setTimeout(() => {
               if (msgBanner && modalEl.isConnected) {
                 msgBanner.style.display = 'none';
               }
-            }, 3000);
+            }, 3500);
           }
         } catch (err) {
           if (msgBanner) {
