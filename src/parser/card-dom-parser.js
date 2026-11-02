@@ -139,7 +139,13 @@
   function parseIssueFromDomCard(cardEl) {
     if (!cardEl || !(cardEl instanceof Element)) return null;
     const { TextUtils, AssigneeUtils, IssueStore } = BetterJira;
-    const { cleanSummaryText, deduplicateSummaryChunks, isTruncatedDuplicateOf } = TextUtils;
+    const {
+      cleanSummaryText,
+      deduplicateSummaryChunks,
+      isTruncatedDuplicateOf,
+      cleanStatusText,
+      cleanDueDateText
+    } = TextUtils;
     const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants, getDisplayInitialsForIssue } = AssigneeUtils;
 
     let key = '';
@@ -230,8 +236,8 @@
       }
     }
 
-    // 清理狀態文字 (去除按鈕 chevron 與 trailing arrow)
-    statusName = statusName.replace(/(▾|▼|⌵|v|\^|expand|dropdown)+$/i, '').trim();
+    // 清理狀態文字 (去除前綴「狀態:」與按鈕 chevron / trailing arrow)
+    statusName = cleanStatusText(statusName);
 
     if (!statusName) {
       statusName = isDone ? '完成' : '待辦事項';
@@ -452,11 +458,11 @@
     const dueEl = cardEl.querySelector('[data-testid*="due-date"], [data-testid*="duedate"]');
     if (dueEl) {
       dueDate = (dueEl.innerText || dueEl.textContent || '').trim().replace(/\s+/g, ' ');
-      dueDate = dueDate.replace(/^[📅\s]+/, '').trim();
+      dueDate = cleanDueDateText(dueDate);
     } else {
       const dateMatch = (cardEl.textContent || '').match(/(\d{1,2}月\d{1,2}日|\d{4}-\d{2}-\d{2})/);
       if (dateMatch) {
-        dueDate = dateMatch[1];
+        dueDate = cleanDueDateText(dateMatch[1]);
       }
     }
 

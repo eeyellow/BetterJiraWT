@@ -89,6 +89,31 @@ assert.strictEqual(
   'Sprint 標題尾部日期區間應正確移除'
 );
 assert.strictEqual(
+  TextUtils.cleanStatusText('狀態待辦事項'),
+  '待辦事項',
+  '狀態前綴應正確清除'
+);
+assert.strictEqual(
+  TextUtils.cleanStatusText('狀態local testing / Wait for MR'),
+  'local testing / Wait for MR',
+  '包含英文與符號之狀態前綴應正確清除'
+);
+assert.strictEqual(
+  TextUtils.cleanStatusText('Status: In Progress'),
+  'In Progress',
+  '英文 Status: 前綴應正確清除'
+);
+assert.strictEqual(
+  TextUtils.cleanDueDateText('截止日期: 2026年11月4日11月4日'),
+  '2026年11月4日',
+  '重複之截止日期與前綴應正確清理'
+);
+assert.strictEqual(
+  TextUtils.cleanDueDateText('📅 2026-11-04'),
+  '2026-11-04',
+  '帶有月曆 emoji 之截止日期應正確清理'
+);
+assert.strictEqual(
   TextUtils.escapeHtml('<script>alert("test")&foo</script>'),
   '&lt;script&gt;alert(&quot;test&quot;)&amp;foo&lt;/script&gt;',
   'HTML 特殊字元應正確跳脫'
@@ -256,22 +281,61 @@ assert(cardHtml.includes('data-bjwt-history-issue-key="WMC-101"'), '卡片應包
 assert(cardHtml.includes('Fix login bug'), '卡片應包含清理後標題');
 assert(cardHtml.includes('status-inprogress'), '進行中卡片應有 status-inprogress class');
 assert(cardHtml.includes('>5<'), '卡片應包含正確點數 5');
+
+// 測試完整欄位卡片的第二列結構排版
+const fullFeaturedIssue = {
+  ...normalized,
+  parentSummary: 'Authentication Epic',
+  dueDate: '2026年11月4日'
+};
+const fullCardHtml = IssueCardComponent.renderIssueCardHtml(fullFeaturedIssue);
+assert(fullCardHtml.includes('bjwt-card-row-bottom-left'), '卡片第二列應包含左側容器');
+assert(fullCardHtml.includes('bjwt-card-row-bottom-right'), '卡片第二列應包含右側容器');
+assert(fullCardHtml.includes('bjwt-history-parent-badge'), '左側應渲染標籤/Epic');
+assert(fullCardHtml.includes('bjwt-history-duedate-badge'), '左側應渲染截止日期');
+assert(fullCardHtml.includes('bjwt-history-status-badge'), '左側應渲染狀態徽章');
+assert(fullCardHtml.includes('bjwt-history-points-badge'), '右側應渲染 StoryPoint');
+assert(fullCardHtml.includes('bjwt-history-priority-icon'), '右側應渲染優先度圖示');
+assert(fullCardHtml.includes('bjwt-history-assignee'), '右側應渲染經辦人');
+
+// 驗證左右結構中元素出現順序（左側狀態、Epic、截止日期在前，右側 StoryPoint、優先度、經辦人在後）
+const leftIdx = fullCardHtml.indexOf('bjwt-card-row-bottom-left');
+const statusIdx = fullCardHtml.indexOf('bjwt-history-status-badge');
+const parentIdx = fullCardHtml.indexOf('bjwt-history-parent-badge');
+const duedateIdx = fullCardHtml.indexOf('bjwt-history-duedate-badge');
+const rightIdx = fullCardHtml.indexOf('bjwt-card-row-bottom-right');
+const pointsIdx = fullCardHtml.indexOf('bjwt-history-points-badge');
+const priorityIdx = fullCardHtml.indexOf('bjwt-history-priority-icon');
+const assigneeIdx = fullCardHtml.indexOf('bjwt-history-assignee');
+
+assert(leftIdx < statusIdx && statusIdx < parentIdx && parentIdx < duedateIdx, '左側順序應為：狀態 -> Epic -> 截止日期');
+assert(duedateIdx < rightIdx, '左側容器應位於右側容器之前');
+assert(rightIdx < pointsIdx && pointsIdx < priorityIdx && priorityIdx < assigneeIdx, '右側順序應為：StoryPoint -> 優先度 -> 經辦人');
 console.log('✓ IssueCardComponent 測試通過！');
 
 console.log('--- 測試 8: IssueModal 全版面樣式檢查 ---');
 const stylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
 const runtimeStylesJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
 
-assert(stylesCss.includes('width: 100vw !important;'), 'styles.css 應設定 modal 寬度 100vw');
-assert(stylesCss.includes('height: 100vh !important;'), 'styles.css 應設定 modal 高度 100vh');
+assert(stylesCss.includes('width: 100% !important;'), 'styles.css 應設定 modal 寬度 100%');
+assert(stylesCss.includes('height: 100% !important;'), 'styles.css 應設定 modal 高度 100%');
 assert(stylesCss.includes('inset: 0 !important;'), 'styles.css 應設定 modal inset: 0');
 assert(!stylesCss.includes('width: min(92vw, 1140px)'), 'styles.css 不應殘留舊版固定寬度');
 assert(!stylesCss.includes('height: min(90vh, 860px)'), 'styles.css 不應殘留舊版固定高度');
+assert(stylesCss.includes('margin-right: 32px !important;'), 'styles.css 應設定關閉按鈕安全右邊距');
 
-assert(runtimeStylesJs.includes('width: 100vw !important;'), 'runtime-styles.js 應設定 modal 寬度 100vw');
-assert(runtimeStylesJs.includes('height: 100vh !important;'), 'runtime-styles.js 應設定 modal 高度 100vh');
+assert(runtimeStylesJs.includes('width: 100% !important;'), 'runtime-styles.js 應設定 modal 寬度 100%');
+assert(runtimeStylesJs.includes('height: 100% !important;'), 'runtime-styles.js 應設定 modal 高度 100%');
 assert(runtimeStylesJs.includes('inset: 0 !important;'), 'runtime-styles.js 應設定 modal inset: 0');
+assert(runtimeStylesJs.includes('margin-right: 32px !important;'), 'runtime-styles.js 應設定關閉按鈕安全右邊距');
 console.log('✓ IssueModal 全版面樣式測試通過！');
+
+console.log('--- 測試 9: 卡片第二列左右分欄排版樣式檢查 ---');
+assert(stylesCss.includes('.bjwt-card-row-bottom-left'), 'styles.css 應包含 .bjwt-card-row-bottom-left 樣式');
+assert(stylesCss.includes('.bjwt-card-row-bottom-right'), 'styles.css 應包含 .bjwt-card-row-bottom-right 樣式');
+assert(runtimeStylesJs.includes('.bjwt-card-row-bottom-left'), 'runtime-styles.js 應包含 .bjwt-card-row-bottom-left 樣式');
+assert(runtimeStylesJs.includes('.bjwt-card-row-bottom-right'), 'runtime-styles.js 應包含 .bjwt-card-row-bottom-right 樣式');
+console.log('✓ 卡片第二列左右分欄排版樣式測試通過！');
 
 console.log('============================================');
 console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');

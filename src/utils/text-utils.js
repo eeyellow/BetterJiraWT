@@ -304,11 +304,61 @@
     );
   }
 
+  /**
+   * 清理工作項目狀態文字，去除前綴「狀態:」與尾部按鈕箭頭等符號
+   *
+   * @param {string} rawStatus - 原始狀態字串
+   * @returns {string} 乾淨的狀態名稱 (例如「待辦事項」、「進行中」、「DEV Verify」)
+   */
+  function cleanStatusText(rawStatus) {
+    if (!rawStatus) return '';
+    let str = String(rawStatus)
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!str) return '';
+    str = str.replace(/^(狀態|Status)[:：\s]*/i, '').trim();
+    str = str.replace(/(▾|▼|⌵|v|\^|expand|dropdown)+$/i, '').trim();
+    str = str.replace(/^(狀態|Status)[:：\s]*/i, '').trim();
+    return str;
+  }
+
+  /**
+   * 清理工作項目到期日文字，去除「截止日期:」前綴與重複日期字串
+   *
+   * @param {string} rawDate - 原始到期日字串
+   * @returns {string} 乾淨的日期字串 (例如「2026年11月4日」或「11月4日」)
+   */
+  function cleanDueDateText(rawDate) {
+    if (!rawDate) return '';
+    let str = String(rawDate)
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!str) return '';
+    str = str.replace(/^(截止日期|到期日|到期|Due\s*Date|Due)[:：\s]*/i, '').trim();
+    str = str.replace(/^[📅\s]+/, '').trim();
+
+    // 檢查並去除重複日期 (例如「2026年11月4日11月4日」或「11月4日 11月4日」或「2026-11-04 2026-11-04」)
+    const matchFull = str.match(/(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?)\s*(\d{1,2}[-/月]\d{1,2}日?)/);
+    if (matchFull) {
+      str = matchFull[1];
+    } else {
+      const matchRepeat = str.match(/(.{3,})\s*\1/);
+      if (matchRepeat && matchRepeat[1]) {
+        str = matchRepeat[1].trim();
+      }
+    }
+    return str;
+  }
+
   BetterJira.TextUtils = {
     isTruncatedDuplicateOf,
     cleanSummaryText,
     deduplicateSummaryChunks,
     cleanSprintTitle,
+    cleanStatusText,
+    cleanDueDateText,
     formatShortDate,
     formatShortDateTime,
     escapeHtml,

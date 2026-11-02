@@ -168,7 +168,7 @@
    * @returns {Object} 正規化後的卡片物件
    */
   function normalizeJiraIssue(raw) {
-    const { cleanSummaryText } = BetterJira.TextUtils;
+    const { cleanSummaryText, cleanStatusText, cleanDueDateText } = BetterJira.TextUtils;
     const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants, getDisplayInitialsForIssue } = BetterJira.AssigneeUtils;
 
     const fields = raw.fields || {};
@@ -220,8 +220,7 @@
       }
     }
 
-    let cleanStatus = (statusObj.name || '未知狀態').replace(/\s+/g, ' ').trim();
-    cleanStatus = cleanStatus.replace(/(▾|▼|⌵|v|\^)+$/i, '').trim();
+    let cleanStatus = cleanStatusText(statusObj.name || '未知狀態');
 
     const rawAssigneeName = assigneeObj
       ? cleanAssigneeLabel(assigneeObj.displayName || assigneeObj.name || assigneeObj.emailAddress || '')
@@ -264,7 +263,7 @@
       parentKey: parentObj ? parentObj.key : '',
       parentSummary:
         parentObj && parentObj.fields ? parentObj.fields.summary || '' : '',
-      dueDate: fields.duedate || '',
+      dueDate: cleanDueDateText(fields.duedate || ''),
       storyPoints
     };
 

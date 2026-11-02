@@ -230,6 +230,108 @@
         max-width: 16px !important;
         max-height: 16px !important;
       }
+      .bjwt-card-row-bottom {
+        width: 100% !important;
+        max-width: 100% !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 12px !important;
+        flex: 0 0 auto !important;
+        margin-top: 4px !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-card-row-bottom-left {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        gap: 8px !important;
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-card-row-bottom-right,
+      .bjwt-history-card-right {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        gap: 10px !important;
+        flex: 0 0 auto !important;
+        margin-left: auto !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-history-status-badge {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 22px !important;
+        padding: 0 8px !important;
+        border-radius: 4px !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        min-width: 74px !important;
+        max-width: 140px !important;
+        text-align: center !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        flex-shrink: 0 !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-history-parent-badge {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 5px !important;
+        height: 22px !important;
+        padding: 0 8px !important;
+        border-radius: 4px !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        border: 1px solid #9333ea !important;
+        background: rgba(147, 51, 234, 0.12) !important;
+        color: var(--ds-text, #e9d5ff) !important;
+        max-width: 180px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-history-duedate-badge {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 5px !important;
+        height: 22px !important;
+        padding: 0 8px !important;
+        border-radius: 4px !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        border: 1px solid var(--ds-border, #475569) !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+        background: rgba(148, 163, 184, 0.1) !important;
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-history-points-badge {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-width: 26px !important;
+        height: 20px !important;
+        padding: 0 6px !important;
+        border-radius: 4px !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        background: rgba(148, 163, 184, 0.2) !important;
+        color: var(--ds-text, #cbd5e1) !important;
+        flex-shrink: 0 !important;
+        box-sizing: border-box !important;
+      }
       html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"],
       html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"],
       html[data-betterjira-layout="two-column"] #ghx-detail-view,
@@ -241,12 +343,10 @@
         right: 0 !important;
         bottom: 0 !important;
         inset: 0 !important;
-        width: 100vw !important;
         width: 100% !important;
-        height: 100vh !important;
         height: 100% !important;
-        max-width: 100vw !important;
-        max-height: 100vh !important;
+        max-width: 100% !important;
+        max-height: 100% !important;
         min-width: 100% !important;
         min-height: 100% !important;
         transform: none !important;
@@ -259,12 +359,58 @@
         border: none !important;
         box-sizing: border-box !important;
       }
+      html[data-betterjira-layout="two-column"] #bjwt-history-issue-modal,
+      #bjwt-history-issue-modal {
+        overflow: hidden !important;
+      }
       html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] > *,
       html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"] > *,
       [data-bjwt-issue-modal="true"] > * {
         width: 100% !important;
         max-width: 100% !important;
       }
+      /* Jira 原生面板頂部 Header 安全邊距 (避免靠右時與捲軸重疊) */
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] #jira-issue-header,
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] [data-testid*="issue-header"],
+      [data-bjwt-issue-modal="true"] #jira-issue-header,
+      [data-bjwt-issue-modal="true"] [data-testid*="issue-header"] {
+        padding-right: 32px !important;
+        box-sizing: border-box !important;
+      }
+      /* Jira 原生與歷史卡片 Modal 最右上角關閉按鈕安全邊距與位置調整 (避免太偏右或被滾動條遮住) */
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] [data-testid*="close-button"],
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] [data-testid*="dismiss"],
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] button[aria-label*="關閉"],
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] button[aria-label*="Close"],
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] button[aria-label*="close"],
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] .js-detail-close,
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] .ghx-Controls,
+      html[data-betterjira-layout="two-column"] [data-bjwt-issue-modal="true"] .ghx-detail-close,
+      html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"] [data-testid*="close-button"],
+      html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"] button[aria-label*="關閉"],
+      html[data-betterjira-layout="two-column"] [data-testid="software-backlog.backlog-content.issue-detail-wrapper"] button[aria-label*="Close"],
+      html[data-betterjira-layout="two-column"] #ghx-detail-view .ghx-Controls,
+      html[data-betterjira-layout="two-column"] #ghx-detail-view .js-detail-close,
+      [data-bjwt-issue-modal="true"] [data-testid*="close-button"],
+      [data-bjwt-issue-modal="true"] [data-testid*="dismiss"],
+      [data-bjwt-issue-modal="true"] button[aria-label*="關閉"],
+      [data-bjwt-issue-modal="true"] button[aria-label*="Close"],
+      [data-bjwt-issue-modal="true"] button[aria-label*="close"],
+      [data-bjwt-issue-modal="true"] .js-detail-close,
+      [data-bjwt-issue-modal="true"] .ghx-Controls,
+      [data-bjwt-issue-modal="true"] .ghx-detail-close,
+      .bjwt-history-modal-close-btn {
+        margin-right: 32px !important;
+        right: 32px !important;
+        position: relative;
+        z-index: 50 !important;
+      }
+      [data-bjwt-issue-modal="true"] [data-testid*="close-button"] button,
+      [data-bjwt-issue-modal="true"] .ghx-Controls button {
+        margin-right: 0 !important;
+        right: auto !important;
+      }
+      html[data-betterjira-layout="two-column"] #bjwt-history-issue-modal,
       #bjwt-history-issue-modal {
         display: flex !important;
         flex-direction: column !important;
@@ -278,7 +424,7 @@
         align-items: center !important;
         justify-content: space-between !important;
         gap: 12px !important;
-        padding: 10px 16px !important;
+        padding: 10px 28px 10px 20px !important;
         background: var(--ds-surface-raised, #22272b) !important;
         border-bottom: 1px solid var(--ds-border, #38414a) !important;
       }
@@ -308,8 +454,9 @@
       .bjwt-history-issue-modal-actions {
         display: flex !important;
         align-items: center !important;
-        gap: 10px !important;
+        gap: 12px !important;
         flex-shrink: 0 !important;
+        margin-right: 20px !important;
       }
       .bjwt-history-modal-open-tab {
         padding: 4px 10px !important;
@@ -324,14 +471,15 @@
         background: rgba(12, 102, 228, 0.35) !important;
       }
       .bjwt-history-modal-close-btn {
-        width: 28px !important;
-        height: 28px !important;
-        border-radius: 4px !important;
-        border: none !important;
-        background: transparent !important;
-        color: var(--ds-text-subtle, #9fadbc) !important;
-        font-size: 15px !important;
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 6px !important;
+        border: 1px solid var(--ds-border, #38414a) !important;
+        background: var(--ds-surface, #1d2125) !important;
+        color: var(--ds-text, #dee4ea) !important;
+        font-size: 16px !important;
         cursor: pointer !important;
+        margin-right: 12px !important;
       }
       .bjwt-history-modal-close-btn:hover {
         background: rgba(255, 255, 255, 0.1) !important;

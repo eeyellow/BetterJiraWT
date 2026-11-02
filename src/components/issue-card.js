@@ -18,7 +18,13 @@
    */
   function renderIssueCardHtml(iss) {
     const { TextUtils, AssigneeUtils } = BetterJira;
-    const { cleanSummaryText, isTruncatedDuplicateOf, escapeHtml } = TextUtils;
+    const {
+      cleanSummaryText,
+      isTruncatedDuplicateOf,
+      cleanStatusText,
+      cleanDueDateText,
+      escapeHtml
+    } = TextUtils;
     const { getDisplayInitialsForIssue, isUnassignedText } = AssigneeUtils;
 
     const rawKey = String(iss.key || '').trim();
@@ -64,6 +70,8 @@
         : '';
 
     const parentLabel = iss.parentSummary || iss.parentKey || '';
+    const cleanStatusName = cleanStatusText(iss.statusName) || '未知狀態';
+    const cleanDueDate = cleanDueDateText(iss.dueDate || '');
     const pointsDisplay =
       iss.storyPoints !== null && iss.storyPoints !== undefined && iss.storyPoints !== ''
         ? String(iss.storyPoints)
@@ -88,43 +96,58 @@
           <span class="bjwt-history-card-summary" title="${escapeHtml(cleanSummary)}">${escapeHtml(cleanSummary)}</span>
         </div>
 
-        <!-- 第二列：放其他的欄位 (Epic 標籤、狀態 Badge、到期日、Story Points、優先順序 Icon、負責人頭像) -->
-        <div class="bjwt-card-row-bottom bjwt-history-card-right">
-          ${
-            parentLabel
-              ? `<span class="bjwt-history-parent-badge" title="${escapeHtml(iss.parentKey ? `${iss.parentKey}: ${iss.parentSummary}` : parentLabel)}"><span class="bjwt-parent-dot"></span>${escapeHtml(parentLabel)}</span>`
-              : ''
-          }
-          <span class="bjwt-history-status-badge ${statusClass}">
-            ${escapeHtml(iss.statusName)}
-          </span>
-          ${
-            iss.dueDate
-              ? `<span class="bjwt-history-duedate-badge" title="到期日：${escapeHtml(iss.dueDate)}">${escapeHtml(iss.dueDate)}</span>`
-              : ''
-          }
-          <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
-          ${
-            iss.priorityIcon
-              ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" title="優先順序：${escapeHtml(iss.priorityName)}" />`
-              : iss.prioritySvg
-              ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap" title="優先順序：${escapeHtml(iss.priorityName)}">${iss.prioritySvg}</span>`
-              : ''
-          }
-          <span class="bjwt-history-assignee" title="負責人：${escapeHtml(displayAssigneeName)}">
+        <!-- 第二列：左側放狀態 Badge、Epic 標籤、到期日；右側固定放 StoryPoint、優先順序、指派人員 -->
+        <div class="bjwt-card-row-bottom">
+          <!-- 第二列左側：狀態 Badge、Epic 標籤、到期日 (靠左對齊，整齊有序) -->
+          <div class="bjwt-card-row-bottom-left">
+            <span class="bjwt-history-status-badge ${statusClass}" title="狀態：${escapeHtml(cleanStatusName)}">
+              ${escapeHtml(cleanStatusName)}
+            </span>
             ${
-              isUnassigned
-                ? `<span class="bjwt-history-avatar-unassigned" aria-label="未指派">
-                    <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                      <circle cx="12" cy="7" r="4"></circle>
-                    </svg>
-                  </span>`
-                : hasValidAvatarImg
-                ? `<img class="bjwt-history-avatar" src="${escapeHtml(iss.assigneeAvatar)}" alt="${escapeHtml(displayAssigneeName)}" />`
-                : `<span class="bjwt-history-avatar-fallback"${fallbackBgStyle}>${escapeHtml(initials || '?')}</span>`
+              parentLabel
+                ? `<span class="bjwt-history-parent-badge" title="${escapeHtml(iss.parentKey ? `${iss.parentKey}: ${iss.parentSummary}` : parentLabel)}"><span class="bjwt-parent-dot"></span>${escapeHtml(parentLabel)}</span>`
+                : ''
             }
-          </span>
+            ${
+              cleanDueDate
+                ? `<span class="bjwt-history-duedate-badge" title="到期日：${escapeHtml(cleanDueDate)}">
+                    <svg class="bjwt-icon-svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                      <line x1="16" y1="2" x2="16" y2="6"></line>
+                      <line x1="8" y1="2" x2="8" y2="6"></line>
+                      <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    <span>${escapeHtml(cleanDueDate)}</span>
+                  </span>`
+                : ''
+            }
+          </div>
+
+          <!-- 第二列右側：StoryPoint、優先度、指派人員 (維持靠右一欄一欄整齊對齊) -->
+          <div class="bjwt-card-row-bottom-right bjwt-history-card-right">
+            <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
+            ${
+              iss.priorityIcon
+                ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" title="優先順序：${escapeHtml(iss.priorityName)}" />`
+                : iss.prioritySvg
+                ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap" title="優先順序：${escapeHtml(iss.priorityName)}">${iss.prioritySvg}</span>`
+                : ''
+            }
+            <span class="bjwt-history-assignee" title="負責人：${escapeHtml(displayAssigneeName)}">
+              ${
+                isUnassigned
+                  ? `<span class="bjwt-history-avatar-unassigned" aria-label="未指派">
+                      <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                      </svg>
+                    </span>`
+                  : hasValidAvatarImg
+                  ? `<img class="bjwt-history-avatar" src="${escapeHtml(iss.assigneeAvatar)}" alt="${escapeHtml(displayAssigneeName)}" />`
+                  : `<span class="bjwt-history-avatar-fallback"${fallbackBgStyle}>${escapeHtml(initials || '?')}</span>`
+              }
+            </span>
+          </div>
         </div>
       </div>
     `;
