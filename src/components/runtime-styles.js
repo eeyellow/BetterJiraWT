@@ -236,10 +236,47 @@
         display: flex !important;
         flex-direction: row !important;
         align-items: center !important;
-        justify-content: space-between !important;
+        justify-content: flex-start !important;
         gap: 12px !important;
         flex: 0 0 auto !important;
         margin-top: 4px !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-card-col {
+        display: flex !important;
+        align-items: center !important;
+        box-sizing: border-box !important;
+        min-width: 0 !important;
+        flex-shrink: 0 !important;
+      }
+      .bjwt-card-col-epic {
+        flex: 0 0 160px !important;
+        width: 160px !important;
+        max-width: 160px !important;
+        justify-content: flex-start !important;
+      }
+      .bjwt-card-col-status {
+        flex: 0 0 140px !important;
+        width: 140px !important;
+        max-width: 140px !important;
+        justify-content: flex-start !important;
+      }
+      .bjwt-card-col-duedate {
+        flex: 0 0 130px !important;
+        width: 130px !important;
+        max-width: 130px !important;
+        justify-content: flex-start !important;
+      }
+      .bjwt-card-col-right,
+      .bjwt-card-row-bottom-right,
+      .bjwt-history-card-right {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        gap: 10px !important;
+        flex: 0 0 auto !important;
+        margin-left: auto !important;
         box-sizing: border-box !important;
       }
       .bjwt-card-row-bottom-left {
@@ -253,17 +290,6 @@
         overflow: hidden !important;
         box-sizing: border-box !important;
       }
-      .bjwt-card-row-bottom-right,
-      .bjwt-history-card-right {
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        justify-content: flex-end !important;
-        gap: 10px !important;
-        flex: 0 0 auto !important;
-        margin-left: auto !important;
-        box-sizing: border-box !important;
-      }
       .bjwt-history-status-badge {
         display: inline-flex !important;
         align-items: center !important;
@@ -273,8 +299,8 @@
         border-radius: 4px !important;
         font-size: 11px !important;
         font-weight: 700 !important;
-        min-width: 74px !important;
-        max-width: 140px !important;
+        min-width: 64px !important;
+        max-width: 100% !important;
         text-align: center !important;
         white-space: nowrap !important;
         overflow: hidden !important;
@@ -294,12 +320,17 @@
         border: 1px solid #9333ea !important;
         background: rgba(147, 51, 234, 0.12) !important;
         color: var(--ds-text, #e9d5ff) !important;
-        max-width: 180px !important;
+        max-width: 100% !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         white-space: nowrap !important;
         flex-shrink: 0 !important;
         box-sizing: border-box !important;
+      }
+      .bjwt-history-parent-badge .bjwt-badge-text {
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
       }
       .bjwt-history-duedate-badge {
         display: inline-flex !important;
@@ -314,8 +345,11 @@
         color: var(--ds-text-subtle, #9fadbc) !important;
         background: rgba(148, 163, 184, 0.1) !important;
         white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
         flex-shrink: 0 !important;
         box-sizing: border-box !important;
+        max-width: 100% !important;
       }
       .bjwt-history-points-badge {
         display: inline-flex !important;
