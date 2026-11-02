@@ -423,36 +423,25 @@ assert.strictEqual(typeof JiraApiService.transitionIssue, 'function', 'transitio
 assert.strictEqual(typeof JiraApiService.fetchIssueEditMeta, 'function', 'fetchIssueEditMeta 應為函式');
 assert.strictEqual(typeof JiraApiService.updateIssueEstimation, 'function', 'updateIssueEstimation 應為函式');
 
-// 測試 updateIssue 遭遇 Screen 不支援 customfield 時的自我修復容錯機制
+// 測試 updateIssue 確保不傳遞任何 customfield_ 到 fields，並透過 estimation 更新點數
 (async () => {
-  let callCount = 0;
+  let issueFieldsChecked = false;
+  let estimationCalled = false;
   const originalFetch = global.fetch;
   global.fetch = async (url, opts) => {
-    callCount++;
-    if (url.includes('/editmeta')) {
-      // 模擬 editmeta 中沒有任何 customfield (不在畫面上)
-      return {
-        ok: true,
-        json: async () => ({ fields: { summary: {}, description: {} } })
-      };
-    }
     if (url.includes('/rest/api/2/issue/TEST-1')) {
       const body = JSON.parse(opts.body);
-      if (body.fields.customfield_10046 !== undefined) {
-        // 第一次嘗試帶了 customfield_10046，Jira 回傳不在畫面上的錯誤
-        return {
-          ok: false,
-          json: async () => ({
-            errors: {
-              customfield_10046: "Field 'customfield_10046' cannot be set. It is not on the appropriate screen, or unknown."
-            }
-          })
-        };
-      }
-      // 重試後只帶 summary/description，成功
+      assert.strictEqual(body.fields.summary, 'Updated title');
+      // 驗證 fields 絕對不包含 customfield_，杜絕 Screen Scheme 阻擋
+      const customKeys = Object.keys(body.fields).filter((k) => k.startsWith('customfield_'));
+      assert.strictEqual(customKeys.length, 0, 'fields 內不應包含任何 customfield_ 欄位');
+      issueFieldsChecked = true;
       return { ok: true, status: 204 };
     }
     if (url.includes('/estimation')) {
+      const body = JSON.parse(opts.body);
+      assert.strictEqual(body.value, 5, '點數應透過 estimation API 傳遞');
+      estimationCalled = true;
       return { ok: true, status: 204 };
     }
     return { ok: true, json: async () => ({}) };
@@ -462,7 +451,9 @@ assert.strictEqual(typeof JiraApiService.updateIssueEstimation, 'function', 'upd
     summary: 'Updated title',
     storyPoints: 5
   });
-  assert.strictEqual(res.success, true, '自訂欄位不在畫面上時應自動修復重試並回傳 success: true');
+  assert.strictEqual(res.success, true, '更新應成功');
+  assert.strictEqual(issueFieldsChecked, true, '標題應發送至 issue API');
+  assert.strictEqual(estimationCalled, true, '點數應發送至 estimation API');
   global.fetch = originalFetch;
 })();
 

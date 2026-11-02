@@ -511,9 +511,21 @@
   async function updateIssueEstimation(issueKey, points, boardId = null) {
     if (!issueKey) return { success: false, error: '缺少 issueKey' };
     const { IssueStore } = BetterJira;
-    const bid = boardId || IssueStore.getBoardId();
+    let bid = boardId || (IssueStore && typeof IssueStore.getBoardId === 'function' ? IssueStore.getBoardId() : null);
+    if (!bid && typeof window !== 'undefined' && window.location && window.location.href) {
+      const match = window.location.href.match(/\/boards\/(\d+)/i) || window.location.href.match(/[?&]rapidView=(\d+)/i);
+      if (match) {
+        bid = match[1];
+        if (IssueStore && typeof IssueStore.setBoardId === 'function') {
+          IssueStore.setBoardId(bid);
+        }
+      }
+    }
     const query = bid ? `?boardId=${encodeURIComponent(bid)}` : '';
     const endpoint = `${window.location.origin}/rest/agile/1.0/issue/${encodeURIComponent(issueKey)}/estimation${query}`;
+
+    const numVal = points !== null && points !== undefined && points !== '' && !isNaN(points) ? Number(points) : null;
+    const bodyValue = numVal !== null ? numVal : '';
 
     try {
       const res = await fetch(endpoint, {
@@ -524,7 +536,7 @@
           Accept: 'application/json',
           'X-Atlassian-Token': 'no-check'
         },
-        body: JSON.stringify({ value: points !== null && !isNaN(points) && points !== '' ? Number(points) : null })
+        body: JSON.stringify({ value: bodyValue })
       });
       if (res.ok || res.status === 204) {
         return { success: true };
@@ -539,7 +551,8 @@
 
   /**
    * 透過 Jira REST API 更新指定 Issue 的欄位資料 (例如標題、說明、Story Points)
-   * 內建 Edit Screen 欄位驗證、Agile 估算值自動退回機制與自我修復重試，絕不因單一欄位不在畫面上導致整體儲存失敗。
+   * 基本欄位 (summary, description) 與 Agile 估算值 (storyPoints) 分流處理，
+   * 避免將自訂欄位帶入 Issue Edit Screen 請求導致 Jira Screen 驗證錯誤。
    *
    * @param {string} issueKey - 卡片編號 (例如 "WMC-1234")
    * @param {Object} updates - 更新欄位
@@ -559,45 +572,13 @@
       payload.fields.description = updates.description;
     }
 
-    let shouldUpdatePointsViaAgile = false;
-    let spFieldIdUsed = null;
-
-    if (updates.storyPoints !== undefined) {
-      // 探測當前 issue 編輯畫面 (editmeta) 上是否包含 Story Points 欄位
-      const editMeta = await fetchIssueEditMeta(issueKey);
-      let allowedSpField = null;
-
-      if (editMeta && typeof editMeta === 'object') {
-        for (const [fId, meta] of Object.entries(editMeta)) {
-          if (meta && meta.name) {
-            if (
-              /story\s*points?/i.test(meta.name) ||
-              /故事點數|故事點|估算|點數/i.test(meta.name) ||
-              (meta.schema && meta.schema.custom && meta.schema.custom.includes('story-points'))
-            ) {
-              allowedSpField = fId;
-              break;
-            }
-          }
-        }
-      }
-
-      if (allowedSpField) {
-        // 在編輯畫面上，可直接透過 fields PUT 更新
-        payload.fields[allowedSpField] = updates.storyPoints;
-        spFieldIdUsed = allowedSpField;
-      } else {
-        // 未在標準編輯畫面上，標記透過 Agile Estimation API 更新
-        shouldUpdatePointsViaAgile = true;
-      }
-    }
-
-    let coreFieldsSuccess = false;
+    let coreFieldsSuccess = true;
     let warningMsg = '';
 
-    // 若有需要透過 PUT 更新的一般欄位 (summary, description 或在畫面上的 spField)
+    // 1. 若有 summary 或 description，發送至標準 Jira Issue 更新端點
+    // 嚴格保證不包含 customfield_XXXX，徹底杜絕 Screen Scheme 阻擋
     if (Object.keys(payload.fields).length > 0) {
-      const sendPutRequest = async (currentPayload) => {
+      try {
         const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}`, {
           method: 'PUT',
           credentials: 'include',
@@ -606,70 +587,37 @@
             Accept: 'application/json',
             'X-Atlassian-Token': 'no-check'
           },
-          body: JSON.stringify(currentPayload)
+          body: JSON.stringify(payload)
         });
-        return res;
-      };
-
-      try {
-        let res = await sendPutRequest(payload);
 
         if (res.ok || res.status === 204) {
           coreFieldsSuccess = true;
         } else {
           const errJson = await res.json().catch(() => null);
-          let rawErr = '';
+          let errMsg = 'Jira 欄位更新失敗';
           if (errJson) {
             if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
-              rawErr = errJson.errorMessages.join(', ');
+              errMsg = errJson.errorMessages.join(', ');
             } else if (errJson.errors && typeof errJson.errors === 'object') {
-              rawErr = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
+              errMsg = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
             }
           }
-
-          // 自我修復：若錯誤是因為某個 customfield 不在畫面上 (例如 customfield_10046 cannot be set)
-          const screenErrorMatch =
-            rawErr.match(/(customfield_\d+)['":\s]+cannot be set/i) ||
-            rawErr.match(/Field ['"](customfield_\d+)['"] cannot be set/i);
-
-          if (screenErrorMatch) {
-            const problematicField = screenErrorMatch[1];
-            delete payload.fields[problematicField];
-
-            if (problematicField === spFieldIdUsed) {
-              shouldUpdatePointsViaAgile = true;
-            }
-
-            // 若還有剩餘欄位 (例如 summary, description)，以乾淨 payload 重試
-            if (Object.keys(payload.fields).length > 0) {
-              res = await sendPutRequest(payload);
-              if (res.ok || res.status === 204) {
-                coreFieldsSuccess = true;
-                warningMsg = `部分欄位 (${problematicField}) 不在專案畫面上，已略過該欄位並成功儲存其他內容。`;
-              } else {
-                return { success: false, error: rawErr || 'Jira API 儲存失敗' };
-              }
-            } else {
-              coreFieldsSuccess = true;
-            }
-          } else {
-            return { success: false, error: rawErr || 'Jira API 儲存失敗' };
-          }
+          return { success: false, error: errMsg };
         }
       } catch (e) {
         return { success: false, error: e && e.message ? e.message : '網路請求失敗' };
       }
-    } else {
-      coreFieldsSuccess = true;
     }
 
-    // 若需要透過 Agile Estimation API 更新點數
-    if (shouldUpdatePointsViaAgile && updates.storyPoints !== undefined) {
+    // 2. 若有 Story Points 需要更新，一律使用不受 Edit Screen 限制的 Jira Agile Estimation API
+    if (updates.storyPoints !== undefined) {
       const estRes = await updateIssueEstimation(issueKey, updates.storyPoints);
       if (!estRes.success) {
-        warningMsg = warningMsg
-          ? `${warningMsg} (點數估算未更新：${estRes.error})`
-          : '標題與說明已儲存，但 Story Points 欄位未在此卡片畫面上開放修改。';
+        if (Object.keys(payload.fields).length > 0) {
+          warningMsg = `標題與說明已儲存，但 Story Points 估算值未能同步更新（${estRes.error}）。`;
+        } else {
+          return { success: false, error: `Story Points 更新失敗：${estRes.error}` };
+        }
       }
     }
 
