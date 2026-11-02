@@ -601,6 +601,18 @@ const divChild = new MockElement('div');
 divParentFiltered.appendChild(divChild);
 assert.strictEqual(CardDomParser.isDomCardFilteredOrHidden(divChild), true, '父層有 ghx-filtered 時子卡片應被判斷為過濾隱藏');
 
+// 測試看板/衝刺容器上的 is-filtered / filtered / data-is-filtered 狀態絕對不誤殺子卡片
+const sprintListContainer = new MockElement('div');
+sprintListContainer.className = 'card-list is-filtered';
+sprintListContainer.setAttribute('data-is-filtered', 'true');
+const normalCard = new MockElement('div');
+sprintListContainer.appendChild(normalCard);
+assert.strictEqual(
+  CardDomParser.isDomCardFilteredOrHidden(normalCard, sprintListContainer),
+  false,
+  '外層容器具有 is-filtered 時，底下的正常子卡片絕不可被誤判為隱藏！'
+);
+
 // 2. 測試 FilterService.filterIssuesByNativeFilter 各維度過濾
 const testIssueList = [
   {
@@ -690,6 +702,48 @@ const qfFilter = {
 const qfOnly = FilterService.filterIssuesByNativeFilter(testIssueList, qfFilter);
 assert.strictEqual(qfOnly.length, 1);
 assert.strictEqual(qfOnly[0].key, 'TEST-1', 'Quick Filter 應正確識別 Bug 類型');
+
+// 測試來自原生 DOM 的卡片 (fromDom: true) 在 Type, Status, Epic, Quick Filter 下不被字串二次比對誤殺
+const domCardIssues = [
+  {
+    key: 'WMC-101',
+    summary: 'Fix payment crash',
+    issueTypeName: '任務', // 原生 DOM 解析常見預設為「任務」
+    statusName: '待辦事項',
+    fromDom: true,
+    assigneeName: 'Ray Huang',
+    assigneeInitials: 'RH'
+  },
+  {
+    key: 'WMC-102',
+    summary: 'Add shopping cart',
+    issueTypeName: '任務',
+    statusName: '待辦事項',
+    fromDom: true,
+    assigneeName: 'Alice Wang',
+    assigneeInitials: 'AW'
+  }
+];
+
+// 測試 Type 篩選為 "Bug" 時，原生 DOM 卡片應放行不被誤殺為空列表
+const typeFilterForDom = {
+  selectedTypes: ['bug'],
+  hasDirectFilter: true,
+  isFiltered: true
+};
+const domTypeResult = FilterService.filterIssuesByNativeFilter(domCardIssues, typeFilterForDom);
+assert.strictEqual(domTypeResult.length, 2, '原生 DOM 卡片在 Type 篩選下絕不可被誤殺為空列表');
+
+// 測試 Type 篩選 + 指派人員篩選時，經辦人篩選仍精確生效
+const typeAndAssigneeFilter = {
+  selectedTypes: ['bug'],
+  selectedAssignees: [{ cleanedNames: ['Ray Huang'], initials: 'RH' }],
+  hasDirectFilter: true,
+  isFiltered: true
+};
+const domTypeAndAssigneeResult = FilterService.filterIssuesByNativeFilter(domCardIssues, typeAndAssigneeFilter);
+assert.strictEqual(domTypeAndAssigneeResult.length, 1, '同時有 Type 與人員篩選時，人員篩選仍應精準過濾');
+assert.strictEqual(domTypeAndAssigneeResult[0].key, 'WMC-101');
 
 // 3. 測試 DOM 篩選狀態偵測
 const origDocQuerySelectorAll = global.document.querySelectorAll;
