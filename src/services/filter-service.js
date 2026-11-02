@@ -904,23 +904,28 @@
     if (issInitials) issTokens.add(issInitials);
 
     return selectedAssignees.some((sel) => {
+      const selInitials = (sel.initials || '').toLowerCase();
+      const selCleanedNames = Array.isArray(sel.cleanedNames)
+        ? sel.cleanedNames.map((n) => String(n).toLowerCase())
+        : [];
+
       // 1. 若雙方皆有真實使用者頭像 URL 且一致
       if (sel.avatarSrc && issAvatar && sel.avatarSrc === issAvatar) {
         return true;
       }
 
       // 2. 若篩選按鈕與卡片皆有明確的短縮寫 (例如篩選列為 "RAY" 或 "B"，卡片上也有 "RAY" 或 "B")
-      if (sel.initials && issInitials) {
-        if (sel.initials === issInitials) {
+      if (selInitials && issInitials) {
+        if (selInitials === issInitials) {
           return true;
         }
-        if (sel.cleanedNames.length === 0 || (sel.cleanedNames.length === 1 && sel.cleanedNames[0] === sel.initials)) {
+        if (selCleanedNames.length === 0 || (selCleanedNames.length === 1 && selCleanedNames[0] === selInitials)) {
           return false;
         }
       }
 
       // 3. 比對完整姓名與標籤
-      for (const selName of sel.cleanedNames) {
+      for (const selName of selCleanedNames) {
         if (!selName) continue;
         if (issName && issName === selName) return true;
         if (issTokens.has(selName)) return true;
@@ -930,11 +935,11 @@
       }
 
       // 4. 若篩選按鈕只有縮寫 (如 "ray" 或 "bp")
-      if (sel.initials) {
-        if (issTokens.has(sel.initials)) {
+      if (selInitials) {
+        if (issTokens.has(selInitials)) {
           return true;
         }
-        if (sel.initials.length >= 3 && issName && issName.includes(sel.initials)) {
+        if (selInitials.length >= 3 && issName && issName.includes(selInitials)) {
           return true;
         }
       }
@@ -987,7 +992,16 @@
         }
       }
 
-      // 3. 工作項目類型篩選 (Type)
+      // 3. 原生 DOM 卡片保護：
+      // 若卡片來自原生 DOM (iss.fromDom === true 或 iss._isFromDom === true)，
+      // 由於 Jira 原生在使用者操作篩選時已透過 FilteredCardIds GraphQL 查詢在後端精確過濾並更新 DOM，
+      // 原生 DOM 樹上保留呈現的卡片均已通過工作項目類型 (Type)、狀態 (Status)、史詩 (Epic)、標籤 (Label)
+      // 與自訂篩選 (Quick Filters / JQL) 的官方核准，絕不可在本地以不完整的 DOM 欄位進行二次字串比對而誤殺！
+      if (iss.fromDom || iss._isFromDom) {
+        return true;
+      }
+
+      // 4. 工作項目類型篩選 (Type - 僅對非 DOM 之 API 快取卡片執行)
       if (selectedTypes.length > 0) {
         const issType = (iss.issueTypeName || '').trim().toLowerCase();
         const matches = selectedTypes.some((t) => {

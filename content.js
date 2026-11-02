@@ -51,11 +51,12 @@
   }
 
   let filterSyncTimer = null;
+  let filterBurstFollowups = [];
 
   /**
    * 當使用者在 Jira 原生篩選搜尋區 (人員頭像、搜尋框、下拉選單、清除篩選按鈕) 操作時，
-   * 透過 60ms 防抖 (Debounce) 單次平滑刷新，確保 Jira React 先完成狀態更新，
-   * 絕不狂轟式重複觸發 DOM 修改，避免引發 Jira 官方重複查詢與 Sentry 遙測報警。
+   * 透過防抖 (Debounce) 平滑刷新，確保 Jira React 先完成狀態更新，
+   * 並於 250ms 與 500ms 追加後續刷新，平滑等待 Jira GraphQL FilteredCardIds 查詢完成後的 DOM 渲染。
    *
    * @param {number} [delayMs=60] - 防抖微延遲毫秒數
    */
@@ -63,6 +64,9 @@
     if (filterSyncTimer) {
       clearTimeout(filterSyncTimer);
     }
+    filterBurstFollowups.forEach(clearTimeout);
+    filterBurstFollowups = [];
+
     filterSyncTimer = setTimeout(() => {
       filterSyncTimer = null;
       try {
@@ -74,6 +78,9 @@
       }
       scheduleLayoutRefresh(evaluateAndApply);
     }, delayMs);
+
+    filterBurstFollowups.push(setTimeout(() => scheduleLayoutRefresh(evaluateAndApply), 250));
+    filterBurstFollowups.push(setTimeout(() => scheduleLayoutRefresh(evaluateAndApply), 500));
   }
 
   // 將 evaluateAndApply 掛載至 BetterJira.App 供全域或組件排程刷新呼叫

@@ -136,7 +136,10 @@
       statusCategory:
         (domSide && domSide.statusCategory) || primaryIss.statusCategory || existing.statusCategory,
       issueTypeIcon: primaryIss.issueTypeIcon || existing.issueTypeIcon,
-      issueTypeName: primaryIss.issueTypeName || existing.issueTypeName,
+      issueTypeName:
+        primaryIss.issueTypeName && primaryIss.issueTypeName !== '任務'
+          ? primaryIss.issueTypeName
+          : existing.issueTypeName || primaryIss.issueTypeName || '任務',
       priorityIcon: primaryIss.priorityIcon || existing.priorityIcon,
       prioritySvg: primaryIss.prioritySvg || existing.prioritySvg,
       priorityName: primaryIss.priorityName || existing.priorityName,
@@ -154,7 +157,11 @@
       assigneeInitials,
       assigneeBgColor,
       assigneeAvatar,
-      assigneeTokens: Array.from(tokenSet)
+      assigneeTokens: Array.from(tokenSet),
+      fromDom: Boolean(primaryIss.fromDom || existing.fromDom),
+      _isFromDom: Boolean(primaryIss._isFromDom || existing._isFromDom),
+      issueId: primaryIss.issueId || existing.issueId || '',
+      id: primaryIss.id || existing.id || primaryIss.key
     };
 
     issueMetadataMap.set(key, merged);

@@ -203,14 +203,30 @@
     if (!key) return null;
 
     let issueTypeIcon = '';
-    let issueTypeName = '任務';
-    const typeImg =
-      cardEl.querySelector(
-        'img[src*="issuetype"], img[src*="avatar/type"], [data-testid*="issue-type"] img, [data-testid*="type-icon"] img, img:first-of-type'
-      );
-    if (typeImg && typeImg.src) {
-      issueTypeIcon = typeImg.src;
-      issueTypeName = typeImg.alt || typeImg.title || '任務';
+    let issueTypeName = '';
+    const typeEl = cardEl.querySelector(
+      '[data-testid*="issue-type"], [data-testid*="issuetype"], [data-testid*="type-icon"], [aria-label*="Issue Type"], [aria-label*="工作項目類型"], [aria-label*="問題類型"], img[src*="issuetype"], img[src*="avatar/type"]'
+    );
+    if (typeEl) {
+      const img = typeEl.tagName === 'IMG' ? typeEl : typeEl.querySelector('img');
+      const svg = typeEl.tagName === 'SVG' ? typeEl : typeEl.querySelector('svg');
+      if (img && img.src) {
+        issueTypeIcon = img.src;
+        issueTypeName = img.alt || img.title || '';
+      }
+      if (!issueTypeName) {
+        issueTypeName =
+          typeEl.getAttribute('aria-label') ||
+          typeEl.getAttribute('title') ||
+          (svg && (svg.getAttribute('aria-label') || svg.getAttribute('title'))) ||
+          '';
+      }
+    }
+    if (issueTypeName) {
+      issueTypeName = issueTypeName.replace(/^(?:issue\s*type|工作項目類型|問題類型|類型)\s*[:：]\s*/i, '').trim();
+    }
+    if (!issueTypeName) {
+      issueTypeName = '任務';
     }
 
     let statusName = '';
@@ -532,8 +548,22 @@
 
     summary = cleanSummaryText(summary) || '(無標題)';
 
+    let numericId =
+      cardEl.getAttribute('data-issue-id') ||
+      cardEl.getAttribute('data-card-id') ||
+      (cardEl.closest && cardEl.closest('[data-issue-id]') && cardEl.closest('[data-issue-id]').getAttribute('data-issue-id')) ||
+      (cardEl.closest && cardEl.closest('[data-card-id]') && cardEl.closest('[data-card-id]').getAttribute('data-card-id')) ||
+      '';
+    if (!numericId) {
+      const matchId = (cardEl.id || '').match(/issue[-_]?(\d+)/i) || (cardEl.getAttribute('data-testid') || '').match(/card[-_.]?(\d+)/i);
+      if (matchId) {
+        numericId = matchId[1];
+      }
+    }
+
     const parsedIssue = {
-      id: key,
+      id: numericId || key,
+      issueId: numericId || '',
       key,
       summary,
       statusName,
@@ -553,17 +583,21 @@
       parentSummary,
       dueDate,
       storyPoints,
-      fromDom: true
+      fromDom: true,
+      _isFromDom: true
     };
 
     return IssueStore.mergeAndCacheIssue(parsedIssue);
   }
 
   /**
-   * 檢查卡片 DOM 元素是否被 Jira 原生篩選器標記為隱藏或過濾
-   * 支援 Jira Classic/Server 的 ghx-filtered、ghx-hidden，
-   * 以及現代 Jira Cloud 常見之 hidden、aria-hidden="true"、
-   * [data-is-filtered="true"]、inline style display: none 等。
+   * 檢查卡片 DOM 元素是否被 Jira 原生篩選器標記為隱藏或過濾。
+   * 嚴格僅檢查卡片本體或其直接包裹卡片之單一外層節點 (如 li.ghx-issue)，
+   * 支援 Jira Classic 的 ghx-filtered、ghx-hidden，
+   * 以及 hidden、aria-hidden="true"、inline style display: none 等。
+   *
+   * ⚠️ 注意：絕不可向上走訪並將外層看板或衝刺清單容器上的 is-filtered / filtered /
+   * [data-is-filtered="true"] 狀態誤判為單張卡片隱藏，否則會導致整批符合篩選的卡片全數誤殺呈空列表！
    *
    * @param {Element} cardEl - 卡片 DOM 元素
    * @param {Element|null} [stopAncestor=null] - 停止向上遍歷的祖先節點
@@ -572,14 +606,11 @@
   function isDomCardFilteredOrHidden(cardEl, stopAncestor = null) {
     if (!cardEl || !(cardEl instanceof Element)) return true;
 
-    const isFilteredNode = (el) => {
+    const isFilteredCardEl = (el) => {
       if (!el || !(el instanceof Element)) return false;
 
-      // 1. 檢查 Jira 經典與現代篩選 class (ghx-filtered, is-filtered, filtered 等)
-      const cls = typeof el.className === 'string' ? el.className : '';
-      if (
-        /(?:^|[\s_-])(?:ghx-filtered|is-filtered|ghx-hidden|filtered)(?:$|[\s_-])/.test(cls)
-      ) {
+      // 1. 檢查 inline style display: none 與 visibility: hidden
+      if (el.style && (el.style.display === 'none' || el.style.visibility === 'hidden')) {
         return true;
       }
 
@@ -588,38 +619,36 @@
         return true;
       }
 
-      // 3. 檢查 Jira 標記篩選的 data 屬性
-      if (
-        el.getAttribute('data-is-filtered') === 'true' ||
-        el.getAttribute('data-filtered') === 'true' ||
-        el.getAttribute('data-hidden') === 'true'
-      ) {
+      // 3. 檢查 Jira 經典卡片隱藏 class (僅 ghx-filtered 與 ghx-hidden，絕不可比對容器狀態 is-filtered)
+      const cls = typeof el.className === 'string' ? el.className : '';
+      if (/(?:^|\s)(?:ghx-filtered|ghx-hidden)(?:$|\s)/.test(cls)) {
         return true;
       }
 
-      // 4. 檢查元素 inline style display: none
-      if (el.style && el.style.display === 'none') {
+      // 4. 檢查卡片自身是否明確標記為 data-hidden="true"
+      if (el.getAttribute('data-hidden') === 'true') {
         return true;
       }
 
       return false;
     };
 
-    if (isFilteredNode(cardEl)) return true;
+    if (isFilteredCardEl(cardEl)) return true;
 
-    // 向上走訪至 stopAncestor 或衝刺容器，確認卡片外層包裹容器 (例如 li.ghx-issue) 是否被標記為篩選隱藏
-    let curr = cardEl.parentElement;
-    while (
-      curr &&
-      curr !== document.body &&
-      curr !== stopAncestor &&
-      !curr.hasAttribute('data-bjwt-sprint-branch') &&
-      !curr.hasAttribute('data-bjwt-layout-host')
+    // 若 cardEl 是內層容器 (例如 Jira Classic 的 div.ghx-issue-content)，
+    // 僅向上檢查其直接包裹單張卡片的單一父節點 (例如 li.ghx-issue 或 li)，絕不可走訪至清單容器
+    const parent = cardEl.parentElement;
+    if (
+      parent &&
+      parent !== document.body &&
+      parent !== stopAncestor &&
+      (parent.tagName === 'LI' ||
+        (typeof parent.className === 'string' && parent.className.includes('ghx-issue')) ||
+        parent.getAttribute('role') === 'listitem')
     ) {
-      if (isFilteredNode(curr)) {
+      if (isFilteredCardEl(parent)) {
         return true;
       }
-      curr = curr.parentElement;
     }
 
     return false;
