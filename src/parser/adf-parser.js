@@ -93,6 +93,51 @@
   }
 
   /**
+   * 將 ADF 節點結構轉換為適合在編輯器文字框中編輯的純文字 / Markdown 內容
+   *
+   * @param {Object|Array|string|null} node - ADF 節點結構
+   * @returns {string} 純文字或 Markdown 格式字串
+   */
+  function adfToPlainText(node) {
+    if (!node) return '';
+    if (typeof node === 'string') return node;
+    if (Array.isArray(node)) {
+      return node.map(adfToPlainText).join('');
+    }
+
+    const { type, text, content } = node;
+    if (type === 'text') return text || '';
+    if (type === 'hardBreak') return '\n';
+    if (type === 'rule') return '\n---\n';
+    if (type === 'mention') {
+      const name = (node.attrs && (node.attrs.text || node.attrs.id)) || '';
+      return `@${name}`;
+    }
+
+    const inner = Array.isArray(content) ? content.map(adfToPlainText).join('') : '';
+
+    switch (type) {
+      case 'doc':
+        return inner.trim();
+      case 'paragraph':
+        return inner ? `${inner}\n\n` : '\n';
+      case 'heading':
+        return `${inner}\n\n`;
+      case 'bulletList':
+      case 'orderedList':
+        return `${inner}\n`;
+      case 'listItem':
+        return `• ${inner.trim()}\n`;
+      case 'codeBlock':
+        return `\`\`\`\n${inner}\n\`\`\`\n\n`;
+      case 'blockquote':
+        return `> ${inner}\n\n`;
+      default:
+        return inner;
+    }
+  }
+
+  /**
    * 格式化卡片詳細說明內容為 HTML 呈現
    *
    * @param {Object|string|null} rawDesc - 原始說明資料 (可能是 ADF 物件或純文字)
@@ -127,29 +172,48 @@
 
   /**
    * 格式化單一留言內容為 HTML
+   * 支援 Jira API renderedFields 回傳之 HTML、ADF 富文字結構與一般純文字 (避免雙重 escapeHtml 導致顯示 HTML 程式碼)
    *
    * @param {Object} comment - 留言物件
+   * @param {string|null} [renderedBody=null] - Jira renderedFields 回傳之渲染後 HTML
    * @returns {string} HTML 格式的留言內容
    */
-  function formatCommentBody(comment) {
+  function formatCommentBody(comment, renderedBody = null) {
     const { escapeHtml } = BetterJira.TextUtils;
 
-    if (comment.renderedBody && typeof comment.renderedBody === 'string') {
-      return comment.renderedBody;
+    if (!comment) return '';
+
+    // 1. 若顯式提供 renderedBody，或 comment 物件自帶 renderedBody，直接輸出渲染後之 HTML
+    const htmlCandidate = renderedBody || comment.renderedBody;
+    if (htmlCandidate && typeof htmlCandidate === 'string' && htmlCandidate.trim()) {
+      return htmlCandidate;
     }
+
     const body = comment.body;
     if (!body) return '';
+
+    // 2. 若為 ADF (Atlassian Document Format) doc 物件結構，遞迴轉為 HTML
     if (typeof body === 'object' && body.type === 'doc') {
       return adfToHtml(body);
     }
+
+    // 3. 若為字串型態
     if (typeof body === 'string') {
-      return escapeHtml(body).replace(/\n/g, '<br />');
+      const trimmed = body.trim();
+      if (!trimmed) return '';
+      // 若字串含有 HTML 標籤結構（例如 Jira renderedFields 回傳之 <p>...</p>），直接輸出 HTML，避免二次 escapeHtml
+      const isHtml = /<\/?(?:p|div|span|a|ul|ol|li|table|tr|td|th|strong|b|em|i|code|pre|blockquote|h[1-6]|br|hr)\b/i.test(trimmed);
+      if (isHtml || comment.isRendered) {
+        return trimmed;
+      }
+      return escapeHtml(trimmed).replace(/\n/g, '<br />');
     }
     return '';
   }
 
   BetterJira.AdfParser = {
     adfToHtml,
+    adfToPlainText,
     formatDescriptionHtml,
     formatCommentBody
   };

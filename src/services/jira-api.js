@@ -477,6 +477,118 @@
   }
 
   /**
+   * 透過 Jira REST API 更新指定 Issue 的欄位資料 (例如標題、說明、Story Points)
+   *
+   * @param {string} issueKey - 卡片編號 (例如 "WMC-1234")
+   * @param {Object} updates - 更新欄位
+   * @param {string} [updates.summary] - 新標題
+   * @param {string} [updates.description] - 新說明
+   * @param {number|null} [updates.storyPoints] - 新點數
+   * @returns {Promise<{success: boolean, error?: string}>} 更新結果
+   */
+  async function updateIssue(issueKey, updates = {}) {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+
+    const payload = { fields: {} };
+    if (updates.summary !== undefined && updates.summary !== null) {
+      payload.fields.summary = updates.summary.trim();
+    }
+    if (updates.description !== undefined && updates.description !== null) {
+      payload.fields.description = updates.description;
+    }
+    if (updates.storyPoints !== undefined) {
+      const spFieldId = await detectStoryPointsCustomField();
+      if (spFieldId) {
+        payload.fields[spFieldId] = updates.storyPoints;
+      }
+    }
+
+    try {
+      const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Atlassian-Token': 'no-check'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok || res.status === 204) {
+        return { success: true };
+      }
+
+      const errJson = await res.json().catch(() => null);
+      let errMsg = 'Jira API 更新失敗';
+      if (errJson) {
+        if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
+          errMsg = errJson.errorMessages.join(', ');
+        } else if (errJson.errors && typeof errJson.errors === 'object') {
+          errMsg = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
+        }
+      }
+      return { success: false, error: errMsg };
+    } catch (e) {
+      return { success: false, error: e && e.message ? e.message : '網路請求失敗' };
+    }
+  }
+
+  /**
+   * 取得指定 Issue 可執行的狀態轉換 (Transitions)
+   *
+   * @param {string} issueKey - 卡片編號
+   * @returns {Promise<Array<Object>>} 可用狀態轉換清單
+   */
+  async function fetchIssueTransitions(issueKey) {
+    if (!issueKey) return [];
+    try {
+      const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}/transitions`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return Array.isArray(data.transitions) ? data.transitions : [];
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  }
+
+  /**
+   * 執行狀態轉換
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string} transitionId - 轉換 ID
+   * @returns {Promise<{success: boolean, error?: string}>} 轉換結果
+   */
+  async function transitionIssue(issueKey, transitionId) {
+    if (!issueKey || !transitionId) return { success: false };
+    try {
+      const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}/transitions`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Atlassian-Token': 'no-check'
+        },
+        body: JSON.stringify({ transition: { id: transitionId } })
+      });
+      if (res.ok || res.status === 204) {
+        return { success: true };
+      }
+      const errJson = await res.json().catch(() => null);
+      const errMsg = errJson && errJson.errorMessages ? errJson.errorMessages.join(', ') : '狀態轉換失敗';
+      return { success: false, error: errMsg };
+    } catch (e) {
+      return { success: false, error: e && e.message ? e.message : '狀態轉換網路請求失敗' };
+    }
+  }
+
+  /**
    * 發送訊息通知 Background Service Worker 切換 Chrome Extension 擴充圖示與標題
    *
    * @param {string} themeStyle - 當前樣式名稱 (Default / Bootstrap / MaterialDesign)
@@ -503,6 +615,9 @@
     fetchHistoricalSprintData,
     fetchSprintIssuesForActive,
     fetchIssueDetails,
+    updateIssue,
+    fetchIssueTransitions,
+    transitionIssue,
     syncExtensionIcon
   };
 })();
