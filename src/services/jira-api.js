@@ -8,6 +8,12 @@
   const BetterJira = (typeof window !== 'undefined' ? window : global).BetterJira =
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
+  const SPRINT_API_CACHE_TTL_MS = 5 * 60 * 1000; // 5 分鐘快取
+  const SPRINT_API_FAILURE_COOLDOWN_MS = 60 * 1000; // 失敗退避 1 分鐘
+  const sprintActiveApiCache = new Map(); // cacheKey -> { data: Array, timestamp: number }
+  const inFlightActiveSprintRequests = new Map(); // cacheKey -> Promise
+  const sprintFailedCooldownMap = new Map(); // cacheKey -> timestamp
+
   /**
    * 從目前網址或頁面偵測 Jira Board ID 與 Project Key
    *
@@ -320,128 +326,189 @@
 
   /**
    * 透過 Jira Agile REST API 抓取未結束衝刺的完整卡片資料
+   * 具備 5 分鐘快取、In-Flight 單例去重、失敗退避與自動 400 欄位降級機制，
+   * 絕對防範高頻重複發送網路請求。
    *
    * @param {Object} item - 衝刺項目物件包含 DOM branch 與 meta
+   * @param {boolean} [forceRefresh=false] - 是否強制重新發起網路請求
    * @returns {Promise<Array<Object>>} 正規化後的卡片物件陣列
    */
-  async function fetchSprintIssuesForActive(item) {
+  async function fetchSprintIssuesForActive(item, forceRefresh = false) {
     const { IssueStore, TextUtils } = BetterJira;
-    const { boardId, projectKey } = await detectJiraContext();
     let sprintId = item.meta.sprintId || (item.sprintEl && item.sprintEl.getAttribute('data-sprint-id'));
     const cleanTitle = TextUtils.cleanSprintTitle(item.meta.title);
+    const itemKey = item.meta.key || `${cleanTitle}`;
+    const targetCacheKey = sprintId ? `sprint_${sprintId}` : `title_${cleanTitle}`;
 
-    await detectStoryPointsCustomField();
-    const cachedFieldId = IssueStore.getStoryPointsFieldId();
+    const now = Date.now();
 
-    const fieldsParam = [
-      'summary',
-      'status',
-      'issuetype',
-      'priority',
-      'assignee',
-      'parent',
-      'duedate',
-      'customfield_10016',
-      'customfield_10026',
-      'customfield_10004',
-      'customfield_10008',
-      'customfield_10028',
-      'customfield_10024',
-      cachedFieldId
-    ]
-      .filter(Boolean)
-      .join(',');
-
-    // 1. 若無明確 sprintId，從當前看板的 active/future sprints 清單比對
-    if (!sprintId && boardId && cleanTitle) {
-      try {
-        const boardSprints = await fetchActiveAndFutureSprintsForBoard(boardId);
-        const lowerTarget = cleanTitle.toLowerCase();
-        const found =
-          boardSprints.find((s) => (s.name || '').trim().toLowerCase() === lowerTarget) ||
-          boardSprints.find((s) => (s.name || '').trim().toLowerCase().includes(lowerTarget)) ||
-          boardSprints.find((s) => lowerTarget.includes((s.name || '').trim().toLowerCase()));
-        if (found && found.id) {
-          sprintId = String(found.id);
-          item.meta.sprintId = sprintId;
-        }
-      } catch {
-        // ignore
+    // 1. 若非強制重新整理，檢查 5 分鐘記憶體快取
+    if (!forceRefresh) {
+      const cachedEntry = sprintActiveApiCache.get(targetCacheKey) || sprintActiveApiCache.get(itemKey);
+      if (cachedEntry && (now - cachedEntry.timestamp < SPRINT_API_CACHE_TTL_MS)) {
+        return cachedEntry.data;
+      }
+      // 檢查是否處於失敗冷卻退避期間 (60 秒內禁止重複發送請求)
+      const failedTime = sprintFailedCooldownMap.get(targetCacheKey) || sprintFailedCooldownMap.get(itemKey);
+      if (failedTime && (now - failedTime < SPRINT_API_FAILURE_COOLDOWN_MS)) {
+        return cachedEntry ? cachedEntry.data : [];
       }
     }
 
-    // 2. 若找到 sprintId，優先呼叫 Agile Sprint Issues API
-    if (sprintId) {
+    // 2. 檢查是否有進行中的相同請求 (In-Flight Promise 去重)
+    const activeFlight = inFlightActiveSprintRequests.get(targetCacheKey) || inFlightActiveSprintRequests.get(itemKey);
+    if (activeFlight) {
+      return await activeFlight;
+    }
+
+    // 建立新的 In-Flight Promise
+    const requestPromise = (async () => {
       try {
-        const res = await fetch(
-          `${window.location.origin}/rest/agile/1.0/sprint/${encodeURIComponent(sprintId)}/issue?maxResults=200&fields=${fieldsParam}`,
-          { credentials: 'include', headers: { Accept: 'application/json' } }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.issues)) {
-            return data.issues.map(IssueStore.normalizeJiraIssue);
+        const { boardId, projectKey } = await detectJiraContext();
+
+        await detectStoryPointsCustomField();
+        const cachedFieldId = IssueStore.getStoryPointsFieldId();
+
+        const baseFields = ['summary', 'status', 'issuetype', 'priority', 'assignee', 'parent', 'duedate'];
+        const fullFields = [
+          ...baseFields,
+          'customfield_10016',
+          'customfield_10026',
+          'customfield_10004',
+          'customfield_10008',
+          'customfield_10028',
+          'customfield_10024',
+          cachedFieldId
+        ].filter(Boolean);
+
+        // a. 若無明確 sprintId，從當前看板的 active/future sprints 清單比對
+        if (!sprintId && boardId && cleanTitle) {
+          try {
+            const boardSprints = await fetchActiveAndFutureSprintsForBoard(boardId);
+            const lowerTarget = cleanTitle.toLowerCase();
+            const found =
+              boardSprints.find((s) => (s.name || '').trim().toLowerCase() === lowerTarget) ||
+              boardSprints.find((s) => (s.name || '').trim().toLowerCase().includes(lowerTarget)) ||
+              boardSprints.find((s) => lowerTarget.includes((s.name || '').trim().toLowerCase()));
+            if (found && found.id) {
+              sprintId = String(found.id);
+              item.meta.sprintId = sprintId;
+            }
+          } catch {
+            // ignore
           }
         }
-      } catch {
-        // ignore
-      }
-    }
 
-    // 3. JQL 搜尋備援
-    if (cleanTitle) {
-      const escaped = cleanTitle.replace(/"/g, '\\"');
-      const jqlCandidates = [];
-      if (projectKey) {
-        jqlCandidates.push(`project = "${projectKey}" AND sprint = "${escaped}" ORDER BY key ASC`);
-      }
-      jqlCandidates.push(`sprint = "${escaped}" ORDER BY key ASC`);
+        const effectiveKey = sprintId ? `sprint_${sprintId}` : targetCacheKey;
 
-      for (const jql of jqlCandidates) {
-        const searchEndpoints = [
-          `${window.location.origin}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`,
-          `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`,
-          `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`
-        ];
+        // b. 若找到 sprintId，優先呼叫 Agile Sprint Issues API (帶自動 400 欄位降級重試)
+        if (sprintId) {
+          for (const fields of [fullFields.join(','), baseFields.join(',')]) {
+            try {
+              const res = await fetch(
+                `${window.location.origin}/rest/agile/1.0/sprint/${encodeURIComponent(sprintId)}/issue?maxResults=200&fields=${fields}`,
+                { credentials: 'include', headers: { Accept: 'application/json' } }
+              );
+              if (res.ok) {
+                const data = await res.json();
+                const issues = Array.isArray(data.issues) ? data.issues.map(IssueStore.normalizeJiraIssue) : [];
+                sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
+                sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
+                sprintFailedCooldownMap.delete(effectiveKey);
+                sprintFailedCooldownMap.delete(itemKey);
+                return issues;
+              }
+              // 若為 400 Bad Request，繼續嘗試下一個基本欄位 fallback
+              if (res.status !== 400) {
+                break;
+              }
+            } catch {
+              break;
+            }
+          }
+        }
 
-        for (const ep of searchEndpoints) {
+        // c. JQL 搜尋備援
+        if (cleanTitle) {
+          const escaped = cleanTitle.replace(/"/g, '\\"');
+          const jqlCandidates = [];
+          if (projectKey) {
+            jqlCandidates.push(`project = "${projectKey}" AND sprint = "${escaped}" ORDER BY key ASC`);
+          }
+          jqlCandidates.push(`sprint = "${escaped}" ORDER BY key ASC`);
+
+          for (const jql of jqlCandidates) {
+            const searchEndpoints = [
+              `${window.location.origin}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`,
+              `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`,
+              `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`
+            ];
+
+            for (const ep of searchEndpoints) {
+              try {
+                const res = await fetch(ep, {
+                  credentials: 'include',
+                  headers: { Accept: 'application/json' }
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data && Array.isArray(data.issues)) {
+                    const issues = data.issues.map(IssueStore.normalizeJiraIssue);
+                    sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
+                    sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
+                    sprintFailedCooldownMap.delete(effectiveKey);
+                    sprintFailedCooldownMap.delete(itemKey);
+                    return issues;
+                  }
+                }
+              } catch {
+                // ignore
+              }
+            }
+          }
+        }
+
+        // d. Backlog 待辦池備援
+        if (/backlog/i.test(cleanTitle) && boardId) {
           try {
-            const res = await fetch(ep, {
-              credentials: 'include',
-              headers: { Accept: 'application/json' }
-            });
+            const res = await fetch(
+              `${window.location.origin}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/backlog?maxResults=200&fields=${baseFields.join(',')}`,
+              { credentials: 'include', headers: { Accept: 'application/json' } }
+            );
             if (res.ok) {
               const data = await res.json();
-              if (data && Array.isArray(data.issues) && data.issues.length > 0) {
-                return data.issues.map(IssueStore.normalizeJiraIssue);
+              if (data && Array.isArray(data.issues)) {
+                const issues = data.issues.map(IssueStore.normalizeJiraIssue);
+                sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
+                sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
+                sprintFailedCooldownMap.delete(effectiveKey);
+                sprintFailedCooldownMap.delete(itemKey);
+                return issues;
               }
             }
           } catch {
             // ignore
           }
         }
-      }
-    }
 
-    // 4. Backlog 待辦池備援
-    if (/backlog/i.test(cleanTitle) && boardId) {
-      try {
-        const res = await fetch(
-          `${window.location.origin}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/backlog?maxResults=200&fields=${fieldsParam}`,
-          { credentials: 'include', headers: { Accept: 'application/json' } }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.issues)) {
-            return data.issues.map(IssueStore.normalizeJiraIssue);
-          }
-        }
-      } catch {
-        // ignore
+        // 若無資料，記錄失敗冷卻退避 (60 秒內不重試)
+        sprintFailedCooldownMap.set(effectiveKey, Date.now());
+        sprintFailedCooldownMap.set(itemKey, Date.now());
+        return [];
+      } catch (err) {
+        sprintFailedCooldownMap.set(targetCacheKey, Date.now());
+        sprintFailedCooldownMap.set(itemKey, Date.now());
+        return [];
+      } finally {
+        inFlightActiveSprintRequests.delete(targetCacheKey);
+        inFlightActiveSprintRequests.delete(itemKey);
       }
-    }
+    })();
 
-    return [];
+    inFlightActiveSprintRequests.set(targetCacheKey, requestPromise);
+    inFlightActiveSprintRequests.set(itemKey, requestPromise);
+
+    return await requestPromise;
   }
 
   /**

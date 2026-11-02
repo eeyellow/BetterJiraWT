@@ -10,42 +10,69 @@
 
   /**
    * 非同步同步未結束衝刺的卡片資料，並寫入 issueMetadataMap 與 allApiIssues，
-   * 完成後透過 scheduleLayoutRefresh() 結合當前原生篩選器重新計算左右兩欄，絕不以未篩選清單覆蓋畫面
+   * 具備狀態防重、TTL 快取保護與防振盪更新，絕不無窮重複發起請求。
    *
    * @param {Object} item - 衝刺結構物件
+   * @param {boolean} [forceRefresh=false] - 是否強制重新發起網路請求
    */
-  async function syncActiveSprintIssuesFromApi(item) {
+  async function syncActiveSprintIssuesFromApi(item, forceRefresh = false) {
     const { IssueStore, JiraApiService, LayoutManager } = BetterJira;
     const key = item.meta.key;
-    try {
-      const apiIssues = await JiraApiService.fetchSprintIssuesForActive(item);
-      let cached = IssueStore.getActiveSprintCache(key);
-      if (!cached) {
-        cached = {
-          key,
-          title: item.meta.title,
-          issues: [],
-          allApiIssues: null,
-          filterKeyword: '',
-          fromApi: false,
-          apiSyncing: false
-        };
-        IssueStore.setActiveSprintCache(key, cached);
-      }
-      cached.apiSyncing = false;
+    const sprintId = item.meta.sprintId;
+    const cacheKey = sprintId ? `sprint_${sprintId}` : key;
 
-      if (apiIssues && apiIssues.length > 0) {
+    let cached = IssueStore.getActiveSprintCache(cacheKey) || IssueStore.getActiveSprintCache(key);
+    if (!cached) {
+      cached = {
+        key: cacheKey,
+        title: item.meta.title,
+        issues: [],
+        allApiIssues: null,
+        filterKeyword: '',
+        fromApi: false,
+        apiSyncing: false,
+        lastSyncTime: 0
+      };
+      IssueStore.setActiveSprintCache(cacheKey, cached);
+      IssueStore.setActiveSprintCache(key, cached);
+    }
+
+    if (cached.apiSyncing && !forceRefresh) {
+      return;
+    }
+    cached.apiSyncing = true;
+
+    try {
+      const apiIssues = await JiraApiService.fetchSprintIssuesForActive(item, forceRefresh);
+      cached.apiSyncing = false;
+      cached.fromApi = true;
+      cached.lastSyncTime = Date.now();
+
+      if (Array.isArray(apiIssues) && apiIssues.length > 0) {
         const mergedList = apiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
+        const prevIssuesSig = (cached.allApiIssues || []).map((i) => `${i.key}:${i.statusName}`).join('|');
+        const nextIssuesSig = mergedList.map((i) => `${i.key}:${i.statusName}`).join('|');
+
         cached.allApiIssues = mergedList;
-        cached.fromApi = true;
+        IssueStore.setActiveSprintCache(cacheKey, cached);
         IssueStore.setActiveSprintCache(key, cached);
-        if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
+
+        // 僅在卡片內容確實有變更時才觸發排版刷新，避免自激振盪重繪
+        if (prevIssuesSig !== nextIssuesSig && LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
           LayoutManager.scheduleLayoutRefresh();
         }
+      } else {
+        // 若 API 回傳 0 張卡片，也明確標記已同步與快取，避免重複發送
+        if (!cached.allApiIssues) cached.allApiIssues = [];
+        IssueStore.setActiveSprintCache(cacheKey, cached);
+        IssueStore.setActiveSprintCache(key, cached);
       }
     } catch {
-      const cached = IssueStore.getActiveSprintCache(key);
-      if (cached) cached.apiSyncing = false;
+      cached.apiSyncing = false;
+      cached.fromApi = true; // 即使出錯也標記已同步，進入冷卻期
+      cached.lastSyncTime = Date.now();
+      IssueStore.setActiveSprintCache(cacheKey, cached);
+      IssueStore.setActiveSprintCache(key, cached);
     }
   }
 
@@ -148,9 +175,9 @@
     const key = item.meta.key;
     const activeNativeFilter = nativeFilter || getNativeBacklogFilterState();
 
-    // 每次渲染前皆確保與最新原生 DOM 及篩選狀態同步
+    // 每次渲染前皆確保與最新原生 DOM 及篩選狀態同步 (純畫面計算，不重複觸發 API 請求)
     if (LayoutManager && typeof LayoutManager.resolveSprintIssuesForLayout === 'function') {
-      LayoutManager.resolveSprintIssuesForLayout(item, activeNativeFilter);
+      LayoutManager.resolveSprintIssuesForLayout(item, activeNativeFilter, false);
     }
     const sprintData = IssueStore.getActiveSprintCache(key);
     if (!sprintData) return;
@@ -349,7 +376,7 @@
         refreshBtn.disabled = true;
         refreshBtn.textContent = '同步中...';
         customView.removeAttribute('data-bjwt-render-sig');
-        await syncActiveSprintIssuesFromApi(item);
+        await syncActiveSprintIssuesFromApi(item, true);
         if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
           LayoutManager.scheduleLayoutRefresh();
         }
