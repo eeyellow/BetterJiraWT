@@ -424,7 +424,7 @@ assert.strictEqual(typeof JiraApiService.fetchIssueEditMeta, 'function', 'fetchI
 assert.strictEqual(typeof JiraApiService.updateIssueEstimation, 'function', 'updateIssueEstimation 應為函式');
 
 // 測試 updateIssue 確保不傳遞任何 customfield_ 到 fields，並透過 estimation 更新點數
-(async () => {
+const asyncTest11Promise = (async () => {
   let issueFieldsChecked = false;
   let estimationCalled = false;
   const originalFetch = global.fetch;
@@ -833,6 +833,96 @@ delete global.window.__bjwt_currentUser;
 global.document.querySelectorAll = origDocQuerySelectorAll13;
 console.log('✓ 「自訂篩選條件」與「篩選條件」下拉選單勾選與狀態持久化測試通過！');
 
-console.log('============================================');
-console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
-console.log('============================================');
+console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻退避檢查 ---');
+(async () => {
+  await asyncTest11Promise;
+  const { JiraApiService } = BetterJira;
+  let sprintFetchCount = 0;
+  const originalFetch = global.fetch;
+
+  global.fetch = async (url) => {
+    if (url.includes('/issue') || url.includes('/sprint/')) {
+      sprintFetchCount++;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        issues: [
+          {
+            key: 'TEST-100',
+            fields: { summary: 'Deduplication test issue', status: { name: 'To Do' } }
+          }
+        ]
+      })
+    };
+  };
+
+  const testSprintItem = {
+    branch: new MockElement('div'),
+    sprintEl: new MockElement('div'),
+    meta: {
+      key: 'test_sprint_31723',
+      sprintId: '31723',
+      title: 'Sprint 21'
+    }
+  };
+
+  // 1. 第一次呼叫：發起 1 次衝刺卡片網路請求
+  const res1 = await JiraApiService.fetchSprintIssuesForActive(testSprintItem);
+  assert.strictEqual(res1.length, 1);
+  assert.strictEqual(sprintFetchCount, 1, '初次呼叫應發起 1 次卡片 fetch');
+
+  // 2. 立即再次呼叫：應命中 5 分鐘快取，不發起第二次 fetch
+  const res2 = await JiraApiService.fetchSprintIssuesForActive(testSprintItem);
+  assert.strictEqual(res2.length, 1);
+  assert.strictEqual(sprintFetchCount, 1, '快取期內再次呼叫不應重複發起 fetch');
+
+  // 3. 並發多次呼叫：應全部命中快取或 in-flight 去重
+  const [res3, res4] = await Promise.all([
+    JiraApiService.fetchSprintIssuesForActive(testSprintItem),
+    JiraApiService.fetchSprintIssuesForActive(testSprintItem)
+  ]);
+  assert.strictEqual(res3.length, 1);
+  assert.strictEqual(res4.length, 1);
+  assert.strictEqual(sprintFetchCount, 1, '並發呼叫不應重複發起 fetch');
+
+  // 4. 測試 400 Bad Request 失敗時自動降級與冷卻退避
+  let failedFetchCount = 0;
+  global.fetch = async (url) => {
+    if (url.includes('/sprint/')) {
+      failedFetchCount++;
+    }
+    if (url.includes('customfield_')) {
+      return { ok: false, status: 400 };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ issues: [] })
+    };
+  };
+
+  const failItem = {
+    branch: new MockElement('div'),
+    sprintEl: new MockElement('div'),
+    meta: {
+      key: 'test_sprint_99999',
+      sprintId: '99999',
+      title: 'Sprint 99'
+    }
+  };
+
+  await JiraApiService.fetchSprintIssuesForActive(failItem, true);
+  assert.strictEqual(failedFetchCount, 2, '遇到 400 時應自動降級至基本欄位重試');
+
+  await JiraApiService.fetchSprintIssuesForActive(failItem, false);
+  assert.strictEqual(failedFetchCount, 2, '在快取/冷卻期內不應重複發送');
+
+  global.fetch = originalFetch;
+  console.log('✓ Jira API 衝刺卡片請求去重、快取與冷卻退避測試通過！');
+
+  console.log('============================================');
+  console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
+  console.log('============================================');
+})();

@@ -43,36 +43,47 @@
    *
    * @param {Object} item - 衝刺分支結構物件
    * @param {Object} nativeFilter - Jira 原生篩選狀態物件
+   * @param {boolean} [triggerApiSync=true] - 是否允許觸發背景 API 同步
    */
-  function resolveSprintIssuesForLayout(item, nativeFilter) {
+  function resolveSprintIssuesForLayout(item, nativeFilter, triggerApiSync = true) {
     const { CardDomParser, IssueStore, ActiveSprintView, FilterService, SprintStatsService } = BetterJira;
     const { branch, sprintEl, meta } = item;
     const key = meta.key;
+    const sprintId = meta.sprintId;
+    const cacheKey = sprintId ? `sprint_${sprintId}` : key;
 
     // 每次都從原生 DOM 讀取目前實際存在的卡片 (因為 CSS 保留了離屏尺寸，Jira 篩選後 DOM 卡片會即時增減)
     const rawDomIssues = CardDomParser.parseIssuesFromBranch(branch, sprintEl);
     const domIssues = rawDomIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
 
-    let cached = IssueStore.getActiveSprintCache(key);
+    let cached = IssueStore.getActiveSprintCache(cacheKey) || IssueStore.getActiveSprintCache(key);
     if (!cached) {
       cached = {
-        key,
+        key: cacheKey,
         title: meta.title,
         issues: [],
         allApiIssues: null,
         filterKeyword: '',
         dateRange: '',
         fromApi: false,
-        apiSyncing: false
+        apiSyncing: false,
+        lastSyncTime: 0
       };
+      IssueStore.setActiveSprintCache(cacheKey, cached);
       IssueStore.setActiveSprintCache(key, cached);
     }
 
     cached.title = meta.title;
 
-    // 若尚未向 Jira API 同步完整欄位 (Story Points / Epic / 精確經辦人)，在背景發起一次 API 同步
-    if (!cached.fromApi && !cached.apiSyncing) {
+    // 檢查是否處於失敗冷卻退避時間 (60 秒)
+    const now = Date.now();
+    const COOLDOWN_MS = 60 * 1000;
+    const isCoolingDown = cached.lastSyncTime && (now - cached.lastSyncTime < COOLDOWN_MS);
+
+    // 若尚未向 Jira API 同步完整欄位，且不在冷卻退避期內，在背景發起一次 API 同步
+    if (triggerApiSync && !cached.fromApi && !cached.apiSyncing && !isCoolingDown) {
       cached.apiSyncing = true;
+      cached.lastSyncTime = now;
       ActiveSprintView.syncActiveSprintIssuesFromApi(item);
     }
 
@@ -195,7 +206,8 @@
       const meta = extractSprintMeta(branch, sprintEl, headerPartner, idx);
       meta.isHistorical = false;
       const branchObj = { sprintEl, branch, headerPartner, meta };
-      resolveSprintIssuesForLayout(branchObj, nativeFilter);
+      const isSelectedSprint = (activeSprintKey !== null && meta.key === activeSprintKey) || idx === activeSprintIndex;
+      resolveSprintIssuesForLayout(branchObj, nativeFilter, isSelectedSprint);
       return branchObj;
     });
 
