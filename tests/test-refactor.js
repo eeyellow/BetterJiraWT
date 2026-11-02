@@ -387,6 +387,61 @@ global.document.querySelector = origQuerySelector;
 
 console.log('✓ 未結束衝刺自定義檢視新增卡片按鈕與 triggerCreateIssue 測試通過！');
 
+console.log('--- 測試 11: 留言 HTML 解析與卡片編輯模式檢查 ---');
+// 1. 測試 AdfParser.formatCommentBody
+const commentWithHtml = {
+  id: '101',
+  body: '<p>這是一則包含 <strong>粗體</strong> 與 <a href="https://example.com">連結</a> 的留言</p>'
+};
+const commentHtmlResult = AdfParser.formatCommentBody(commentWithHtml);
+assert(commentHtmlResult.includes('<p>這是一則包含 <strong>粗體</strong>'), '含有 HTML 標籤之留言不應被二次跳脫成 &lt;p&gt;');
+assert(!commentHtmlResult.includes('&lt;p&gt;'), '留言中不應出現 &lt;p&gt; HTML 程式碼');
+
+const commentWithPlainText = {
+  id: '102',
+  body: '一般純文字 <script>alert(1)</script>'
+};
+const plainCommentResult = AdfParser.formatCommentBody(commentWithPlainText);
+assert(plainCommentResult.includes('&lt;script&gt;'), '純文字中的非法標籤應安全跳脫');
+
+// 2. 測試 AdfParser.adfToPlainText
+const sampleAdfForEdit = {
+  type: 'doc',
+  content: [
+    { type: 'paragraph', content: [{ type: 'text', text: '說明第一段' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: '說明第二段' }] }
+  ]
+};
+const plainDescText = AdfParser.adfToPlainText(sampleAdfForEdit);
+assert(plainDescText.includes('說明第一段') && plainDescText.includes('說明第二段'), 'ADF 說明應正確轉為純文字以供編輯');
+
+// 3. 測試 JiraApiService 更新與狀態轉換函式
+const { JiraApiService } = BetterJira;
+assert.strictEqual(typeof JiraApiService.updateIssue, 'function', 'updateIssue 應為函式');
+assert.strictEqual(typeof JiraApiService.fetchIssueTransitions, 'function', 'fetchIssueTransitions 應為函式');
+assert.strictEqual(typeof JiraApiService.transitionIssue, 'function', 'transitionIssue 應為函式');
+
+// 4. 測試 IssueModal 編輯模式相關類別與樣式
+const issueModalJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/issue-modal.js'), 'utf8');
+assert(issueModalJs.includes('bjwt-history-modal-edit-btn'), 'issue-modal.js 應包含編輯按鈕');
+assert(issueModalJs.includes('bjwt-history-modal-save-btn'), 'issue-modal.js 應包含儲存按鈕');
+assert(issueModalJs.includes('bjwt-history-modal-cancel-btn'), 'issue-modal.js 應包含取消按鈕');
+assert(issueModalJs.includes('data-bjwt-edit-mode'), 'issue-modal.js 應包含 data-bjwt-edit-mode 屬性控制');
+
+const updatedStylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+assert(updatedStylesCss.includes('.bjwt-history-modal-edit-btn'), 'styles.css 應包含 .bjwt-history-modal-edit-btn');
+assert(updatedStylesCss.includes('.bjwt-history-modal-save-btn'), 'styles.css 應包含 .bjwt-history-modal-save-btn');
+assert(updatedStylesCss.includes('.bjwt-history-modal-cancel-btn'), 'styles.css 應包含 .bjwt-history-modal-cancel-btn');
+assert(updatedStylesCss.includes('[data-bjwt-edit-mode="true"]'), 'styles.css 應包含編輯模式切換樣式');
+
+const updatedRuntimeStylesJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+assert(updatedRuntimeStylesJs.includes('.bjwt-history-modal-edit-btn'), 'runtime-styles.js 應包含 .bjwt-history-modal-edit-btn');
+assert(updatedRuntimeStylesJs.includes('.bjwt-history-modal-save-btn'), 'runtime-styles.js 應包含 .bjwt-history-modal-save-btn');
+assert(updatedRuntimeStylesJs.includes('.bjwt-history-modal-cancel-btn'), 'runtime-styles.js 應包含 .bjwt-history-modal-cancel-btn');
+assert(updatedRuntimeStylesJs.includes('[data-bjwt-edit-mode="true"]'), 'runtime-styles.js 應包含編輯模式切換樣式');
+
+console.log('✓ 留言 HTML 解析與卡片編輯模式測試通過！');
+
 console.log('============================================');
 console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
 console.log('============================================');

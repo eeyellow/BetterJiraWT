@@ -295,6 +295,40 @@
           <span class="bjwt-history-modal-summary-text" id="bjwt-history-modal-header-summary" title="${escapeHtml(displaySummary)}">${escapeHtml(displaySummary)}</span>
         </div>
         <div class="bjwt-history-issue-modal-actions">
+          <div class="bjwt-view-actions bjwt-view-only">
+            <button
+              type="button"
+              class="bjwt-history-modal-edit-btn"
+              title="切換為編輯模式"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+              編輯
+            </button>
+          </div>
+          <div class="bjwt-edit-actions bjwt-edit-only">
+            <button
+              type="button"
+              class="bjwt-history-modal-save-btn"
+              title="儲存變更至 Jira"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+              </svg>
+              儲存
+            </button>
+            <button
+              type="button"
+              class="bjwt-history-modal-cancel-btn"
+              title="取消編輯"
+            >
+              取消
+            </button>
+          </div>
           <a
             href="${escapeHtml(browseUrl)}"
             target="_blank"
@@ -317,12 +351,42 @@
       <div class="bjwt-rich-detail-body">
         <!-- 左欄 68%：主要內容 (標題、詳細說明、子任務、活動留言) -->
         <div class="bjwt-detail-main-col">
-          <h1 class="bjwt-detail-summary" id="bjwt-detail-main-title">${escapeHtml(displaySummary)}</h1>
+          <!-- 錯誤/成功訊息提示框 -->
+          <div id="bjwt-modal-msg-banner" style="display: none;"></div>
 
+          <!-- 標題區域：檢視 vs 編輯 -->
+          <div class="bjwt-view-only">
+            <h1 class="bjwt-detail-summary" id="bjwt-detail-main-title">${escapeHtml(displaySummary)}</h1>
+          </div>
+          <div class="bjwt-edit-only bjwt-edit-field-group">
+            <label class="bjwt-edit-label">摘要 / 標題 (Summary)</label>
+            <input
+              type="text"
+              class="bjwt-edit-summary-input"
+              id="bjwt-edit-summary-field"
+              value="${escapeHtml(displaySummary)}"
+              placeholder="請輸入卡片摘要..."
+            />
+          </div>
+
+          <!-- 說明區域：檢視 vs 編輯 -->
           <div class="bjwt-detail-section">
-            <div class="bjwt-detail-section-title">說明</div>
-            <div class="bjwt-detail-description-content" id="bjwt-detail-description-body">
-              <span class="bjwt-detail-loading-spinner"></span> 正在載入詳細說明...
+            <div class="bjwt-detail-section-title">
+              說明
+              <span class="bjwt-edit-only bjwt-edit-tip">(支援純文字與 Markdown)</span>
+            </div>
+            <div class="bjwt-view-only">
+              <div class="bjwt-detail-description-content" id="bjwt-detail-description-body">
+                <span class="bjwt-detail-loading-spinner"></span> 正在載入詳細說明...
+              </div>
+            </div>
+            <div class="bjwt-edit-only">
+              <textarea
+                class="bjwt-edit-desc-textarea"
+                id="bjwt-edit-desc-field"
+                rows="12"
+                placeholder="請輸入工作項目詳細說明..."
+              ></textarea>
             </div>
           </div>
 
@@ -344,7 +408,12 @@
             <div class="bjwt-detail-field">
               <div class="bjwt-detail-field-label">狀態</div>
               <div class="bjwt-detail-field-value" id="bjwt-detail-val-status">
-                <span class="bjwt-history-status-badge ${initialStatusClass}">${escapeHtml(initialStatusName)}</span>
+                <div class="bjwt-view-only">
+                  <span class="bjwt-history-status-badge ${initialStatusClass}" id="bjwt-status-badge-val">${escapeHtml(initialStatusName)}</span>
+                </div>
+                <div class="bjwt-edit-only" id="bjwt-edit-status-container">
+                  <span class="bjwt-history-status-badge ${initialStatusClass}">${escapeHtml(initialStatusName)}</span>
+                </div>
               </div>
             </div>
 
@@ -382,7 +451,20 @@
             <div class="bjwt-detail-field">
               <div class="bjwt-detail-field-label">Story Points</div>
               <div class="bjwt-detail-field-value" id="bjwt-detail-val-points">
-                <span class="bjwt-history-points-badge">${escapeHtml(String(initialPoints))}</span>
+                <div class="bjwt-view-only">
+                  <span class="bjwt-history-points-badge" id="bjwt-points-badge-val">${escapeHtml(String(initialPoints))}</span>
+                </div>
+                <div class="bjwt-edit-only">
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    class="bjwt-edit-points-input"
+                    id="bjwt-edit-points-field"
+                    value="${initialPoints !== '-' && initialPoints !== null && initialPoints !== undefined ? initialPoints : ''}"
+                    placeholder="點數"
+                  />
+                </div>
               </div>
             </div>
 
@@ -414,12 +496,163 @@
               <div class="bjwt-detail-field-value" id="bjwt-detail-val-dates" style="font-size: 11px; color: var(--ds-text-subtle, #9fadbc); line-height: 1.5;"></div>
             </div>
           </div>
+
+          <div class="bjwt-edit-only bjwt-edit-native-box">
+            <div class="bjwt-edit-native-tip">需要調整更多自訂欄位？</div>
+            <a href="${escapeHtml(browseUrl)}" target="_blank" rel="noopener noreferrer" class="bjwt-edit-native-link">開啟 Jira 原生卡片頁面 ↗</a>
+          </div>
         </div>
       </div>
     `;
 
     document.body.appendChild(modalEl);
     ensureModalBackdrop(modalEl);
+
+    let currentRawSummary = displaySummary;
+    let currentRawDesc = '';
+    let currentRawPoints = initialPoints !== '-' ? initialPoints : '';
+    let currentStatusName = initialStatusName;
+
+    const editBtn = modalEl.querySelector('.bjwt-history-modal-edit-btn');
+    const saveBtn = modalEl.querySelector('.bjwt-history-modal-save-btn');
+    const cancelBtn = modalEl.querySelector('.bjwt-history-modal-cancel-btn');
+    const msgBanner = modalEl.querySelector('#bjwt-modal-msg-banner');
+
+    function setEditMode(active) {
+      if (active) {
+        modalEl.setAttribute('data-bjwt-edit-mode', 'true');
+        const summaryInput = modalEl.querySelector('#bjwt-edit-summary-field');
+        const descTextarea = modalEl.querySelector('#bjwt-edit-desc-field');
+        const pointsInput = modalEl.querySelector('#bjwt-edit-points-field');
+        if (summaryInput) summaryInput.value = currentRawSummary;
+        if (descTextarea) descTextarea.value = currentRawDesc;
+        if (pointsInput) pointsInput.value = currentRawPoints !== null && currentRawPoints !== undefined && currentRawPoints !== '-' ? currentRawPoints : '';
+        if (summaryInput) summaryInput.focus();
+      } else {
+        modalEl.removeAttribute('data-bjwt-edit-mode');
+        if (msgBanner) msgBanner.style.display = 'none';
+      }
+    }
+
+    if (editBtn) {
+      editBtn.addEventListener('click', () => setEditMode(true));
+    }
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => setEditMode(false));
+    }
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const summaryInput = modalEl.querySelector('#bjwt-edit-summary-field');
+        const descTextarea = modalEl.querySelector('#bjwt-edit-desc-field');
+        const pointsInput = modalEl.querySelector('#bjwt-edit-points-field');
+        const statusSelect = modalEl.querySelector('#bjwt-edit-status-select');
+
+        const newSummary = summaryInput ? summaryInput.value.trim() : currentRawSummary;
+        if (!newSummary) {
+          if (msgBanner) {
+            msgBanner.className = 'bjwt-edit-error-banner';
+            msgBanner.textContent = '卡片標題 (Summary) 不能為空。';
+            msgBanner.style.display = 'block';
+          }
+          return;
+        }
+
+        const newDesc = descTextarea ? descTextarea.value : currentRawDesc;
+        const newPointsStr = pointsInput ? pointsInput.value.trim() : '';
+        const newPoints = newPointsStr === '' ? null : Number(newPointsStr);
+        const transitionId = statusSelect ? statusSelect.value : '';
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = '儲存中...';
+        if (msgBanner) msgBanner.style.display = 'none';
+
+        try {
+          const updates = {
+            summary: newSummary,
+            description: newDesc
+          };
+          if (newPoints !== null && !isNaN(newPoints)) {
+            updates.storyPoints = newPoints;
+          } else if (newPointsStr === '') {
+            updates.storyPoints = null;
+          }
+
+          const updateRes = await JiraApiService.updateIssue(issueKey, updates);
+          if (!updateRes.success) {
+            throw new Error(updateRes.error || '儲存失敗');
+          }
+
+          if (transitionId) {
+            const transRes = await JiraApiService.transitionIssue(issueKey, transitionId);
+            if (!transRes.success) {
+              console.warn('狀態轉換未成功:', transRes.error);
+            }
+          }
+
+          currentRawSummary = newSummary;
+          currentRawDesc = newDesc;
+          currentRawPoints = newPoints !== null ? newPoints : '';
+
+          const headerSummary = modalEl.querySelector('#bjwt-history-modal-header-summary');
+          if (headerSummary) {
+            headerSummary.textContent = newSummary;
+            headerSummary.title = newSummary;
+          }
+          const mainTitle = modalEl.querySelector('#bjwt-detail-main-title');
+          if (mainTitle) mainTitle.textContent = newSummary;
+
+          const descBody = modalEl.querySelector('#bjwt-detail-description-body');
+          if (descBody) {
+            descBody.innerHTML = formatDescriptionHtml(newDesc, null);
+          }
+
+          const pointsBadge = modalEl.querySelector('#bjwt-points-badge-val');
+          if (pointsBadge) {
+            pointsBadge.textContent = String(newPoints !== null && newPoints !== undefined ? newPoints : '-');
+          }
+
+          IssueStore.mergeAndCacheIssue({
+            key: issueKey,
+            summary: newSummary,
+            storyPoints: newPoints
+          });
+
+          const { LayoutManager } = BetterJira;
+          if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
+            LayoutManager.scheduleLayoutRefresh();
+          }
+
+          setEditMode(false);
+
+          if (msgBanner) {
+            msgBanner.className = 'bjwt-edit-success-banner';
+            msgBanner.textContent = '✓ 卡片已成功儲存！';
+            msgBanner.style.display = 'block';
+            setTimeout(() => {
+              if (msgBanner && modalEl.isConnected) {
+                msgBanner.style.display = 'none';
+              }
+            }, 3000);
+          }
+        } catch (err) {
+          if (msgBanner) {
+            msgBanner.className = 'bjwt-edit-error-banner';
+            msgBanner.textContent = `儲存失敗：${err && err.message ? err.message : '未知錯誤'}。您可以點擊「在新分頁開啟 ↗」直接在 Jira 原生介面編輯。`;
+            msgBanner.style.display = 'block';
+          }
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = `
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            儲存
+          `;
+        }
+      });
+    }
 
     const closeBtn = modalEl.querySelector('.bjwt-history-modal-close-btn');
     if (closeBtn) {
@@ -455,9 +688,26 @@
           }
           const mainTitle = modalEl.querySelector('#bjwt-detail-main-title');
           if (mainTitle) mainTitle.textContent = cleanSummary;
+          currentRawSummary = cleanSummary;
+          const summaryInput = modalEl.querySelector('#bjwt-edit-summary-field');
+          if (summaryInput && !modalEl.hasAttribute('data-bjwt-edit-mode')) {
+            summaryInput.value = cleanSummary;
+          }
         }
 
         // 2. 說明欄位
+        if (fields.description) {
+          currentRawDesc =
+            typeof fields.description === 'object'
+              ? AdfParser.adfToPlainText(fields.description)
+              : String(fields.description);
+        } else {
+          currentRawDesc = '';
+        }
+        const descTextarea = modalEl.querySelector('#bjwt-edit-desc-field');
+        if (descTextarea && !modalEl.hasAttribute('data-bjwt-edit-mode')) {
+          descTextarea.value = currentRawDesc;
+        }
         const descEl = modalEl.querySelector('#bjwt-detail-description-body');
         if (descEl) {
           descEl.innerHTML = formatDescriptionHtml(fields.description, renderedFields.description);
@@ -509,10 +759,19 @@
           });
         }
 
-        // 4. 留言清單
+        // 4. 留言清單 (使用 renderedCommentsMap 避免雙重 escapeHtml 造成顯示 HTML 原始碼)
+        const renderedCommentsMap = new Map();
+        if (renderedFields.comment && Array.isArray(renderedFields.comment.comments)) {
+          renderedFields.comment.comments.forEach((rc) => {
+            if (rc && rc.id) {
+              renderedCommentsMap.set(String(rc.id), rc.body || rc.renderedBody || '');
+            }
+          });
+        }
+
         const rawComments =
-          (renderedFields.comment && renderedFields.comment.comments) ||
           (fields.comment && fields.comment.comments) ||
+          (renderedFields.comment && renderedFields.comment.comments) ||
           [];
         const commentsContainer = modalEl.querySelector('#bjwt-detail-comments-container');
         const commentsList = modalEl.querySelector('#bjwt-detail-comments-list');
@@ -527,7 +786,11 @@
               const avatar =
                 author.avatarUrls && (author.avatarUrls['24x24'] || author.avatarUrls['48x48']);
               const dateStr = formatShortDateTime(comm.created);
-              const bodyHtml = formatCommentBody(comm);
+              const renderedHtml =
+                renderedCommentsMap.get(String(comm.id)) ||
+                comm.renderedBody ||
+                (comm.isRendered ? comm.body : null);
+              const bodyHtml = formatCommentBody(comm, renderedHtml);
               return `
                 <div class="bjwt-comment-item">
                   <div class="bjwt-comment-header">
@@ -600,22 +863,47 @@
         // 8. 重新校準精確狀態與 Story Points (透過 normalizeJiraIssue)
         const normalized = normalizeJiraIssue(issueData);
         if (normalized) {
-          const statusVal = modalEl.querySelector('#bjwt-detail-val-status');
+          const statusVal = modalEl.querySelector('#bjwt-status-badge-val') || modalEl.querySelector('#bjwt-detail-val-status');
           if (statusVal && normalized.statusName) {
+            currentStatusName = normalized.statusName;
             const isNormDone = normalized.statusCategory === 'done';
             const normStatusClass = isNormDone
               ? 'status-done'
               : normalized.statusCategory === 'indeterminate'
               ? 'status-inprogress'
               : '';
-            statusVal.innerHTML = `<span class="bjwt-history-status-badge ${normStatusClass}">${escapeHtml(normalized.statusName)}</span>`;
+            statusVal.className = `bjwt-history-status-badge ${normStatusClass}`;
+            statusVal.textContent = normalized.statusName;
           }
           if (normalized.storyPoints !== null && normalized.storyPoints !== undefined) {
-            const pointsVal = modalEl.querySelector('#bjwt-detail-val-points');
-            if (pointsVal) {
-              pointsVal.innerHTML = `<span class="bjwt-history-points-badge">${normalized.storyPoints}</span>`;
+            currentRawPoints = normalized.storyPoints;
+            const pointsBadge = modalEl.querySelector('#bjwt-points-badge-val');
+            if (pointsBadge) {
+              pointsBadge.textContent = String(normalized.storyPoints);
+            }
+            const pointsInput = modalEl.querySelector('#bjwt-edit-points-field');
+            if (pointsInput && !modalEl.hasAttribute('data-bjwt-edit-mode')) {
+              pointsInput.value = normalized.storyPoints;
             }
           }
+        }
+
+        // 9. 載入狀態轉換選項 (Transitions)
+        try {
+          const transitions = await JiraApiService.fetchIssueTransitions(issueKey);
+          if (Array.isArray(transitions) && transitions.length > 0 && modalEl.isConnected) {
+            const statusBox = modalEl.querySelector('#bjwt-edit-status-container');
+            if (statusBox) {
+              statusBox.innerHTML = `
+                <select class="bjwt-edit-status-select" id="bjwt-edit-status-select">
+                  <option value="">${escapeHtml(currentStatusName)} (保持現狀)</option>
+                  ${transitions.map((t) => `<option value="${escapeHtml(t.id)}">→ ${escapeHtml(t.name)}</option>`).join('')}
+                </select>
+              `;
+            }
+          }
+        } catch {
+          // ignore
         }
       } catch {
         if (!modalEl.isConnected) return;
