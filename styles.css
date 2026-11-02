@@ -1177,6 +1177,57 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   background: #2563eb !important;
 }
 
+.bjwt-active-create-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  height: 28px !important;
+  padding: 0 12px !important;
+  border: 1px solid #0c66e4 !important;
+  border-radius: 5px !important;
+  background: #0c66e4 !important;
+  color: #ffffff !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.bjwt-active-create-btn:hover {
+  background: #0052cc !important;
+  border-color: #0052cc !important;
+  box-shadow: 0 1px 3px rgba(12, 102, 228, 0.4) !important;
+}
+
+.bjwt-active-create-card-row {
+  margin-top: 10px !important;
+  padding: 4px 0 !important;
+}
+
+.bjwt-active-inline-create-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  width: 100% !important;
+  padding: 10px 14px !important;
+  border: 1px dashed var(--ds-border, #38414a) !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  box-sizing: border-box !important;
+}
+
+.bjwt-active-inline-create-btn:hover {
+  background: var(--ds-surface-hovered, rgba(255, 255, 255, 0.05)) !important;
+  border-color: #579dff !important;
+  color: #579dff !important;
+}
+
 .bjwt-active-complete-btn {
   display: inline-flex !important;
   align-items: center !important;
@@ -1423,10 +1474,56 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
-  justify-content: space-between !important;
+  justify-content: flex-start !important;
   gap: 12px !important;
   flex: 0 0 auto !important;
   margin-top: 4px !important;
+  box-sizing: border-box !important;
+}
+
+.bjwt-card-col {
+  display: flex !important;
+  align-items: center !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+/* 欄 1: 標籤 (Epic)，靠左對齊 */
+.bjwt-card-col-epic {
+  flex: 0 0 160px !important;
+  width: 160px !important;
+  max-width: 160px !important;
+  justify-content: flex-start !important;
+}
+
+/* 欄 2: 狀態 Badge，靠左對齊 */
+.bjwt-card-col-status {
+  flex: 0 0 140px !important;
+  width: 140px !important;
+  max-width: 140px !important;
+  justify-content: flex-start !important;
+}
+
+/* 欄 3: 截止日期，靠左對齊 */
+.bjwt-card-col-duedate {
+  flex: 0 0 130px !important;
+  width: 130px !important;
+  max-width: 130px !important;
+  justify-content: flex-start !important;
+}
+
+/* 最後一欄: 靠右對齊 (StoryPoint, 優先度, 指派人員) */
+.bjwt-card-col-right,
+.bjwt-card-row-bottom-right,
+.bjwt-history-card-right {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
   box-sizing: border-box !important;
 }
 
@@ -1442,18 +1539,6 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   box-sizing: border-box !important;
 }
 
-.bjwt-card-row-bottom-right,
-.bjwt-history-card-right {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: flex-end !important;
-  gap: 10px !important;
-  flex: 0 0 auto !important;
-  margin-left: auto !important;
-  box-sizing: border-box !important;
-}
-
 .bjwt-history-status-badge {
   display: inline-flex !important;
   align-items: center !important;
@@ -1463,8 +1548,8 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   border-radius: 4px !important;
   font-size: 11px !important;
   font-weight: 700 !important;
-  min-width: 74px !important;
-  max-width: 140px !important;
+  min-width: 64px !important;
+  max-width: 100% !important;
   text-align: center !important;
   white-space: nowrap !important;
   overflow: hidden !important;
@@ -1485,12 +1570,18 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   border: 1px solid #9333ea !important;
   background: rgba(147, 51, 234, 0.12) !important;
   color: var(--ds-text, #e9d5ff) !important;
-  max-width: 180px !important;
+  max-width: 100% !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
   flex-shrink: 0 !important;
   box-sizing: border-box !important;
+}
+
+.bjwt-history-parent-badge .bjwt-badge-text {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 .bjwt-parent-dot {
@@ -1514,8 +1605,11 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   color: var(--ds-text-subtle, #9fadbc) !important;
   background: rgba(148, 163, 184, 0.1) !important;
   white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
   flex-shrink: 0 !important;
   box-sizing: border-box !important;
+  max-width: 100% !important;
 }
 
 .bjwt-history-points-badge {

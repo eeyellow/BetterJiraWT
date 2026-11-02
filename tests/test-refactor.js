@@ -282,35 +282,42 @@ assert(cardHtml.includes('Fix login bug'), '卡片應包含清理後標題');
 assert(cardHtml.includes('status-inprogress'), '進行中卡片應有 status-inprogress class');
 assert(cardHtml.includes('>5<'), '卡片應包含正確點數 5');
 
-// 測試完整欄位卡片的第二列結構排版
+// 測試完整欄位卡片的第二列結構排版 (flex 切成 n 欄，除最後一欄靠右，其他都靠左)
 const fullFeaturedIssue = {
   ...normalized,
   parentSummary: 'Authentication Epic',
   dueDate: '2026年11月4日'
 };
 const fullCardHtml = IssueCardComponent.renderIssueCardHtml(fullFeaturedIssue);
-assert(fullCardHtml.includes('bjwt-card-row-bottom-left'), '卡片第二列應包含左側容器');
-assert(fullCardHtml.includes('bjwt-card-row-bottom-right'), '卡片第二列應包含右側容器');
-assert(fullCardHtml.includes('bjwt-history-parent-badge'), '左側應渲染標籤/Epic');
-assert(fullCardHtml.includes('bjwt-history-duedate-badge'), '左側應渲染截止日期');
-assert(fullCardHtml.includes('bjwt-history-status-badge'), '左側應渲染狀態徽章');
-assert(fullCardHtml.includes('bjwt-history-points-badge'), '右側應渲染 StoryPoint');
-assert(fullCardHtml.includes('bjwt-history-priority-icon'), '右側應渲染優先度圖示');
-assert(fullCardHtml.includes('bjwt-history-assignee'), '右側應渲染經辦人');
+assert(fullCardHtml.includes('bjwt-card-col-epic'), '卡片第二列應包含第 1 欄：標籤/Epic');
+assert(fullCardHtml.includes('bjwt-card-col-status'), '卡片第二列應包含第 2 欄：狀態');
+assert(fullCardHtml.includes('bjwt-card-col-duedate'), '卡片第二列應包含第 3 欄：截止日期');
+assert(fullCardHtml.includes('bjwt-card-col-right'), '卡片第二列應包含最後一欄：右側操作');
+assert(fullCardHtml.includes('bjwt-history-parent-badge'), '第 1 欄應渲染標籤/Epic');
+assert(fullCardHtml.includes('bjwt-history-status-badge'), '第 2 欄應渲染狀態徽章');
+assert(fullCardHtml.includes('bjwt-history-duedate-badge'), '第 3 欄應渲染截止日期');
+assert(fullCardHtml.includes('bjwt-history-points-badge'), '最後一欄應渲染 StoryPoint');
+assert(fullCardHtml.includes('bjwt-history-priority-icon'), '最後一欄應渲染優先度圖示');
+assert(fullCardHtml.includes('bjwt-history-assignee'), '最後一欄應渲染經辦人');
 
-// 驗證左右結構中元素出現順序（左側狀態、Epic、截止日期在前，右側 StoryPoint、優先度、經辦人在後）
-const leftIdx = fullCardHtml.indexOf('bjwt-card-row-bottom-left');
-const statusIdx = fullCardHtml.indexOf('bjwt-history-status-badge');
-const parentIdx = fullCardHtml.indexOf('bjwt-history-parent-badge');
-const duedateIdx = fullCardHtml.indexOf('bjwt-history-duedate-badge');
-const rightIdx = fullCardHtml.indexOf('bjwt-card-row-bottom-right');
-const pointsIdx = fullCardHtml.indexOf('bjwt-history-points-badge');
-const priorityIdx = fullCardHtml.indexOf('bjwt-history-priority-icon');
-const assigneeIdx = fullCardHtml.indexOf('bjwt-history-assignee');
+// 驗證四欄左右結構與出現順序（標籤 -> 狀態 -> 截止日期 -> 最後一欄靠右）
+const epicColIdx = fullCardHtml.indexOf('bjwt-card-col-epic');
+const statusColIdx = fullCardHtml.indexOf('bjwt-card-col-status');
+const duedateColIdx = fullCardHtml.indexOf('bjwt-card-col-duedate');
+const rightColIdx = fullCardHtml.indexOf('bjwt-card-col-right');
 
-assert(leftIdx < statusIdx && statusIdx < parentIdx && parentIdx < duedateIdx, '左側順序應為：狀態 -> Epic -> 截止日期');
-assert(duedateIdx < rightIdx, '左側容器應位於右側容器之前');
-assert(rightIdx < pointsIdx && pointsIdx < priorityIdx && priorityIdx < assigneeIdx, '右側順序應為：StoryPoint -> 優先度 -> 經辦人');
+assert(
+  epicColIdx < statusColIdx && statusColIdx < duedateColIdx && duedateColIdx < rightColIdx,
+  '欄位順序應為：標籤 (第1欄) -> 狀態 (第2欄) -> 截止日期 (第3欄) -> 最後一欄靠右'
+);
+
+// 驗證無標籤/無截止日期的卡片，仍保留欄位結構 (Slot) 以確保不會跑版
+const minimalCardHtml = IssueCardComponent.renderIssueCardHtml(normalized);
+assert(minimalCardHtml.includes('bjwt-card-col-epic'), '無標籤時仍應保留第 1 欄 slot');
+assert(minimalCardHtml.includes('bjwt-card-col-status'), '無標籤時第 2 欄狀態仍正確存在');
+assert(minimalCardHtml.includes('bjwt-card-col-duedate'), '無截止日期時仍應保留第 3 欄 slot');
+assert(!minimalCardHtml.includes('bjwt-history-parent-badge'), '無標籤時不應渲染標籤徽章');
+assert(!minimalCardHtml.includes('bjwt-history-duedate-badge'), '無截止日期時不應渲染日期徽章');
 console.log('✓ IssueCardComponent 測試通過！');
 
 console.log('--- 測試 8: IssueModal 全版面樣式檢查 ---');
@@ -330,12 +337,17 @@ assert(runtimeStylesJs.includes('inset: 0 !important;'), 'runtime-styles.js 應�
 assert(runtimeStylesJs.includes('margin-right: 32px !important;'), 'runtime-styles.js 應設定關閉按鈕安全右邊距');
 console.log('✓ IssueModal 全版面樣式測試通過！');
 
-console.log('--- 測試 9: 卡片第二列左右分欄排版樣式檢查 ---');
-assert(stylesCss.includes('.bjwt-card-row-bottom-left'), 'styles.css 應包含 .bjwt-card-row-bottom-left 樣式');
-assert(stylesCss.includes('.bjwt-card-row-bottom-right'), 'styles.css 應包含 .bjwt-card-row-bottom-right 樣式');
-assert(runtimeStylesJs.includes('.bjwt-card-row-bottom-left'), 'runtime-styles.js 應包含 .bjwt-card-row-bottom-left 樣式');
-assert(runtimeStylesJs.includes('.bjwt-card-row-bottom-right'), 'runtime-styles.js 應包含 .bjwt-card-row-bottom-right 樣式');
-console.log('✓ 卡片第二列左右分欄排版樣式測試通過！');
+console.log('--- 測試 9: 卡片第二列 flex n 欄排版樣式檢查 ---');
+assert(stylesCss.includes('.bjwt-card-col-epic'), 'styles.css 應包含 .bjwt-card-col-epic 樣式');
+assert(stylesCss.includes('.bjwt-card-col-status'), 'styles.css 應包含 .bjwt-card-col-status 樣式');
+assert(stylesCss.includes('.bjwt-card-col-duedate'), 'styles.css 應包含 .bjwt-card-col-duedate 樣式');
+assert(stylesCss.includes('.bjwt-card-col-right'), 'styles.css 應包含 .bjwt-card-col-right 樣式');
+
+assert(runtimeStylesJs.includes('.bjwt-card-col-epic'), 'runtime-styles.js 應包含 .bjwt-card-col-epic 樣式');
+assert(runtimeStylesJs.includes('.bjwt-card-col-status'), 'runtime-styles.js 應包含 .bjwt-card-col-status 樣式');
+assert(runtimeStylesJs.includes('.bjwt-card-col-duedate'), 'runtime-styles.js 應包含 .bjwt-card-col-duedate 樣式');
+assert(runtimeStylesJs.includes('.bjwt-card-col-right'), 'runtime-styles.js 應包含 .bjwt-card-col-right 樣式');
+console.log('✓ 卡片第二列 flex n 欄排版樣式測試通過！');
 
 console.log('============================================');
 console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');

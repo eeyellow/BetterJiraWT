@@ -96,18 +96,26 @@
           <span class="bjwt-history-card-summary" title="${escapeHtml(cleanSummary)}">${escapeHtml(cleanSummary)}</span>
         </div>
 
-        <!-- 第二列：左側放狀態 Badge、Epic 標籤、到期日；右側固定放 StoryPoint、優先順序、指派人員 -->
+        <!-- 第二列：用 flex 切成 n 欄，除了最後一欄靠右，其他都靠左對齊 -->
         <div class="bjwt-card-row-bottom">
-          <!-- 第二列左側：狀態 Badge、Epic 標籤、到期日 (靠左對齊，整齊有序) -->
-          <div class="bjwt-card-row-bottom-left">
+          <!-- 欄 1：標籤 (Epic / Parent)，靠左對齊 -->
+          <div class="bjwt-card-col bjwt-card-col-epic">
+            ${
+              parentLabel
+                ? `<span class="bjwt-history-parent-badge" title="${escapeHtml(iss.parentKey ? `${iss.parentKey}: ${iss.parentSummary}` : parentLabel)}"><span class="bjwt-parent-dot"></span><span class="bjwt-badge-text">${escapeHtml(parentLabel)}</span></span>`
+                : ''
+            }
+          </div>
+
+          <!-- 欄 2：狀態 Badge，靠左對齊 -->
+          <div class="bjwt-card-col bjwt-card-col-status">
             <span class="bjwt-history-status-badge ${statusClass}" title="狀態：${escapeHtml(cleanStatusName)}">
               ${escapeHtml(cleanStatusName)}
             </span>
-            ${
-              parentLabel
-                ? `<span class="bjwt-history-parent-badge" title="${escapeHtml(iss.parentKey ? `${iss.parentKey}: ${iss.parentSummary}` : parentLabel)}"><span class="bjwt-parent-dot"></span>${escapeHtml(parentLabel)}</span>`
-                : ''
-            }
+          </div>
+
+          <!-- 欄 3：截止日期，靠左對齊 -->
+          <div class="bjwt-card-col bjwt-card-col-duedate">
             ${
               cleanDueDate
                 ? `<span class="bjwt-history-duedate-badge" title="到期日：${escapeHtml(cleanDueDate)}">
@@ -123,8 +131,8 @@
             }
           </div>
 
-          <!-- 第二列右側：StoryPoint、優先度、指派人員 (維持靠右一欄一欄整齊對齊) -->
-          <div class="bjwt-card-row-bottom-right bjwt-history-card-right">
+          <!-- 最後一欄：StoryPoint、優先度、指派人員，靠右對齊 -->
+          <div class="bjwt-card-col bjwt-card-col-right bjwt-card-row-bottom-right bjwt-history-card-right">
             <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
             ${
               iss.priorityIcon
