@@ -1030,6 +1030,62 @@
         color: var(--ds-text-subtle, #9fadbc) !important;
         border: 1px dashed var(--ds-border, rgba(255, 255, 255, 0.25)) !important;
       }
+
+      /* Bootstrap 5 執行期主題元件保險樣式 */
+      html[data-betterjira-theme="Bootstrap"] .bjwt-sprint-tab {
+        border-radius: 0 !important;
+        border-bottom: 1px solid #dee2e6 !important;
+      }
+      html[data-betterjira-theme="Bootstrap"] .bjwt-sprint-tab.active {
+        background-color: #0d6efd !important;
+        color: #ffffff !important;
+      }
+      html[data-betterjira-theme="Bootstrap"] .bjwt-active-create-btn {
+        background: #0d6efd !important;
+        border: 1px solid #0d6efd !important;
+        color: #ffffff !important;
+        border-radius: 0.375rem !important;
+      }
+      html[data-betterjira-theme="Bootstrap"] .bjwt-history-card-filter {
+        background: #ffffff !important;
+        border: 1px solid #ced4da !important;
+        border-radius: 0.375rem !important;
+        color: #212529 !important;
+      }
+      html[data-betterjira-theme="Bootstrap"] .bjwt-history-status-badge.status-done {
+        background: #d1e7dd !important;
+        border: 1px solid #a3cfbb !important;
+        color: #0a3622 !important;
+        border-radius: 50rem !important;
+      }
+
+      /* Material Design 3 執行期主題元件保險樣式 */
+      html[data-betterjira-theme="MaterialDesign"] .bjwt-sprint-tab {
+        border-radius: 999px !important;
+        margin: 4px 4px !important;
+      }
+      html[data-betterjira-theme="MaterialDesign"] .bjwt-sprint-tab.active {
+        background-color: #eaddff !important;
+        color: #21005d !important;
+      }
+      html[data-betterjira-theme="MaterialDesign"] .bjwt-active-create-btn {
+        background: #6750a4 !important;
+        border: none !important;
+        color: #ffffff !important;
+        border-radius: 999px !important;
+      }
+      html[data-betterjira-theme="MaterialDesign"] .bjwt-history-card-filter {
+        background: #ece6f0 !important;
+        border: none !important;
+        border-radius: 999px !important;
+        color: #1d1b20 !important;
+      }
+      html[data-betterjira-theme="MaterialDesign"] .bjwt-history-status-badge.status-done {
+        background: #c8eed0 !important;
+        border: 1px solid #a3ddae !important;
+        color: #0d3815 !important;
+        border-radius: 999px !important;
+      }
     `;
     (document.head || document.documentElement).appendChild(styleEl);
   }

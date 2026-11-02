@@ -13,7 +13,8 @@
   let isSidebarCollapsed = false;
   let currentSettings = {
     backlogUrl: '',
-    themeStyle: 'Default'
+    themeStyle: 'Default',
+    enabled: true
   };
   let layoutRafId = null;
 

@@ -37,26 +37,39 @@ const TITLE_MAP = {
 };
 
 /**
- * 依據外觀樣式動態更新擴充功能圖示與提示標題
+ * 依據外觀樣式與啟用狀態動態更新擴充功能圖示與提示標題
  * @param {string} themeStyle - 主題名稱 (Default / Bootstrap / MaterialDesign)
+ * @param {boolean} [enabled=true] - 擴充功能是否啟用
  */
-function updateExtensionIcon(themeStyle) {
+function updateExtensionIcon(themeStyle, enabled = true) {
   const styleKey = ICON_MAP[themeStyle] ? themeStyle : 'Default';
+  const isEnabled = enabled !== false;
   if (chrome.action && chrome.action.setIcon) {
     chrome.action.setIcon({ path: ICON_MAP[styleKey] });
   }
+  if (chrome.action && chrome.action.setBadgeText) {
+    chrome.action.setBadgeText({ text: isEnabled ? '' : 'OFF' });
+  }
+  if (chrome.action && chrome.action.setBadgeBackgroundColor) {
+    chrome.action.setBadgeBackgroundColor({ color: '#6c757d' });
+  }
   if (chrome.action && chrome.action.setTitle) {
-    chrome.action.setTitle({ title: TITLE_MAP[styleKey] || 'BetterJiraWT' });
+    const title = isEnabled
+      ? (TITLE_MAP[styleKey] || 'BetterJiraWT')
+      : 'BetterJiraWT (已關閉)';
+    chrome.action.setTitle({ title });
   }
 }
 
 /**
- * 從 chrome.storage.local 讀取目前樣式並同步圖示
+ * 從 chrome.storage.local 讀取目前樣式與啟用狀態並同步圖示
  */
 function syncIconFromStorage() {
   if (chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get(['themeStyle'], (res) => {
-      updateExtensionIcon((res && res.themeStyle) || 'Default');
+    chrome.storage.local.get(['themeStyle', 'enabled'], (res) => {
+      const theme = (res && res.themeStyle) || 'Default';
+      const isEnabled = res ? res.enabled !== false : true;
+      updateExtensionIcon(theme, isEnabled);
     });
   }
 }
@@ -115,14 +128,18 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === 'local' && changes.themeStyle) {
-    updateExtensionIcon(changes.themeStyle.newValue);
+  if (areaName === 'local' && (changes.themeStyle || changes.enabled)) {
+    chrome.storage.local.get(['themeStyle', 'enabled'], (res) => {
+      const theme = (res && res.themeStyle) || 'Default';
+      const isEnabled = res ? res.enabled !== false : true;
+      updateExtensionIcon(theme, isEnabled);
+    });
   }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message && message.type === 'BETTER_JIRA_WT_UPDATE_ICON') {
-    updateExtensionIcon(message.themeStyle);
+    updateExtensionIcon(message.themeStyle, message.enabled !== false);
     sendResponse({ ok: true });
     return true;
   }

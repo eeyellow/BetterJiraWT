@@ -752,13 +752,15 @@
    * 發送訊息通知 Background Service Worker 切換 Chrome Extension 擴充圖示與標題
    *
    * @param {string} themeStyle - 當前樣式名稱 (Default / Bootstrap / MaterialDesign)
+   * @param {boolean} [enabled=true] - 擴充功能是否啟用
    */
-  function syncExtensionIcon(themeStyle) {
+  function syncExtensionIcon(themeStyle, enabled = true) {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage(
         {
           type: 'BETTER_JIRA_WT_UPDATE_ICON',
-          themeStyle: themeStyle || 'Default'
+          themeStyle: themeStyle || 'Default',
+          enabled: enabled !== false
         },
         () => {
           void chrome.runtime.lastError;

@@ -28,6 +28,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const styleOptionCards = document.querySelectorAll('.style-option-card');
   const styleRadios = document.querySelectorAll('input[name="themeStyle"]');
 
+  const powerToggle = document.getElementById('powerToggle');
+  const powerStatusDesc = document.getElementById('powerStatusDesc');
+
   const statusText = document.getElementById('statusText');
 
   const EXAMPLE_URL = 'https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog';
@@ -52,6 +55,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let currentSettings = await BetterJiraDB.getSettings();
   renderUI(currentSettings);
+
+  // 0. 快捷開啟/關閉切換
+  if (powerToggle) {
+    powerToggle.addEventListener('change', async () => {
+      const isEnabled = powerToggle.checked;
+      currentSettings = await BetterJiraDB.saveSetting('enabled', isEnabled);
+      renderUI(currentSettings);
+      notifyActiveTabs(currentSettings);
+      setStatusMessage(isEnabled ? '已啟用 BetterJiraWT 擴充功能' : '已關閉 BetterJiraWT (恢復 Jira 原生版面)');
+    });
+  }
 
   // 1. 設定 選單展開/收合
   settingsToggleBtn.addEventListener('click', () => {
@@ -149,24 +163,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  function updateBrowserActionIcon(themeStyle) {
+  function updateBrowserActionIcon(themeStyle, enabled = true) {
     const styleKey = ICON_MAP[themeStyle] ? themeStyle : 'Default';
-    if (typeof chrome !== 'undefined' && chrome.action && chrome.action.setIcon) {
-      chrome.action.setIcon({ path: ICON_MAP[styleKey] });
+    const isEnabled = enabled !== false;
+    if (typeof chrome !== 'undefined' && chrome.action) {
+      if (chrome.action.setIcon) {
+        chrome.action.setIcon({ path: ICON_MAP[styleKey] });
+      }
+      if (chrome.action.setBadgeText) {
+        chrome.action.setBadgeText({ text: isEnabled ? '' : 'OFF' });
+      }
+      if (chrome.action.setBadgeBackgroundColor) {
+        chrome.action.setBadgeBackgroundColor({ color: '#6c757d' });
+      }
     }
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({ type: 'BETTER_JIRA_WT_UPDATE_ICON', themeStyle: styleKey }, () => {
-        void chrome.runtime.lastError;
-      });
+      chrome.runtime.sendMessage(
+        {
+          type: 'BETTER_JIRA_WT_UPDATE_ICON',
+          themeStyle: styleKey,
+          enabled: isEnabled
+        },
+        () => {
+          void chrome.runtime.lastError;
+        }
+      );
     }
   }
 
   function renderUI(settings) {
-    const { backlogUrl, themeStyle } = settings;
+    const { backlogUrl, themeStyle, enabled } = settings;
+    const isEnabled = enabled !== false;
     const styleLabel = BetterJiraDB.getStyleLabel(themeStyle);
 
     document.body.setAttribute('data-theme', themeStyle || 'Default');
-    currentStyleBadge.textContent = styleLabel;
+    document.body.classList.toggle('is-disabled', !isEnabled);
+
+    if (powerToggle) {
+      powerToggle.checked = isEnabled;
+    }
+    if (powerStatusDesc) {
+      powerStatusDesc.textContent = isEnabled ? '已啟用雙欄與樣式美化' : '已停用 (保持 Jira 預設介面)';
+    }
+
+    currentStyleBadge.textContent = isEnabled ? styleLabel : '已停用';
     stylePreviewText.textContent = `目前：${styleLabel}`;
 
     if (backlogUrl) {
@@ -178,7 +218,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     syncStyleSelection(themeStyle);
-    updateBrowserActionIcon(themeStyle);
+    updateBrowserActionIcon(themeStyle, isEnabled);
   }
 
   function setStatusMessage(msg) {

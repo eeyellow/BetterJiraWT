@@ -42,12 +42,13 @@
   } = LayoutManager;
 
   /**
-   * 評估目前網址並套用對應主題與雙欄排版
+   * 評估目前網址與啟用狀態，並套用對應主題與雙欄排版 (若停用則自動復原 Jira 原生版面)
    */
   function evaluateAndApply() {
     const settings = getCurrentSettings();
+    const isEnabled = settings.enabled !== false;
     const matched = isUrlMatched(window.location.href, settings.backlogUrl);
-    applyThemeAndLayout(matched, settings.themeStyle);
+    applyThemeAndLayout(isEnabled && matched, settings.themeStyle);
   }
 
   let filterSyncTimer = null;
@@ -201,7 +202,7 @@
       const settings = await BetterJiraDB.getSettings();
       setCurrentSettings(settings);
       await BetterJiraDB.syncFromObject(settings);
-      syncExtensionIcon(settings.themeStyle);
+      syncExtensionIcon(settings.themeStyle, settings.enabled);
       evaluateAndApply();
     } catch (err) {
       console.warn('[BetterJiraWT] Initialization error:', err);
@@ -214,7 +215,7 @@
       if (message && message.type === 'BETTER_JIRA_WT_SETTINGS_UPDATED' && message.payload) {
         const newSettings = message.payload;
         setCurrentSettings(newSettings);
-        syncExtensionIcon(newSettings.themeStyle);
+        syncExtensionIcon(newSettings.themeStyle, newSettings.enabled);
         BetterJiraDB.syncFromObject(newSettings).then(() => {
           evaluateAndApply();
           sendResponse({ ok: true });
@@ -234,7 +235,12 @@
         }
         if (changes.themeStyle) {
           current.themeStyle = changes.themeStyle.newValue;
-          syncExtensionIcon(current.themeStyle);
+        }
+        if (changes.enabled) {
+          current.enabled = changes.enabled.newValue;
+        }
+        if (changes.themeStyle || changes.enabled) {
+          syncExtensionIcon(current.themeStyle, current.enabled);
         }
         setCurrentSettings(current);
         BetterJiraDB.syncFromObject(current).then(() => {
