@@ -408,9 +408,50 @@
       }
     });
 
+    // 補充專案已知的所有類型 (即使當前衝刺或可見卡片中尚未出現該類型，亦完整列出)
+    const { IssueStore } = BetterJira;
+    if (IssueStore && typeof IssueStore.getProjectIssueTypes === 'function') {
+      const pTypes = IssueStore.getProjectIssueTypes();
+      if (Array.isArray(pTypes)) {
+        pTypes.forEach((pt) => {
+          if (!pt || !pt.name) return;
+          const normKey = normalizeIssueTypeName(pt.name);
+          if (!typeMap.has(normKey)) {
+            typeMap.set(normKey, {
+              name: normKey,
+              icon: pt.iconUrl || '',
+              count: 0
+            });
+          } else {
+            const entry = typeMap.get(normKey);
+            if (!entry.icon && pt.iconUrl) {
+              entry.icon = pt.iconUrl;
+            }
+          }
+        });
+      }
+    }
+
+    // 若看板卡片偏少或 API 尚未回傳，保證核心常見問題類型 (Story, Bug, Task, Sub-task, Epic) 完整備齊
+    const baselineTypes = ['Story', 'Bug', 'Task', 'Sub-task', 'Epic'];
+    baselineTypes.forEach((bt) => {
+      if (!typeMap.has(bt)) {
+        typeMap.set(bt, {
+          name: bt,
+          icon: '',
+          count: 0
+        });
+      }
+    });
+
     const assignees = Array.from(assigneeMap.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     const statuses = Array.from(statusMap.values()).sort((a, b) => b.count - a.count);
-    const types = Array.from(typeMap.values()).sort((a, b) => b.count - a.count);
+    const types = Array.from(typeMap.values()).sort((a, b) => {
+      // 有卡片的排前面，計數相同時依常見重要度排序
+      if (b.count !== a.count) return b.count - a.count;
+      const order = { 'Story': 1, 'Bug': 2, 'Task': 3, 'Sub-task': 4, 'Epic': 5 };
+      return (order[a.name] || 99) - (order[b.name] || 99);
+    });
 
     return {
       assignees,

@@ -43,6 +43,7 @@
   let cachedBoardId = null;
   let cachedStoryPointsFieldId = null;
   let cachedBoardSprints = null;
+  let cachedProjectIssueTypes = [];
 
   /**
    * 將原生 DOM 卡片與 API 卡片資料融合並存入 issueMetadataMap
@@ -329,6 +330,10 @@
     getStoryPointsFieldId: () => cachedStoryPointsFieldId,
     setStoryPointsFieldId: (id) => { cachedStoryPointsFieldId = id; },
     getBoardSprints: () => cachedBoardSprints,
-    setBoardSprints: (list) => { cachedBoardSprints = list; }
+    setBoardSprints: (list) => { cachedBoardSprints = list; },
+    getProjectIssueTypes: () => cachedProjectIssueTypes,
+    setProjectIssueTypes: (types) => {
+      if (Array.isArray(types)) cachedProjectIssueTypes = types;
+    }
   };
 })();

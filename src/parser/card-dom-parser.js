@@ -11,6 +11,37 @@
   let typeImg = null;
 
   /**
+   * 嘗試從圖片 URL 或與專案已知問題類型 (IssueStore.getProjectIssueTypes) 比對解析問題類型名稱
+   *
+   * @param {string} url - 圖示 URL
+   * @returns {string} 解析出的類型名稱 (若無法推導則回傳空字串)
+   */
+  function resolveIssueTypeFromProjectOrUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    const lower = url.toLowerCase();
+    if (lower.includes('story') || lower.includes('故事')) return 'Story';
+    if (lower.includes('bug') || lower.includes('缺陷') || lower.includes('錯誤')) return 'Bug';
+    if (lower.includes('subtask') || lower.includes('sub-task') || lower.includes('子任務')) return 'Sub-task';
+    if (lower.includes('epic') || lower.includes('史詩')) return 'Epic';
+    if (lower.includes('task') || lower.includes('任務')) return 'Task';
+
+    if (BetterJira.IssueStore && typeof BetterJira.IssueStore.getProjectIssueTypes === 'function') {
+      const pTypes = BetterJira.IssueStore.getProjectIssueTypes();
+      if (Array.isArray(pTypes)) {
+        for (const pt of pTypes) {
+          if (pt.iconUrl && (pt.iconUrl === url || url.includes(pt.iconUrl))) {
+            return pt.name;
+          }
+          if (pt.avatarId && (url.includes(`/avatar/${pt.avatarId}`) || url.includes(`avatarId=${pt.avatarId}`))) {
+            return pt.name;
+          }
+        }
+      }
+    }
+    return '';
+  }
+
+  /**
    * 從原生卡片 DOM 中提取乾淨且無重複的標題
    *
    * @param {Element} cardEl - 原生卡片容器節點
@@ -208,46 +239,60 @@
     let issueTypeName = '';
     let typeImg = null;
 
-    // 1. 優先尋找明確的類型節點或圖示
-    const typeEl = cardEl.querySelector(
-      '[data-testid*="issue-type"], [data-testid*="issuetype"], [data-testid*="type-icon"], [aria-label*="Issue Type"], [aria-label*="工作項目類型"], [aria-label*="問題類型"], img[src*="issuetype"], img[src*="avatar/type"], img[src*="icons/issuetypes"]'
-    );
-    if (typeEl) {
-      typeImg = typeEl.tagName === 'IMG' ? typeEl : typeEl.querySelector('img');
-      const svg = typeEl.tagName === 'SVG' ? typeEl : typeEl.querySelector('svg');
-      const imgSrc = typeImg ? (typeImg.src || (typeof typeImg.getAttribute === 'function' && typeImg.getAttribute('src'))) : '';
-      if (typeImg && imgSrc) {
-        issueTypeIcon = imgSrc;
-        issueTypeName =
-          (typeof typeImg.getAttribute === 'function' && (typeImg.getAttribute('alt') || typeImg.getAttribute('title'))) ||
-          typeImg.alt ||
-          typeImg.title ||
-          '';
-      }
-      if (!issueTypeName) {
-        issueTypeName =
-          typeEl.getAttribute('aria-label') ||
-          typeEl.getAttribute('title') ||
-          (svg && (svg.getAttribute('aria-label') || svg.getAttribute('title'))) ||
-          '';
-      }
-      if (!issueTypeName && imgSrc) {
-        const lowerSrc = imgSrc.toLowerCase();
-        if (lowerSrc.includes('story') || lowerSrc.includes('故事')) issueTypeName = 'Story';
-        else if (lowerSrc.includes('bug') || lowerSrc.includes('缺陷') || lowerSrc.includes('錯誤')) issueTypeName = 'Bug';
-        else if (lowerSrc.includes('subtask') || lowerSrc.includes('sub-task') || lowerSrc.includes('子任務')) issueTypeName = 'Sub-task';
-        else if (lowerSrc.includes('epic') || lowerSrc.includes('史詩')) issueTypeName = 'Epic';
-        else if (lowerSrc.includes('task') || lowerSrc.includes('任務')) issueTypeName = 'Task';
+    // 0. 最高優先級：若快取中已有完整真實的 API 資料，直接採用
+    if (BetterJira.IssueStore && typeof BetterJira.IssueStore.getCachedIssue === 'function' && key) {
+      const cachedIss = BetterJira.IssueStore.getCachedIssue(key);
+      if (cachedIss && cachedIss.issueTypeName) {
+        issueTypeName = cachedIss.issueTypeName;
+        if (!issueTypeIcon) issueTypeIcon = cachedIss.issueTypeIcon;
       }
     }
 
-    // 2. 若仍未找到，掃描卡片內非頭像的圖示 (Jira 卡片左側常放置類型 SVG 或 img)
+    // 1. 若快取未命中，從 DOM 尋找類型節點或圖示
+    if (!issueTypeName) {
+      const typeEl = cardEl.querySelector(
+        '[data-testid*="issue-type"], [data-testid*="issuetype"], [data-testid*="type-icon"], [data-testid*="type"], [aria-label*="Issue Type"], [aria-label*="工作項目類型"], [aria-label*="問題類型"], img[src*="issuetype"], img[src*="avatar/type"], img[src*="icons/issuetypes"], img[src*="universal_avatar"]'
+      );
+      if (typeEl) {
+        typeImg = typeEl.tagName === 'IMG' ? typeEl : typeEl.querySelector('img');
+        const svg = typeEl.tagName === 'SVG' ? typeEl : typeEl.querySelector('svg');
+        const imgSrc = typeImg ? (typeImg.src || (typeof typeImg.getAttribute === 'function' && typeImg.getAttribute('src'))) : '';
+        if (typeImg && imgSrc) {
+          issueTypeIcon = imgSrc;
+          issueTypeName =
+            (typeof typeImg.getAttribute === 'function' && (typeImg.getAttribute('alt') || typeImg.getAttribute('title'))) ||
+            typeImg.alt ||
+            typeImg.title ||
+            '';
+        }
+        if (!issueTypeName) {
+          // 向上遍歷 3 層父節點查找 aria-label 或 title
+          let pCurr = typeEl;
+          for (let pDepth = 0; pDepth < 3 && pCurr && pCurr !== cardEl; pDepth++) {
+            const pAria = (typeof pCurr.getAttribute === 'function' && (pCurr.getAttribute('aria-label') || pCurr.getAttribute('title'))) || '';
+            if (pAria) {
+              issueTypeName = pAria;
+              break;
+            }
+            pCurr = pCurr.parentElement;
+          }
+          if (!issueTypeName && svg) {
+            issueTypeName = (typeof svg.getAttribute === 'function' && (svg.getAttribute('aria-label') || svg.getAttribute('title'))) || '';
+          }
+        }
+        if (!issueTypeName && imgSrc) {
+          issueTypeName = resolveIssueTypeFromProjectOrUrl(imgSrc);
+        }
+      }
+    }
+
+    // 2. 若仍未找到，掃描卡片內非頭像的圖示 (Jira 卡片常在 Key 前放置類型圖示)
     if (!issueTypeName) {
       const allImgs = Array.from(cardEl.querySelectorAll('img'));
       const candidateTypeImg = allImgs.find((im) => {
         const src = (im.src || (typeof im.getAttribute === 'function' && im.getAttribute('src')) || '').toLowerCase();
         return (
-          /issuetype|\/type\/|icons\/issuetypes|story|bug|task|subtask|epic/i.test(src) &&
+          /issuetype|\/type\/|icons\/issuetypes|universal_avatar|story|bug|task|subtask|epic/i.test(src) &&
           !/user|avatar\/user|ownerId/i.test(src)
         );
       });
@@ -259,31 +304,25 @@
           candidateTypeImg.alt ||
           candidateTypeImg.title ||
           '';
-        if (!issueTypeName && issueTypeIcon) {
-          const lower = issueTypeIcon.toLowerCase();
-          if (lower.includes('story') || lower.includes('故事')) issueTypeName = 'Story';
-          else if (lower.includes('bug') || lower.includes('缺陷') || lower.includes('錯誤')) issueTypeName = 'Bug';
-          else if (lower.includes('subtask') || lower.includes('sub-task') || lower.includes('子任務')) issueTypeName = 'Sub-task';
-          else if (lower.includes('epic') || lower.includes('史詩')) issueTypeName = 'Epic';
-          else if (lower.includes('task') || lower.includes('任務')) issueTypeName = 'Task';
+        if (!issueTypeName && candidateTypeImg.parentElement) {
+          let pCurr = candidateTypeImg.parentElement;
+          for (let pDepth = 0; pDepth < 3 && pCurr && pCurr !== cardEl; pDepth++) {
+            const pAria = (typeof pCurr.getAttribute === 'function' && (pCurr.getAttribute('aria-label') || pCurr.getAttribute('title'))) || '';
+            if (pAria) {
+              issueTypeName = pAria;
+              break;
+            }
+            pCurr = pCurr.parentElement;
+          }
         }
-      }
-    }
-
-    // 3. 優先檢查快取是否已有完整 API 資料
-    if (BetterJira.IssueStore && typeof BetterJira.IssueStore.getCachedIssue === 'function' && key) {
-      const cachedIss = BetterJira.IssueStore.getCachedIssue(key);
-      if (cachedIss && cachedIss.issueTypeName) {
-        issueTypeName = cachedIss.issueTypeName;
-        if (!issueTypeIcon) issueTypeIcon = cachedIss.issueTypeIcon;
+        if (!issueTypeName && issueTypeIcon) {
+          issueTypeName = resolveIssueTypeFromProjectOrUrl(issueTypeIcon);
+        }
       }
     }
 
     if (issueTypeName) {
       issueTypeName = issueTypeName.replace(/^(?:issue\s*type|工作項目類型|問題類型|類型)\s*[:：]\s*/i, '').trim();
-    }
-    if (!issueTypeName) {
-      issueTypeName = '任務';
     }
 
     let statusName = '';
