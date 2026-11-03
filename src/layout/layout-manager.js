@@ -481,6 +481,15 @@
       sprintsHost.insertBefore(sidebar, firstTarget);
     }
 
+    // 主動從原生頁面標頭與按鈕列預熱並探索全量人員目錄
+    if (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.discoverAssigneesFromPage === 'function') {
+      try {
+        BetterJira.AssigneeUtils.discoverAssigneesFromPage();
+      } catch {
+        // ignore
+      }
+    }
+
     // 匯總全看板所有已載入衝刺的卡片母體 (支援跨 Sprint 搜尋)
     const allBoardIssuesMap = new Map();
     sprintBranches.forEach((item) => {

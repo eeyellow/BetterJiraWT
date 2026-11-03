@@ -81,12 +81,32 @@
 
     let assigneeName = '未指派';
     if (!isUnassigned) {
-      const apiName = apiSide && !isUnassignedText(apiSide.assigneeName) ? apiSide.assigneeName : '';
-      const domName = domSide && !isUnassignedText(domSide.assigneeName) ? domSide.assigneeName : '';
+      const apiName =
+        apiSide && !isUnassignedText(apiSide.assigneeName) && apiSide.assigneeName !== '已指派'
+          ? apiSide.assigneeName
+          : '';
+      const domName =
+        domSide && !isUnassignedText(domSide.assigneeName) && domSide.assigneeName !== '已指派'
+          ? domSide.assigneeName
+          : '';
       assigneeName =
         apiName && apiName.length >= domName.length
           ? apiName
-          : domName || apiName || '已指派';
+          : domName || apiName;
+
+      if (!assigneeName) {
+        const av =
+          (domSide && domSide.assigneeAvatar) ||
+          (apiSide && apiSide.assigneeAvatar) ||
+          primaryIss.assigneeAvatar;
+        const resolved =
+          av &&
+          BetterJira.AssigneeUtils &&
+          typeof BetterJira.AssigneeUtils.resolveUserByAvatar === 'function'
+            ? BetterJira.AssigneeUtils.resolveUserByAvatar(av)
+            : null;
+        assigneeName = (resolved && resolved.name) || (domSide && domSide.assigneeName) || '已指派';
+      }
     }
 
     const assigneeInitials = isUnassigned
@@ -112,6 +132,20 @@
         (existing.assigneeAvatar && !/issuetype|\/type\//i.test(existing.assigneeAvatar)
           ? existing.assigneeAvatar
           : '');
+
+    if (
+      assigneeName &&
+      assigneeName !== '未指派' &&
+      assigneeName !== '已指派' &&
+      BetterJira.AssigneeUtils &&
+      typeof BetterJira.AssigneeUtils.registerAssignee === 'function'
+    ) {
+      BetterJira.AssigneeUtils.registerAssignee({
+        name: assigneeName,
+        avatar: assigneeAvatar,
+        initials: assigneeInitials
+      });
+    }
 
     const tokenSet = new Set([
       ...(primaryIss.assigneeTokens || []),

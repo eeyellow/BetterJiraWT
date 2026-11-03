@@ -480,61 +480,92 @@
       return false;
     };
 
+    // 優先尋找卡片上任何明確帶有負責人/經辦人相關 aria-label 或 title 的節點
+    const explicitAssigneeEl = cardEl.querySelector(
+      '[aria-label*="負責人"], [aria-label*="經辦人"], [aria-label*="指派給"], [aria-label*="指派對象"], [aria-label*="Assignee"], [aria-label*="assignee"], [title*="負責人"], [title*="經辦人"], [title*="Assignee"], [title*="assignee"], [data-testid*="assignee"]'
+    );
+
     const assigneeCandidates = Array.from(
       cardEl.querySelectorAll(
-        '[data-testid*="assignee"], [data-testid*="card-End"] [data-testid*="avatar"], .ghx-avatar, [data-testid*="avatar"]'
+        '[data-testid*="assignee"], [data-testid*="card-end"] [data-testid*="avatar"], [data-testid*="card-End"] [data-testid*="avatar"], [data-testid*="card-contents"] [data-testid*="avatar"], [data-testid*="avatar"], [data-testid*="Avatar"], .ghx-avatar, [class*="avatar"], img[src*="avatar"], img[src*="useravatar"], img[src*="atl-paas"], img[src*="gravatar"]'
       )
     ).filter((el) => !isIssueTypeElement(el));
 
     const avatarRoot =
+      explicitAssigneeEl ||
       assigneeCandidates.find((el) => (el.getAttribute('data-testid') || '').toLowerCase().includes('assignee')) ||
       assigneeCandidates[assigneeCandidates.length - 1] ||
       null;
 
     if (avatarRoot) {
-      const rawAriaPieces = [
-        avatarRoot.getAttribute('aria-label'),
-        avatarRoot.getAttribute('title'),
-        ...Array.from(avatarRoot.querySelectorAll('[aria-label], [title], img[alt]')).map(
-          (n) => n.getAttribute('aria-label') || n.getAttribute('title') || n.getAttribute('alt')
-        )
-      ];
+      const rawAriaPieces = [];
+      const addPiece = (str) => {
+        if (str && typeof str === 'string' && str.trim()) rawAriaPieces.push(str.trim());
+      };
 
-      // 向上遍歷 3 層父節點 (因為 Jira 常將 aria-label 放在包裹頭像的 button 或 wrapper 上)
+      addPiece(avatarRoot.getAttribute('aria-label'));
+      addPiece(avatarRoot.getAttribute('title'));
+      addPiece(avatarRoot.getAttribute('alt'));
+
+      // 檢查內部所有子節點之 aria-label、title 與 alt (例如 img 標籤上的 alt)
+      avatarRoot
+        .querySelectorAll('[aria-label], [title], [alt], img, [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"]')
+        .forEach((d) => {
+          addPiece(d.getAttribute('aria-label'));
+          addPiece(d.getAttribute('title'));
+          addPiece(d.getAttribute('alt'));
+          if (d.textContent) addPiece(d.textContent.trim());
+        });
+
+      // 向上遍歷父節點至 cardEl (Jira 常將 aria-label 放在包裹頭像的 button、tooltip-wrapper 或 container 上)
       let searchParent = avatarRoot.parentElement;
-      for (let i = 0; i < 3 && searchParent && searchParent !== cardEl; i++) {
+      while (searchParent && searchParent !== cardEl) {
         if (typeof searchParent.getAttribute === 'function') {
-          const aria = searchParent.getAttribute('aria-label');
-          const title = searchParent.getAttribute('title');
-          if (aria) rawAriaPieces.push(aria);
-          if (title) rawAriaPieces.push(title);
+          addPiece(searchParent.getAttribute('aria-label'));
+          addPiece(searchParent.getAttribute('title'));
         }
         searchParent = searchParent.parentElement;
+      }
+
+      if (explicitAssigneeEl && explicitAssigneeEl !== avatarRoot) {
+        addPiece(explicitAssigneeEl.getAttribute('aria-label'));
+        addPiece(explicitAssigneeEl.getAttribute('title'));
+        addPiece(explicitAssigneeEl.getAttribute('alt'));
       }
 
       const avatarImg =
         avatarRoot.tagName === 'IMG'
           ? avatarRoot
           : avatarRoot.querySelector(
-              'img:not([src*="issuetype"]):not([src*="avatar/type"]):not([src*="priority"])'
+              'img:not([src*="issuetype"]):not([src*="avatar/type"]):not([src*="universal_avatar/view/type/issuetype"]):not([src*="priority"])'
+            ) ||
+            cardEl.querySelector(
+              'img[src*="avatar"]:not([src*="issuetype"]):not([src*="priority"]), img[src*="useravatar"], img[src*="atl-paas"], img[src*="gravatar"]'
             );
 
+      if (avatarImg) {
+        addPiece(avatarImg.getAttribute('alt'));
+        addPiece(avatarImg.getAttribute('title'));
+        addPiece(avatarImg.getAttribute('aria-label'));
+      }
+
       const currentTypeImg = typeof typeImg !== 'undefined' ? typeImg : null;
+      const imgSrc = avatarImg ? (avatarImg.src || avatarImg.getAttribute('src') || '') : '';
       if (
         avatarImg &&
-        avatarImg.src &&
+        imgSrc &&
         (!currentTypeImg || avatarImg !== currentTypeImg) &&
-        (!issueTypeIcon || avatarImg.src !== issueTypeIcon) &&
-        !/issuetype|avatar\/type|universal_avatar\/view\/type\/issuetype/i.test(avatarImg.src)
+        (!issueTypeIcon || imgSrc !== issueTypeIcon) &&
+        !/issuetype|avatar\/type|universal_avatar\/view\/type\/issuetype|priority/i.test(imgSrc)
       ) {
-        assigneeAvatar = avatarImg.src;
+        assigneeAvatar = imgSrc;
       } else {
         const bgImg = window.getComputedStyle(avatarRoot).backgroundImage;
         const bgMatch = bgImg && bgImg.match(/url\(["']?([^"']+)["']?\)/);
         if (
           bgMatch &&
           !bgMatch[1].includes('none') &&
-          !/issuetype|avatar\/type/i.test(bgMatch[1])
+          !/issuetype|avatar\/type|universal_avatar\/view\/type\/issuetype|priority/i.test(bgMatch[1])
         ) {
           assigneeAvatar = bgMatch[1];
         }
@@ -595,12 +626,35 @@
         if (!assigneeInitials) {
           assigneeInitials = getDisplayInitialsForIssue({ assigneeName, isUnassigned: false });
         }
-      } else if (assigneeInitials) {
-        isUnassigned = false;
-        assigneeName = assigneeInitials;
       } else if (assigneeAvatar) {
+        // 嘗試從頭像網址反查已知人員目錄
+        const resolvedByAvatar =
+          BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.resolveUserByAvatar === 'function'
+            ? BetterJira.AssigneeUtils.resolveUserByAvatar(assigneeAvatar)
+            : null;
+        if (resolvedByAvatar && resolvedByAvatar.name) {
+          isUnassigned = false;
+          assigneeName = resolvedByAvatar.name;
+          if (!assigneeInitials) assigneeInitials = resolvedByAvatar.initials || '';
+        } else if (assigneeInitials) {
+          // 嘗試從縮寫反查
+          const resolvedByInit =
+            BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.resolveUserByInitials === 'function'
+              ? BetterJira.AssigneeUtils.resolveUserByInitials(assigneeInitials)
+              : null;
+          isUnassigned = false;
+          assigneeName = resolvedByInit && resolvedByInit.name ? resolvedByInit.name : assigneeInitials;
+        } else {
+          isUnassigned = false;
+          assigneeName = '已指派';
+        }
+      } else if (assigneeInitials) {
+        const resolvedByInit =
+          BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.resolveUserByInitials === 'function'
+            ? BetterJira.AssigneeUtils.resolveUserByInitials(assigneeInitials)
+            : null;
         isUnassigned = false;
-        assigneeName = '已指派';
+        assigneeName = resolvedByInit && resolvedByInit.name ? resolvedByInit.name : assigneeInitials;
       } else {
         isUnassigned = true;
         assigneeName = '未指派';
@@ -613,6 +667,21 @@
           assigneeName = cachedIss.assigneeName;
           isUnassigned = false;
         }
+      }
+
+      // 若成功解析出真實經辦人姓名，主動註冊至 AssigneeUtils 全域目錄供其他卡片反查
+      if (
+        assigneeName &&
+        assigneeName !== '未指派' &&
+        assigneeName !== '已指派' &&
+        BetterJira.AssigneeUtils &&
+        typeof BetterJira.AssigneeUtils.registerAssignee === 'function'
+      ) {
+        BetterJira.AssigneeUtils.registerAssignee({
+          name: assigneeName,
+          avatar: assigneeAvatar,
+          initials: assigneeInitials
+        });
       }
     }
 
