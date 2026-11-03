@@ -44,6 +44,12 @@
   const HISTORY_ISSUE_MODAL_ID = 'bjwt-history-issue-modal';
 
   /**
+   * 跨 Sprint 全域純前端篩選工具列的 DOM ID
+   * @type {string}
+   */
+  const GLOBAL_FILTER_TOOLBAR_ID = 'bjwt-global-filter-toolbar';
+
+  /**
    * 即時注入之關鍵執行期樣式 <style> 標籤 ID
    * @type {string}
    */
@@ -121,6 +127,7 @@
     MODAL_BACKDROP_ID,
     HISTORY_PICKER_MODAL_ID,
     HISTORY_ISSUE_MODAL_ID,
+    GLOBAL_FILTER_TOOLBAR_ID,
     RUNTIME_STYLE_ID,
     SPRINT_SELECTORS,
     CARD_SELECTORS,

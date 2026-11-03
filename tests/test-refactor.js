@@ -647,6 +647,42 @@ class MockElement {
       this.parentElement = null;
     }
   }
+  insertBefore(newNode, refNode) {
+    if (newNode.remove) newNode.remove();
+    newNode.parentElement = this;
+    const idx = refNode ? this.children.indexOf(refNode) : -1;
+    if (idx === -1) {
+      this.children.push(newNode);
+    } else {
+      this.children.splice(idx, 0, newNode);
+    }
+    return newNode;
+  }
+  insertAdjacentElement(pos, el) {
+    if (el.remove) el.remove();
+    if (pos === 'afterend' && this.parentElement) {
+      const idx = this.parentElement.children.indexOf(this);
+      if (idx !== -1) {
+        el.parentElement = this.parentElement;
+        this.parentElement.children.splice(idx + 1, 0, el);
+      }
+    } else if (pos === 'beforebegin' && this.parentElement) {
+      this.parentElement.insertBefore(el, this);
+    }
+    return el;
+  }
+  get previousElementSibling() {
+    if (!this.parentElement) return null;
+    const idx = this.parentElement.children.indexOf(this);
+    return idx > 0 ? this.parentElement.children[idx - 1] : null;
+  }
+  get nextElementSibling() {
+    if (!this.parentElement) return null;
+    const idx = this.parentElement.children.indexOf(this);
+    return idx !== -1 && idx < this.parentElement.children.length - 1
+      ? this.parentElement.children[idx + 1]
+      : null;
+  }
   cloneNode(deep = false) {
     const clone = new MockElement(this.tagName);
     Object.assign(clone.attributes, this.attributes);
@@ -1505,6 +1541,45 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     'true',
     'hideNativeFilterBars 應為 software-backlog.page-header 打上隱藏屬性'
   );
+
+  // 9. 測試全看板跨 Sprint 搜尋資料匯總與選項萃取
+  const mockSprint1Issues = [
+    { key: 'SP1-1', summary: 'Sprint 1 task A', assigneeName: 'Alice Chen', statusName: 'To Do', issueTypeName: 'Task' },
+    { key: 'SP1-2', summary: 'Sprint 1 bug B', assigneeName: 'Bob Lin', statusName: 'In Progress', issueTypeName: 'Bug' }
+  ];
+  const mockSprint2Issues = [
+    { key: 'SP2-1', summary: 'Sprint 2 story C', assigneeName: 'Charlie Wang', statusName: 'Done', issueTypeName: 'Story' }
+  ];
+  const mockAllBoardIssues = [...mockSprint1Issues, ...mockSprint2Issues];
+
+  const boardOptions = FrontendFilterService.extractFilterOptions(mockAllBoardIssues);
+  assert.strictEqual(boardOptions.totalIssues, 3, '全看板總卡片數應為 3');
+  const assigneeNames = boardOptions.assignees.map((a) => a.name);
+  assert(assigneeNames.includes('Alice Chen') && assigneeNames.includes('Bob Lin') && assigneeNames.includes('Charlie Wang'),
+    '跨 Sprint 搜尋選項中經辦人應完整包含所有衝刺人員 (Alice, Bob, Charlie)');
+
+  // 10. 測試全域頂部工具列 (scopeId='global') 渲染字樣
+  const globalToolbarHtml = FilterToolbarComponent.renderToolbarHtml(mockAllBoardIssues, mockAllBoardIssues, 'global');
+  assert(globalToolbarHtml.includes('全看板共 <strong>3</strong> 個工作項目'), '全域工具列在未過濾時應顯示「全看板共 3 個工作項目」');
+
+  FrontendFilterService.clearAll();
+  FrontendFilterService.setKeyword('Sprint 1');
+  const filteredBoardIssues = FrontendFilterService.filterIssues(mockAllBoardIssues);
+  assert.strictEqual(filteredBoardIssues.length, 2, '搜尋「Sprint 1」應篩出 2 個跨衝刺工作項目');
+  const globalFilteredToolbarHtml = FilterToolbarComponent.renderToolbarHtml(mockAllBoardIssues, filteredBoardIssues, 'global');
+  assert(globalFilteredToolbarHtml.includes('跨衝刺篩選顯示 <strong>2</strong> / 全看板共 3 個工作項目'), '全域工具列在過濾時應顯示「跨衝刺篩選顯示 2 / 全看板共 3 個工作項目」');
+  FrontendFilterService.clearAll();
+
+  // 11. 測試 Constants.GLOBAL_FILTER_TOOLBAR_ID 與樣式定義
+  const { Constants } = BetterJira;
+  assert.strictEqual(Constants.GLOBAL_FILTER_TOOLBAR_ID, 'bjwt-global-filter-toolbar', 'Constants 應包含正確的 GLOBAL_FILTER_TOOLBAR_ID');
+  assert(checkStylesCss.includes('#bjwt-global-filter-toolbar'), 'styles.css 應包含 #bjwt-global-filter-toolbar 樣式定義');
+  assert(checkStylesCss.includes('.bjwt-global-toolbar-container'), 'styles.css 應包含 .bjwt-global-toolbar-container 樣式定義');
+
+  // 12. 驗證 ActiveSprintView 與 HistorySprintView 內部右側欄已不再重複渲染內部工具列
+  const { ActiveSprintView, HistorySprintView } = BetterJira;
+  assert(ActiveSprintView, 'ActiveSprintView 應存在');
+  assert(HistorySprintView, 'HistorySprintView 應存在');
 
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 

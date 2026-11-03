@@ -339,15 +339,10 @@
             ? `<div class="bjwt-history-sprint-goal"><strong>衝刺目標：</strong>${escapeHtml(sprintData.goal)}</div>`
             : ''
         }
-        ${
-          FilterToolbarComponent && typeof FilterToolbarComponent.renderToolbarHtml === 'function'
-            ? FilterToolbarComponent.renderToolbarHtml(allIssues, visibleIssues, key)
-            : ''
-        }
         <div class="bjwt-history-card-list">
           ${
             visibleIssues.length === 0
-              ? `<div class="bjwt-history-empty-cards">目前沒有符合篩選條件的待辦事項卡片。</div>`
+              ? `<div class="bjwt-history-empty-cards">目前沒有符合搜尋與篩選條件的卡片。您可以點選左側其他衝刺查看結果，或點擊上方「清除篩選」。</div>`
               : visibleIssues.map(renderIssueCardHtml).join('')
           }
         </div>
@@ -362,11 +357,6 @@
         </div>
       </div>
     `;
-
-    // 綁定純前端篩選工具列事件
-    if (FilterToolbarComponent && typeof FilterToolbarComponent.bindToolbarEvents === 'function') {
-      FilterToolbarComponent.bindToolbarEvents(customView, () => renderActiveSprintBranch(item));
-    }
 
     // 綁定重新整理按鈕
     const refreshBtn = customView.querySelector('.bjwt-history-refresh-btn');

@@ -166,6 +166,93 @@
   }
 
   /**
+   * 掛載並渲染待辦事項頁面頂部的跨 Sprint 純前端搜尋篩選工具列
+   *
+   * @param {Element} sprintsHost - 衝刺宿主容器
+   * @param {Object[]} allBoardIssues - 看板上所有已載入衝刺的卡片集合
+   * @param {Object[]} filteredBoardIssues - 篩選後全板符合條件的卡片
+   */
+  function renderGlobalFilterToolbar(sprintsHost, allBoardIssues, filteredBoardIssues) {
+    const { Constants, FilterToolbarComponent } = BetterJira;
+    if (!FilterToolbarComponent || typeof FilterToolbarComponent.renderToolbarHtml !== 'function') {
+      return;
+    }
+    const toolbarId = (Constants && Constants.GLOBAL_FILTER_TOOLBAR_ID) || 'bjwt-global-filter-toolbar';
+
+    // 尋找 Jira 原生頁面標頭位置或 sprintsHost 前方
+    const nativePageHeader =
+      (typeof document !== 'undefined' && typeof document.querySelector === 'function')
+        ? (document.querySelector('[data-testid="software-backlog.page-header"]') ||
+           document.querySelector('[data-testid="software-backlog.header"]'))
+        : null;
+
+    let globalToolbar = typeof document !== 'undefined' && typeof document.getElementById === 'function'
+      ? document.getElementById(toolbarId)
+      : null;
+
+    if (!globalToolbar && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+      globalToolbar = document.createElement('div');
+      globalToolbar.id = toolbarId;
+      globalToolbar.className = 'bjwt-global-toolbar-container';
+    }
+
+    if (!globalToolbar) return;
+
+    // 優先掛在原生標頭位置 (原標頭已被隱藏，自製工具列直接頂替它)，或插在 sprintsHost 前方
+    if (nativePageHeader && nativePageHeader.parentElement) {
+      if (globalToolbar.previousElementSibling !== nativePageHeader) {
+        if (typeof nativePageHeader.insertAdjacentElement === 'function') {
+          nativePageHeader.insertAdjacentElement('afterend', globalToolbar);
+        } else if (nativePageHeader.nextElementSibling) {
+          nativePageHeader.parentElement.insertBefore(globalToolbar, nativePageHeader.nextElementSibling);
+        } else {
+          nativePageHeader.parentElement.appendChild(globalToolbar);
+        }
+      }
+    } else if (sprintsHost && sprintsHost.parentElement) {
+      if (globalToolbar.nextElementSibling !== sprintsHost) {
+        sprintsHost.parentElement.insertBefore(globalToolbar, sprintsHost);
+      }
+    }
+
+    // 偵測打字中的搜尋輸入框焦點與游標位置，在重新渲染後無縫恢復
+    const currentActive = typeof document !== 'undefined' ? document.activeElement : null;
+    const isSearchFocused =
+      currentActive &&
+      typeof globalToolbar.contains === 'function' &&
+      globalToolbar.contains(currentActive) &&
+      currentActive.classList &&
+      currentActive.classList.contains('bjwt-filter-search-input');
+    const prevCursorPos = isSearchFocused ? currentActive.selectionStart : null;
+
+    globalToolbar.innerHTML = FilterToolbarComponent.renderToolbarHtml(
+      allBoardIssues,
+      filteredBoardIssues,
+      'global'
+    );
+
+    if (typeof FilterToolbarComponent.bindToolbarEvents === 'function') {
+      FilterToolbarComponent.bindToolbarEvents(globalToolbar, () => {
+        scheduleLayoutRefresh();
+      });
+    }
+
+    if (isSearchFocused && prevCursorPos !== null) {
+      const nextInput = globalToolbar.querySelector('.bjwt-filter-search-input');
+      if (nextInput && typeof nextInput.focus === 'function') {
+        nextInput.focus();
+        try {
+          if (typeof nextInput.setSelectionRange === 'function') {
+            nextInput.setSelectionRange(prevCursorPos, prevCursorPos);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
+  /**
    * 建立或更新「左欄 20% 衝刺清單 + 右欄 80% 選取衝刺卡片」的雙欄排版
    *
    * @returns {Element|null} 衝刺宿主節點 sprintsHost
@@ -273,7 +360,11 @@
 
       HistorySprintView.renderHistoricalSprintBranch(histBranch, histItem, nativeFilter);
 
-      const filteredHistIssues = filterIssuesByNativeFilter(histItem.issues || [], nativeFilter);
+      const { FrontendFilterService } = BetterJira;
+      const isFrontendFiltered = FrontendFilterService && FrontendFilterService.getState().isActive;
+      const filteredHistIssues = isFrontendFiltered
+        ? FrontendFilterService.filterIssues(histItem.issues || [])
+        : filterIssuesByNativeFilter(histItem.issues || [], nativeFilter);
       const histStats = BetterJira.SprintStatsService.calculateSprintStatistics(filteredHistIssues);
 
       sprintBranches.push({
@@ -399,6 +490,34 @@
     updateColumnsViewportHeight(sprintsHost, sidebar);
     SidebarComponent.renderSidebarContents(sidebar, sprintBranches, resolvedIndex, nativeFilter);
 
+    // 匯總全看板所有已載入衝刺的卡片母體 (支援跨 Sprint 搜尋)
+    const allBoardIssuesMap = new Map();
+    sprintBranches.forEach((item) => {
+      let issues = [];
+      if (item.meta && item.meta.isHistorical) {
+        const h = loadedHistoricalSprints.find((x) => x.key === item.meta.key);
+        issues = h && Array.isArray(h.issues) ? h.issues : [];
+      } else {
+        const cache = getSprintIssueCache(item.meta.key);
+        issues = cache && Array.isArray(cache.rawIssues)
+          ? cache.rawIssues
+          : (cache && Array.isArray(cache.issues) ? cache.issues : []);
+      }
+      issues.forEach((iss) => {
+        if (iss && iss.key) {
+          allBoardIssuesMap.set(iss.key, iss);
+        }
+      });
+    });
+    const allBoardIssues = Array.from(allBoardIssuesMap.values());
+    const isFrontendFilterActive = FrontendFilterService && FrontendFilterService.getState().isActive;
+    const allBoardFilteredIssues = isFrontendFilterActive && typeof FrontendFilterService.filterIssues === 'function'
+      ? FrontendFilterService.filterIssues(allBoardIssues)
+      : allBoardIssues;
+
+    // 掛載與渲染頂部跨 Sprint 純前端搜尋篩選工具列 (位於原生標頭位置)
+    renderGlobalFilterToolbar(sprintsHost, allBoardIssues, allBoardFilteredIssues);
+
     return sprintsHost;
   }
 
@@ -407,7 +526,12 @@
    */
   function teardownTwoColumnBacklogLayout() {
     const { Constants, IssueModalComponent } = BetterJira;
-    const { SIDEBAR_ID, HISTORY_PICKER_MODAL_ID, HISTORY_ISSUE_MODAL_ID } = Constants;
+    const { SIDEBAR_ID, HISTORY_PICKER_MODAL_ID, HISTORY_ISSUE_MODAL_ID, GLOBAL_FILTER_TOOLBAR_ID } = Constants;
+
+    const globalToolbar = document.getElementById(GLOBAL_FILTER_TOOLBAR_ID || 'bjwt-global-filter-toolbar');
+    if (globalToolbar) {
+      globalToolbar.remove();
+    }
 
     const sidebar = document.getElementById(SIDEBAR_ID);
     if (sidebar) {
