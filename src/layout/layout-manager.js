@@ -13,6 +13,7 @@
   let isSidebarCollapsed = false;
   let currentSettings = {
     backlogUrl: '',
+    defaultSprint: '',
     themeStyle: 'Default',
     enabled: true
   };
@@ -277,12 +278,39 @@
       }
     });
 
-    // 決定目前選取的衝刺索引 (每次只能切換一個衝刺)
+    // 決定目前選取的衝刺索引 (每次只能切換一個衝刺，支援預設 Sprint 自動切換)
     let resolvedIndex = 0;
+    let hasMatchedDefaultSprint = false;
+    const defaultSprintTarget = (currentSettings && currentSettings.defaultSprint)
+      ? String(currentSettings.defaultSprint).trim()
+      : '';
+
     if (activeSprintKey !== null) {
       const foundByKey = sprintBranches.findIndex((item) => item.meta.key === activeSprintKey);
       if (foundByKey !== -1) {
         resolvedIndex = foundByKey;
+      } else if (activeSprintIndex < sprintBranches.length) {
+        resolvedIndex = activeSprintIndex;
+      }
+    } else if (defaultSprintTarget) {
+      const targetLower = defaultSprintTarget.toLowerCase();
+      let matchIdx = sprintBranches.findIndex((item) => {
+        const title = (item.meta.title || '').trim().toLowerCase();
+        const rawTitle = (item.meta.rawTitle || '').trim().toLowerCase();
+        const sprintId = String(item.meta.sprintId || '').trim().toLowerCase();
+        const key = String(item.meta.key || '').trim().toLowerCase();
+        return title === targetLower || rawTitle === targetLower || sprintId === targetLower || key === targetLower;
+      });
+      if (matchIdx === -1) {
+        matchIdx = sprintBranches.findIndex((item) => {
+          const title = (item.meta.title || '').toLowerCase();
+          const rawTitle = (item.meta.rawTitle || '').toLowerCase();
+          return title.includes(targetLower) || rawTitle.includes(targetLower);
+        });
+      }
+      if (matchIdx !== -1) {
+        resolvedIndex = matchIdx;
+        hasMatchedDefaultSprint = true;
       } else if (activeSprintIndex < sprintBranches.length) {
         resolvedIndex = activeSprintIndex;
       }
@@ -291,7 +319,16 @@
     }
 
     activeSprintIndex = resolvedIndex;
-    activeSprintKey = sprintBranches[resolvedIndex].meta.key;
+    if (!defaultSprintTarget || hasMatchedDefaultSprint || activeSprintKey !== null) {
+      activeSprintKey = sprintBranches[resolvedIndex].meta.key;
+    }
+
+    if (hasMatchedDefaultSprint && SprintDomParser && typeof SprintDomParser.expandSprintHeaderOnUserSelect === 'function') {
+      const selectedBranch = sprintBranches[resolvedIndex];
+      if (selectedBranch && selectedBranch.meta && selectedBranch.meta.isCollapsed) {
+        SprintDomParser.expandSprintHeaderOnUserSelect(selectedBranch.branch, selectedBranch.sprintEl, selectedBranch.headerPartner);
+      }
+    }
 
     // 切換右欄 80%：只顯示目前選取的衝刺，其餘衝刺隱藏
     sprintBranches.forEach((item, idx) => {

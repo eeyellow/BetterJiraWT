@@ -52,6 +52,18 @@
             </div>
             <span class="submenu-arrow">›</span>
           </button>
+
+          <!-- 1.2 預設 Sprint -->
+          <button class="submenu-item" id="openDefaultSprintModalBtn" type="button">
+            <div class="submenu-item-main">
+              <span class="submenu-index">1.2</span>
+              <div class="submenu-text">
+                <span class="submenu-label">預設 Sprint</span>
+                <span class="submenu-preview" id="defaultSprintPreview">尚未設定 (依首個衝刺)</span>
+              </div>
+            </div>
+            <span class="submenu-arrow">›</span>
+          </button>
         </div>
       </div>
     </main>
@@ -93,6 +105,33 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelBacklogBtn">取消</button>
           <button type="button" class="btn btn-primary" id="saveBacklogBtn">儲存設定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 彈出視窗 1.2：設定 - 預設 Sprint -->
+    <div class="modal-overlay hidden" id="defaultSprintModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>設定 - 預設 Sprint</h2>
+          <button class="close-btn" id="closeDefaultSprintModalBtn" type="button" aria-label="關閉">✕</button>
+        </div>
+        <div class="modal-body">
+          <label for="defaultSprintInput" class="input-label">請輸入每次重新整理自動切換的目標 Sprint 名稱或關鍵字：</label>
+          <input
+            type="text"
+            id="defaultSprintInput"
+            class="url-input"
+            placeholder="例如：Sprint 23 或 WMC Sprint 23"
+            autocomplete="off"
+          />
+          <p class="helper-text">
+            支援完整名稱或部分關鍵字（不分大小寫）。留空時將依預設規則切換至列表第一個衝刺。設定儲存於 IndexedDB。
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelDefaultSprintBtn">取消</button>
+          <button type="button" class="btn btn-primary" id="saveDefaultSprintBtn">儲存設定</button>
         </div>
       </div>
     </div>
