@@ -96,7 +96,7 @@
           <span class="bjwt-history-card-summary" title="${escapeHtml(cleanSummary)}">${escapeHtml(cleanSummary)}</span>
         </div>
 
-        <!-- 第二列：用 flex 切成 n 欄，除了最後一欄靠右，其他都靠左對齊 -->
+        <!-- 第二列：用 flex 切成 n 欄，除最後一欄靠右，其他都靠左對齊 -->
         <div class="bjwt-card-row-bottom">
           <!-- 欄 1：標籤 (Epic / Parent)，靠左對齊 -->
           <div class="bjwt-card-col bjwt-card-col-epic">
@@ -107,14 +107,7 @@
             }
           </div>
 
-          <!-- 欄 2：狀態 Badge，靠左對齊 -->
-          <div class="bjwt-card-col bjwt-card-col-status">
-            <span class="bjwt-history-status-badge ${statusClass}" title="狀態：${escapeHtml(cleanStatusName)}">
-              ${escapeHtml(cleanStatusName)}
-            </span>
-          </div>
-
-          <!-- 欄 3：截止日期，靠左對齊 -->
+          <!-- 欄 2：截止日期，靠左對齊 -->
           <div class="bjwt-card-col bjwt-card-col-duedate">
             ${
               cleanDueDate
@@ -131,8 +124,11 @@
             }
           </div>
 
-          <!-- 最後一欄：StoryPoint、優先度、指派人員，靠右對齊 -->
+          <!-- 最後一欄：狀態（最前方等寬靠左）、StoryPoint、優先度、指派人員，靠右對齊 -->
           <div class="bjwt-card-col bjwt-card-col-right bjwt-card-row-bottom-right bjwt-history-card-right">
+            <span class="bjwt-history-status-badge ${statusClass}" title="狀態：${escapeHtml(cleanStatusName)}">
+              <span class="bjwt-badge-text">${escapeHtml(cleanStatusName)}</span>
+            </span>
             <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
             ${
               iss.priorityIcon

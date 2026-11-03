@@ -339,20 +339,37 @@
       .bjwt-history-status-badge {
         display: inline-flex !important;
         align-items: center !important;
-        justify-content: center !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        width: 88px !important;
+        min-width: 88px !important;
+        max-width: 88px !important;
         height: 22px !important;
         padding: 0 8px !important;
         border-radius: 4px !important;
         font-size: 11px !important;
         font-weight: 700 !important;
-        min-width: 64px !important;
-        max-width: 100% !important;
-        text-align: center !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         flex-shrink: 0 !important;
         box-sizing: border-box !important;
+      }
+      .bjwt-history-status-badge .bjwt-badge-text {
+        display: inline-block !important;
+        width: 100% !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        text-align: left !important;
+      }
+      #bjwt-history-issue-modal .bjwt-history-status-badge,
+      .bjwt-detail-field-value .bjwt-history-status-badge {
+        width: auto !important;
+        min-width: 64px !important;
+        max-width: 100% !important;
+        justify-content: center !important;
+        text-align: center !important;
       }
       .bjwt-history-parent-badge {
         display: inline-flex !important;
