@@ -207,8 +207,10 @@
     let issueTypeIcon = '';
     let issueTypeName = '';
     let typeImg = null;
+
+    // 1. 優先尋找明確的類型節點或圖示
     const typeEl = cardEl.querySelector(
-      '[data-testid*="issue-type"], [data-testid*="issuetype"], [data-testid*="type-icon"], [aria-label*="Issue Type"], [aria-label*="工作項目類型"], [aria-label*="問題類型"], img[src*="issuetype"], img[src*="avatar/type"]'
+      '[data-testid*="issue-type"], [data-testid*="issuetype"], [data-testid*="type-icon"], [aria-label*="Issue Type"], [aria-label*="工作項目類型"], [aria-label*="問題類型"], img[src*="issuetype"], img[src*="avatar/type"], img[src*="icons/issuetypes"]'
     );
     if (typeEl) {
       typeImg = typeEl.tagName === 'IMG' ? typeEl : typeEl.querySelector('img');
@@ -229,7 +231,54 @@
           (svg && (svg.getAttribute('aria-label') || svg.getAttribute('title'))) ||
           '';
       }
+      if (!issueTypeName && imgSrc) {
+        const lowerSrc = imgSrc.toLowerCase();
+        if (lowerSrc.includes('story') || lowerSrc.includes('故事')) issueTypeName = 'Story';
+        else if (lowerSrc.includes('bug') || lowerSrc.includes('缺陷') || lowerSrc.includes('錯誤')) issueTypeName = 'Bug';
+        else if (lowerSrc.includes('subtask') || lowerSrc.includes('sub-task') || lowerSrc.includes('子任務')) issueTypeName = 'Sub-task';
+        else if (lowerSrc.includes('epic') || lowerSrc.includes('史詩')) issueTypeName = 'Epic';
+        else if (lowerSrc.includes('task') || lowerSrc.includes('任務')) issueTypeName = 'Task';
+      }
     }
+
+    // 2. 若仍未找到，掃描卡片內非頭像的圖示 (Jira 卡片左側常放置類型 SVG 或 img)
+    if (!issueTypeName) {
+      const allImgs = Array.from(cardEl.querySelectorAll('img'));
+      const candidateTypeImg = allImgs.find((im) => {
+        const src = (im.src || (typeof im.getAttribute === 'function' && im.getAttribute('src')) || '').toLowerCase();
+        return (
+          /issuetype|\/type\/|icons\/issuetypes|story|bug|task|subtask|epic/i.test(src) &&
+          !/user|avatar\/user|ownerId/i.test(src)
+        );
+      });
+      if (candidateTypeImg) {
+        typeImg = candidateTypeImg;
+        issueTypeIcon = candidateTypeImg.src || (typeof candidateTypeImg.getAttribute === 'function' && candidateTypeImg.getAttribute('src')) || '';
+        issueTypeName =
+          (typeof candidateTypeImg.getAttribute === 'function' && (candidateTypeImg.getAttribute('alt') || candidateTypeImg.getAttribute('title'))) ||
+          candidateTypeImg.alt ||
+          candidateTypeImg.title ||
+          '';
+        if (!issueTypeName && issueTypeIcon) {
+          const lower = issueTypeIcon.toLowerCase();
+          if (lower.includes('story') || lower.includes('故事')) issueTypeName = 'Story';
+          else if (lower.includes('bug') || lower.includes('缺陷') || lower.includes('錯誤')) issueTypeName = 'Bug';
+          else if (lower.includes('subtask') || lower.includes('sub-task') || lower.includes('子任務')) issueTypeName = 'Sub-task';
+          else if (lower.includes('epic') || lower.includes('史詩')) issueTypeName = 'Epic';
+          else if (lower.includes('task') || lower.includes('任務')) issueTypeName = 'Task';
+        }
+      }
+    }
+
+    // 3. 優先檢查快取是否已有完整 API 資料
+    if (BetterJira.IssueStore && typeof BetterJira.IssueStore.getCachedIssue === 'function' && key) {
+      const cachedIss = BetterJira.IssueStore.getCachedIssue(key);
+      if (cachedIss && cachedIss.issueTypeName) {
+        issueTypeName = cachedIss.issueTypeName;
+        if (!issueTypeIcon) issueTypeIcon = cachedIss.issueTypeIcon;
+      }
+    }
+
     if (issueTypeName) {
       issueTypeName = issueTypeName.replace(/^(?:issue\s*type|工作項目類型|問題類型|類型)\s*[:：]\s*/i, '').trim();
     }
@@ -378,7 +427,19 @@
         ...Array.from(avatarRoot.querySelectorAll('[aria-label], [title], img[alt]')).map(
           (n) => n.getAttribute('aria-label') || n.getAttribute('title') || n.getAttribute('alt')
         )
-      ].filter(Boolean);
+      ];
+
+      // 向上遍歷 3 層父節點 (因為 Jira 常將 aria-label 放在包裹頭像的 button 或 wrapper 上)
+      let searchParent = avatarRoot.parentElement;
+      for (let i = 0; i < 3 && searchParent && searchParent !== cardEl; i++) {
+        if (typeof searchParent.getAttribute === 'function') {
+          const aria = searchParent.getAttribute('aria-label');
+          const title = searchParent.getAttribute('title');
+          if (aria) rawAriaPieces.push(aria);
+          if (title) rawAriaPieces.push(title);
+        }
+        searchParent = searchParent.parentElement;
+      }
 
       const avatarImg =
         avatarRoot.tagName === 'IMG'
@@ -472,6 +533,15 @@
       } else {
         isUnassigned = true;
         assigneeName = '未指派';
+      }
+
+      // 若先前已有快取的真實姓名 (例如 API 獲取過)，優先繼承真實姓名
+      if (BetterJira.IssueStore && typeof BetterJira.IssueStore.getCachedIssue === 'function' && key) {
+        const cachedIss = BetterJira.IssueStore.getCachedIssue(key);
+        if (cachedIss && cachedIss.assigneeName && !isUnassignedText(cachedIss.assigneeName) && cachedIss.assigneeName !== '已指派') {
+          assigneeName = cachedIss.assigneeName;
+          isUnassigned = false;
+        }
       }
     }
 

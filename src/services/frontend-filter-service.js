@@ -192,6 +192,35 @@
   }
 
   /**
+   * 正規化問題類型名稱 (支援繁體中文/簡體中文/英文互通與對齊)
+   *
+   * @param {string} raw - 原始類型字串
+   * @returns {string} 標準化類型名稱
+   */
+  function normalizeIssueTypeName(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    const clean = raw.trim();
+    const lower = clean.toLowerCase();
+
+    if (/^(?:story|故事)$/i.test(lower) || lower.includes('story') || lower.includes('故事')) {
+      return 'Story';
+    }
+    if (/^(?:bug|錯誤|缺陷)$/i.test(lower) || lower.includes('bug') || lower.includes('錯誤') || lower.includes('缺陷')) {
+      return 'Bug';
+    }
+    if (/^(?:sub[\s_-]?task|子任務|子工作)$/i.test(lower) || lower.includes('subtask') || lower.includes('sub-task') || lower.includes('子任務')) {
+      return 'Sub-task';
+    }
+    if (/^(?:epic|史詩)$/i.test(lower) || lower.includes('epic') || lower.includes('史詩')) {
+      return 'Epic';
+    }
+    if (/^(?:task|任務|工作)$/i.test(lower) || lower.includes('task') || lower.includes('任務') || lower.includes('工作')) {
+      return 'Task';
+    }
+    return clean;
+  }
+
+  /**
    * 檢查指定卡片是否代表目前使用者
    *
    * @param {Object} issue - 卡片資料物件
@@ -279,12 +308,23 @@
         }
       }
 
-      // 4. 問題類型 (Issue Type) 比對
+      // 4. 問題類型 (Issue Type) 比對 (支援中英文雙向正規化比對)
       if (hasType) {
-        const typeName = (iss.issueTypeName || '').trim();
-        if (!filterState.selectedTypes.has(typeName)) {
-          return false;
+        const rawType = (iss.issueTypeName || '').trim();
+        const normCardType = normalizeIssueTypeName(rawType).toLowerCase();
+        let typeMatched = false;
+        for (const selected of filterState.selectedTypes) {
+          if (
+            selected === rawType ||
+            normalizeIssueTypeName(selected).toLowerCase() === normCardType ||
+            rawType.toLowerCase().includes(selected.toLowerCase()) ||
+            selected.toLowerCase().includes(rawType.toLowerCase())
+          ) {
+            typeMatched = true;
+            break;
+          }
         }
+        if (!typeMatched) return false;
       }
 
       return true;
@@ -319,15 +359,17 @@
         unassignedCount++;
       } else {
         const cleanName = BetterJira.AssigneeUtils ? BetterJira.AssigneeUtils.cleanAssigneeLabel(rawAssignee) : rawAssignee;
-        if (!assigneeMap.has(cleanName)) {
-          assigneeMap.set(cleanName, {
-            name: cleanName,
-            avatar: iss.assigneeAvatar || '',
-            initials: iss.assigneeInitials || '',
-            count: 0
-          });
+        if (cleanName && cleanName !== '已指派') {
+          if (!assigneeMap.has(cleanName)) {
+            assigneeMap.set(cleanName, {
+              name: cleanName,
+              avatar: iss.assigneeAvatar || '',
+              initials: iss.assigneeInitials || '',
+              count: 0
+            });
+          }
+          assigneeMap.get(cleanName).count++;
         }
-        assigneeMap.get(cleanName).count++;
       }
 
       if (isIssueAssignedToMe(iss, currentUserName)) {
@@ -347,17 +389,22 @@
         statusMap.get(statusName).count++;
       }
 
-      // 類型統計
-      const typeName = (iss.issueTypeName || '').trim();
-      if (typeName) {
-        if (!typeMap.has(typeName)) {
-          typeMap.set(typeName, {
-            name: typeName,
+      // 類型統計 (依標準化類別聚合，若同義則合併筆數與圖示)
+      const rawTypeName = (iss.issueTypeName || '').trim();
+      if (rawTypeName) {
+        const normKey = normalizeIssueTypeName(rawTypeName);
+        if (!typeMap.has(normKey)) {
+          typeMap.set(normKey, {
+            name: normKey,
             icon: iss.issueTypeIcon || '',
             count: 0
           });
         }
-        typeMap.get(typeName).count++;
+        const entry = typeMap.get(normKey);
+        if (!entry.icon && iss.issueTypeIcon) {
+          entry.icon = iss.issueTypeIcon;
+        }
+        entry.count++;
       }
     });
 
@@ -399,6 +446,7 @@
     filterIssues,
     extractFilterOptions,
     detectCurrentUserName,
-    isIssueAssignedToMe
+    isIssueAssignedToMe,
+    normalizeIssueTypeName
   };
 })();

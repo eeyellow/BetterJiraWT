@@ -45,11 +45,10 @@
     const state = FrontendFilterService.getState();
     const options = FrontendFilterService.extractFilterOptions(allIssues);
 
-    const isMeActive = state.selectedAssignees.includes('__ME__');
     const isUnassignedActive = state.selectedAssignees.includes('__UNASSIGNED__');
 
     // 計算特定選單已選取的數量
-    const assigneeSelectedCount = state.selectedAssignees.filter((a) => a !== '__ME__').length;
+    const assigneeSelectedCount = state.selectedAssignees.length;
     const statusSelectedCount = state.selectedStatuses.length;
     const typeSelectedCount = state.selectedTypes.length;
 
@@ -83,21 +82,6 @@
 
           <!-- 2. 快捷按鈕與下拉選單組 -->
           <div class="bjwt-filter-chips-group">
-            <!-- 👤 僅我的問題 -->
-            <button
-              type="button"
-              class="bjwt-filter-chip bjwt-filter-chip-me ${isMeActive ? 'is-active' : ''}"
-              title="只顯示指派給我的工作項目"
-            >
-              <span class="bjwt-chip-icon">👤</span>
-              <span class="bjwt-chip-label">僅我的問題</span>
-              ${
-                options.myIssuesCount > 0
-                  ? `<span class="bjwt-chip-badge">${options.myIssuesCount}</span>`
-                  : ''
-              }
-            </button>
-
             <!-- 👥 經辦人下拉 -->
             <div class="bjwt-filter-dropdown" data-dropdown="assignee">
               <button
@@ -307,17 +291,7 @@
       });
     }
 
-    // 2. 「僅我的問題」按鈕
-    const meBtn = container.querySelector('.bjwt-filter-chip-me');
-    if (meBtn) {
-      meBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        FrontendFilterService.toggleAssignee('__ME__');
-        if (onFilterChanged) onFilterChanged();
-      });
-    }
-
-    // 3. 下拉選單開關按鈕
+    // 2. 下拉選單開關按鈕
     container.querySelectorAll('.bjwt-filter-dropdown').forEach((dropdownEl) => {
       const btn = dropdownEl.querySelector('.bjwt-filter-dropdown-btn');
       const menu = dropdownEl.querySelector('.bjwt-filter-dropdown-menu');

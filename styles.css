@@ -2145,7 +2145,8 @@ html[data-betterjira-layout="two-column"] #bjwt-history-issue-modal,
    純前端待辦事項篩選工具列 (Frontend Filter Toolbar) & 隱藏原生篩選區塊
    ========================================================================== */
 
-/* 雙欄模式下乾淨隱藏 Jira 原生篩選區塊，杜絕跑版與狀態丟失 */
+/* 雙欄模式下乾淨隱藏 Jira 原生篩選區塊與原生搜尋標頭，杜絕跑版與狀態丟失 */
+html[data-betterjira-layout="two-column"] [data-testid="software-backlog.page-header"],
 html[data-betterjira-layout="two-column"] [data-testid*="filter-bar"],
 html[data-betterjira-layout="two-column"] [data-testid="software-backlog.filter-bar"],
 html[data-betterjira-layout="two-column"] [data-testid="software-board.header.filter-bar"],
