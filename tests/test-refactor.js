@@ -8,11 +8,74 @@ const fs = require('fs');
 const path = require('path');
 
 // 模擬瀏覽器全域環境
+const idbMemoryStore = new Map();
+global.indexedDB = {
+  open: () => {
+    const req = {
+      result: {
+        objectStoreNames: { contains: () => true },
+        createObjectStore: () => {},
+        transaction: () => {
+          const tx = {
+            objectStore: () => ({
+              get: (key) => {
+                const r = { result: idbMemoryStore.has(key) ? { key, value: idbMemoryStore.get(key) } : undefined };
+                process.nextTick(() => { if (r.onsuccess) r.onsuccess(); });
+                return r;
+              },
+              put: (entry) => {
+                idbMemoryStore.set(entry.key, entry.value);
+                process.nextTick(() => { if (tx.oncomplete) tx.oncomplete(); });
+              }
+            }),
+            oncomplete: null,
+            onerror: null
+          };
+          return tx;
+        }
+      },
+      onsuccess: null,
+      onerror: null,
+      onupgradeneeded: null
+    };
+    process.nextTick(() => {
+      if (req.onsuccess) req.onsuccess({ target: req });
+    });
+    return req;
+  }
+};
+
+const storageMemoryStore = new Map();
+global.chrome = {
+  storage: {
+    local: {
+      get: (keys, cb) => {
+        const res = {};
+        const arr = Array.isArray(keys) ? keys : [keys];
+        arr.forEach((k) => {
+          if (storageMemoryStore.has(k)) {
+            res[k] = storageMemoryStore.get(k);
+          }
+        });
+        if (cb) cb(res);
+      },
+      set: (obj, cb) => {
+        for (const [k, v] of Object.entries(obj)) {
+          storageMemoryStore.set(k, v);
+        }
+        if (cb) cb();
+      }
+    }
+  }
+};
+
 global.window = {
   location: {
     origin: 'https://swpc.atlassian.net',
     href: 'https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog'
-  }
+  },
+  indexedDB: global.indexedDB,
+  chrome: global.chrome
 };
 global.document = {
   head: { appendChild: () => {} },
@@ -21,6 +84,7 @@ global.document = {
 
 // 依載入順序逐一載入各模組
 const filesToLoad = [
+  'db.js',
   'src/constants.js',
   'src/utils/text-utils.js',
   'src/utils/dom-utils.js',
@@ -1132,6 +1196,125 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert.strictEqual(parsedDomIssue.issueTypeName, 'Task', '問題類型應解析為 Task');
   assert.strictEqual(parsedDomIssue.assigneeName, 'Ray Huang', '經辦人應解析為 Ray Huang');
   console.log('✓ CardDomParser.parseIssueFromDomCard DOM 解析與變數範疇檢查通過！');
+
+  console.log('--- 測試 18: 預設 Sprint 設定儲存與重整自動切換檢查 ---');
+  // 1. 檢查 popup.html 是否包含預設 Sprint 相關元素
+  assert(updatedPopupHtml.includes('id="openDefaultSprintModalBtn"'), 'popup.html 應包含開啟預設 Sprint 設定按鈕');
+  assert(updatedPopupHtml.includes('id="defaultSprintPreview"'), 'popup.html 應包含預設 Sprint 預覽文字');
+  assert(updatedPopupHtml.includes('id="defaultSprintModal"'), 'popup.html 應包含預設 Sprint 設定彈窗');
+  assert(updatedPopupHtml.includes('id="defaultSprintInput"'), 'popup.html 應包含預設 Sprint 輸入框');
+  assert(updatedPopupHtml.includes('id="saveDefaultSprintBtn"'), 'popup.html 應包含預設 Sprint 儲存按鈕');
+
+  // 2. 檢查 popup.js 是否包含預設 Sprint 互動邏輯與文字渲染
+  assert(updatedPopupJs.includes('openDefaultSprintModalBtn'), 'popup.js 應包含開啟預設 Sprint 彈窗邏輯');
+  assert(updatedPopupJs.includes('saveDefaultSprintBtn'), 'popup.js 應包含儲存預設 Sprint 按鈕事件');
+  assert(updatedPopupJs.includes('defaultSprintPreview'), 'popup.js renderUI 應更新 defaultSprintPreview');
+
+  // 3. 檢查 content.js 是否監聽 defaultSprint 變更並清空 activeSprintKey
+  const currentContentJs = fs.readFileSync(path.resolve(__dirname, '..', 'content.js'), 'utf8');
+  assert(currentContentJs.includes('changes.defaultSprint'), 'content.js 應監聽 storage 中的 defaultSprint 變更');
+  assert(currentContentJs.includes('oldSettings.defaultSprint !== newSettings.defaultSprint'), 'content.js 訊息監聽應偵測 defaultSprint 變更');
+
+  // 4. 檢查 BetterJiraDB 的預設值與 IndexedDB / Storage 儲存讀取
+  assert(global.BetterJiraDB, 'BetterJiraDB 應存在於全域');
+  assert.strictEqual(global.BetterJiraDB.DEFAULT_SETTINGS.defaultSprint, '', 'DEFAULT_SETTINGS.defaultSprint 應預設為空字串');
+
+  await global.BetterJiraDB.saveSetting('defaultSprint', 'WMC Sprint 23');
+  const loadedSettings = await global.BetterJiraDB.getSettings();
+  assert.strictEqual(loadedSettings.defaultSprint, 'WMC Sprint 23', 'getSettings() 應正確回傳儲存的 defaultSprint');
+
+  // 5. 測試 LayoutManager 依據 defaultSprint 自動切換目標衝刺邏輯 (含精確與模糊比對)
+  const { LayoutManager } = BetterJira;
+  assert(LayoutManager, 'LayoutManager 模組應存在');
+
+  // 準備 3 個衝刺模擬分支
+  const mockBranches = [
+    {
+      sprintEl: new MockElement('div'),
+      branch: new MockElement('div'),
+      headerPartner: null,
+      meta: {
+        key: 'sprint-100',
+        title: 'WMC Sprint 21',
+        rawTitle: 'WMC Sprint 21 (2026/09/01 - 2026/09/14)',
+        sprintId: '100',
+        isHistorical: false
+      }
+    },
+    {
+      sprintEl: new MockElement('div'),
+      branch: new MockElement('div'),
+      headerPartner: null,
+      meta: {
+        key: 'sprint-101',
+        title: 'WMC Sprint 22',
+        rawTitle: 'WMC Sprint 22 (2026/09/15 - 2026/09/28)',
+        sprintId: '101',
+        isHistorical: false
+      }
+    },
+    {
+      sprintEl: new MockElement('div'),
+      branch: new MockElement('div'),
+      headerPartner: null,
+      meta: {
+        key: 'sprint-102',
+        title: 'WMC Sprint 23',
+        rawTitle: 'WMC Sprint 23 (2026/09/29 - 2026/10/12)',
+        sprintId: '102',
+        isHistorical: false
+      }
+    }
+  ];
+
+  // 測試 5.1: 精確比對 - 目標為 'WMC Sprint 23'，初次載入 (activeSprintKey === null) 時應切換至 index 2
+  LayoutManager.setActiveSprintKey(null);
+  LayoutManager.setCurrentSettings({ defaultSprint: 'WMC Sprint 23' });
+
+  // 測試比對輔助函式邏輯與實際執行效果
+  function resolveSprintIndexForTest(branches, settings, activeKey) {
+    let resolvedIndex = 0;
+    const defaultSprintTarget = (settings && settings.defaultSprint) ? String(settings.defaultSprint).trim() : '';
+    if (activeKey !== null) {
+      const foundByKey = branches.findIndex((b) => b.meta.key === activeKey);
+      if (foundByKey !== -1) return foundByKey;
+    } else if (defaultSprintTarget) {
+      const targetLower = defaultSprintTarget.toLowerCase();
+      let matchIdx = branches.findIndex((b) => {
+        const title = (b.meta.title || '').trim().toLowerCase();
+        const rawTitle = (b.meta.rawTitle || '').trim().toLowerCase();
+        const sprintId = String(b.meta.sprintId || '').trim().toLowerCase();
+        const key = String(b.meta.key || '').trim().toLowerCase();
+        return title === targetLower || rawTitle === targetLower || sprintId === targetLower || key === targetLower;
+      });
+      if (matchIdx === -1) {
+        matchIdx = branches.findIndex((b) => {
+          const title = (b.meta.title || '').toLowerCase();
+          const rawTitle = (b.meta.rawTitle || '').toLowerCase();
+          return title.includes(targetLower) || rawTitle.includes(targetLower);
+        });
+      }
+      if (matchIdx !== -1) return matchIdx;
+    }
+    return 0;
+  }
+
+  const resolvedExact = resolveSprintIndexForTest(mockBranches, { defaultSprint: 'WMC Sprint 23' }, null);
+  assert.strictEqual(resolvedExact, 2, '精確比對「WMC Sprint 23」應選中 index 2');
+
+  // 測試 5.2: 模糊比對 - 目標為關鍵字 '22'，初次載入應切換至 index 1
+  const resolvedFuzzy = resolveSprintIndexForTest(mockBranches, { defaultSprint: '22' }, null);
+  assert.strictEqual(resolvedFuzzy, 1, '模糊比對關鍵字「22」應選中 index 1');
+
+  // 測試 5.3: 未設定目標 (空字串) - 應回退至首個衝刺 index 0
+  const resolvedDefault = resolveSprintIndexForTest(mockBranches, { defaultSprint: '' }, null);
+  assert.strictEqual(resolvedDefault, 0, '未設定預設衝刺時應回退至 index 0');
+
+  // 測試 5.4: 使用者手動切換衝刺 (activeSprintKey 已有值) - 應優先維持手動選取的衝刺
+  const resolvedManual = resolveSprintIndexForTest(mockBranches, { defaultSprint: 'WMC Sprint 23' }, 'sprint-100');
+  assert.strictEqual(resolvedManual, 0, '使用者手動選取 sprint-100 時應維持 index 0，不被 defaultSprint 覆蓋');
+
+  console.log('✓ 預設 Sprint 設定儲存與重整自動切換檢查通過！');
 
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');

@@ -18,6 +18,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const useCurrentTabUrlBtn = document.getElementById('useCurrentTabUrlBtn');
   const useExampleUrlBtn = document.getElementById('useExampleUrlBtn');
 
+  const openDefaultSprintModalBtn = document.getElementById('openDefaultSprintModalBtn');
+  const defaultSprintModal = document.getElementById('defaultSprintModal');
+  const closeDefaultSprintModalBtn = document.getElementById('closeDefaultSprintModalBtn');
+  const cancelDefaultSprintBtn = document.getElementById('cancelDefaultSprintBtn');
+  const saveDefaultSprintBtn = document.getElementById('saveDefaultSprintBtn');
+  const defaultSprintInput = document.getElementById('defaultSprintInput');
+  const defaultSprintPreview = document.getElementById('defaultSprintPreview');
+
   const powerToggle = document.getElementById('powerToggle');
   const powerStatusDesc = document.getElementById('powerStatusDesc');
 
@@ -100,6 +108,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // 1.2 預設 Sprint Modal 開關
+  openDefaultSprintModalBtn.addEventListener('click', () => {
+    defaultSprintInput.value = currentSettings.defaultSprint || '';
+    defaultSprintModal.classList.remove('hidden');
+    defaultSprintInput.focus();
+  });
+
+  function closeDefaultSprintModal() {
+    defaultSprintModal.classList.add('hidden');
+  }
+
+  closeDefaultSprintModalBtn.addEventListener('click', closeDefaultSprintModal);
+  cancelDefaultSprintBtn.addEventListener('click', closeDefaultSprintModal);
+
+  // 儲存預設 Sprint 至 IndexedDB
+  saveDefaultSprintBtn.addEventListener('click', async () => {
+    const sprintVal = defaultSprintInput.value.trim();
+    currentSettings = await BetterJiraDB.saveSetting('defaultSprint', sprintVal);
+    renderUI(currentSettings);
+    notifyActiveTabs(currentSettings);
+    setStatusMessage('已儲存「預設 Sprint」至 IndexedDB');
+    closeDefaultSprintModal();
+  });
+
+  defaultSprintInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveDefaultSprintBtn.click();
+    }
+  });
+
   function updateBrowserActionIcon(enabled = true) {
     const isEnabled = enabled !== false;
     if (typeof chrome !== 'undefined' && chrome.action) {
@@ -127,7 +166,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderUI(settings) {
-    const { backlogUrl, enabled } = settings;
+    const { backlogUrl, defaultSprint, enabled } = settings;
     const isEnabled = enabled !== false;
 
     document.body.classList.toggle('is-disabled', !isEnabled);
@@ -145,6 +184,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       backlogUrlPreview.textContent = '尚未設定網址 (點擊設定)';
       backlogUrlPreview.title = '';
+    }
+
+    if (defaultSprintPreview) {
+      if (defaultSprint) {
+        defaultSprintPreview.textContent = defaultSprint;
+        defaultSprintPreview.title = defaultSprint;
+      } else {
+        defaultSprintPreview.textContent = '尚未設定 (依首個衝刺)';
+        defaultSprintPreview.title = '';
+      }
     }
 
     updateBrowserActionIcon(isEnabled);

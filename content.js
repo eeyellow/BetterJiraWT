@@ -216,6 +216,12 @@
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message && message.type === 'BETTER_JIRA_WT_SETTINGS_UPDATED' && message.payload) {
         const newSettings = message.payload;
+        const oldSettings = getCurrentSettings();
+        if (oldSettings && oldSettings.defaultSprint !== newSettings.defaultSprint) {
+          if (BetterJira.LayoutManager && typeof BetterJira.LayoutManager.setActiveSprintKey === 'function') {
+            BetterJira.LayoutManager.setActiveSprintKey(null);
+          }
+        }
         setCurrentSettings(newSettings);
         syncExtensionIcon(newSettings.enabled);
         BetterJiraDB.syncFromObject(newSettings).then(() => {
@@ -234,6 +240,12 @@
         const current = getCurrentSettings();
         if (changes.backlogUrl) {
           current.backlogUrl = changes.backlogUrl.newValue;
+        }
+        if (changes.defaultSprint) {
+          current.defaultSprint = changes.defaultSprint.newValue;
+          if (BetterJira.LayoutManager && typeof BetterJira.LayoutManager.setActiveSprintKey === 'function') {
+            BetterJira.LayoutManager.setActiveSprintKey(null);
+          }
         }
         if (changes.enabled) {
           current.enabled = changes.enabled.newValue;
