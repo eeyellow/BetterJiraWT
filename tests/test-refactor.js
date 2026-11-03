@@ -1588,6 +1588,11 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   mockToolbarEl.appendChild(mockChildInput);
   assert.strictEqual(DomUtils.isInsideExtensionUi(mockChildInput), true, '工具列內部元素應被識別為擴充套件 UI，避免被誤傷隱藏');
 
+  // 14. 測試 IssueStore.getSprintIssueCache 與 getActiveSprintCache 雙重匯出防護
+  const { IssueStore } = BetterJira;
+  assert.strictEqual(typeof IssueStore.getSprintIssueCache, 'function', 'IssueStore.getSprintIssueCache 應為函式');
+  assert.strictEqual(typeof IssueStore.getActiveSprintCache, 'function', 'IssueStore.getActiveSprintCache 應為函式');
+
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 
   console.log('============================================');

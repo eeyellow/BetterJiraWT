@@ -489,7 +489,11 @@
         const h = loadedHistoricalSprints.find((x) => x.key === item.meta.key);
         issues = h && Array.isArray(h.issues) ? h.issues : [];
       } else {
-        const cache = getSprintIssueCache(item.meta.key);
+        const sprintId = item.meta && item.meta.sprintId;
+        const cacheKey = sprintId ? `sprint_${sprintId}` : (item.meta && item.meta.key);
+        const cache = (IssueStore && typeof IssueStore.getActiveSprintCache === 'function')
+          ? (IssueStore.getActiveSprintCache(cacheKey) || (item.meta && IssueStore.getActiveSprintCache(item.meta.key)))
+          : null;
         issues = cache && Array.isArray(cache.rawIssues)
           ? cache.rawIssues
           : (cache && Array.isArray(cache.issues) ? cache.issues : []);

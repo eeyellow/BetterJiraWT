@@ -320,6 +320,7 @@
     removeHistoricalSprint,
     getLoadedHistoricalSprints: () => loadedHistoricalSprints,
     getActiveSprintCache: (key) => activeSprintCache.get(key),
+    getSprintIssueCache: (key) => activeSprintCache.get(key),
     setActiveSprintCache: (key, val) => activeSprintCache.set(key, val),
     getBoardId: () => cachedBoardId,
     setBoardId: (id) => { cachedBoardId = id; },
