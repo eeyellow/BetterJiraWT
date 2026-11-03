@@ -13,9 +13,7 @@ const BetterJiraDB = (() => {
    * @type {Record<string, string>}
    */
   const STYLE_LABELS = {
-    Default: '預設',
-    Bootstrap: 'Bootstrap',
-    MaterialDesign: 'MaterialDesign'
+    Default: '預設'
   };
 
   /**
@@ -24,7 +22,7 @@ const BetterJiraDB = (() => {
    */
   const DEFAULT_SETTINGS = {
     backlogUrl: '',
-    themeStyle: 'Default', // 'Default' | 'Bootstrap' | 'MaterialDesign'
+    themeStyle: 'Default',
     enabled: true
   };
 

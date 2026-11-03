@@ -129,27 +129,37 @@
             <span class="bjwt-history-status-badge ${statusClass}" title="狀態：${escapeHtml(cleanStatusName)}">
               <span class="bjwt-badge-text">${escapeHtml(cleanStatusName)}</span>
             </span>
-            <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
-            ${
-              iss.priorityIcon
-                ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" title="優先順序：${escapeHtml(iss.priorityName)}" />`
-                : iss.prioritySvg
-                ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap" title="優先順序：${escapeHtml(iss.priorityName)}">${iss.prioritySvg}</span>`
-                : ''
-            }
-            <span class="bjwt-history-assignee" title="負責人：${escapeHtml(displayAssigneeName)}">
+            <!-- 欄位 1: StoryPoint (等寬 28px slot) -->
+            <span class="bjwt-card-action-slot bjwt-card-slot-points">
+              <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
+            </span>
+
+            <!-- 欄位 2: 優先度 (等寬 28px slot，無設定時仍占位) -->
+            <span class="bjwt-card-action-slot bjwt-card-slot-priority"${iss.priorityName ? ` title="優先順序：${escapeHtml(iss.priorityName)}"` : ''}>
               ${
-                isUnassigned
-                  ? `<span class="bjwt-history-avatar-unassigned" aria-label="未指派">
-                      <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="12" cy="7" r="4"></circle>
-                      </svg>
-                    </span>`
-                  : hasValidAvatarImg
-                  ? `<img class="bjwt-history-avatar" src="${escapeHtml(iss.assigneeAvatar)}" alt="${escapeHtml(displayAssigneeName)}" />`
-                  : `<span class="bjwt-history-avatar-fallback"${fallbackBgStyle}>${escapeHtml(initials || '?')}</span>`
+                iss.priorityIcon
+                  ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" title="優先順序：${escapeHtml(iss.priorityName)}" />`
+                  : iss.prioritySvg
+                  ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap" title="優先順序：${escapeHtml(iss.priorityName)}">${iss.prioritySvg}</span>`
+                  : `<span class="bjwt-history-priority-placeholder" aria-hidden="true"></span>`
               }
+            </span>
+            <!-- 欄位 3: 指派人員 (等寬 28px slot) -->
+            <span class="bjwt-card-action-slot bjwt-card-slot-assignee">
+              <span class="bjwt-history-assignee" title="負責人：${escapeHtml(displayAssigneeName)}">
+                ${
+                  isUnassigned
+                    ? `<span class="bjwt-history-avatar-unassigned" aria-label="未指派">
+                        <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                      </span>`
+                    : hasValidAvatarImg
+                    ? `<img class="bjwt-history-avatar" src="${escapeHtml(iss.assigneeAvatar)}" alt="${escapeHtml(displayAssigneeName)}" />`
+                    : `<span class="bjwt-history-avatar-fallback"${fallbackBgStyle}>${escapeHtml(initials || '?')}</span>`
+                }
+              </span>
             </span>
           </div>
         </div>

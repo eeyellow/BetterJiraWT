@@ -1,6 +1,6 @@
 /**
  * @fileoverview BetterJiraWT Popup 選單邏輯
- * 提供待辦事項網址設定、樣式切換 (Default / Bootstrap / MaterialDesign) 與跨頁面設定同步。
+ * 提供待辦事項網址設定、快捷功能開關與跨頁面設定同步。
  * @module popup
  */
 
@@ -18,16 +18,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const useCurrentTabUrlBtn = document.getElementById('useCurrentTabUrlBtn');
   const useExampleUrlBtn = document.getElementById('useExampleUrlBtn');
 
-  const openStyleModalBtn = document.getElementById('openStyleModalBtn');
-  const styleModal = document.getElementById('styleModal');
-  const closeStyleModalBtn = document.getElementById('closeStyleModalBtn');
-  const cancelStyleBtn = document.getElementById('cancelStyleBtn');
-  const saveStyleBtn = document.getElementById('saveStyleBtn');
-  const stylePreviewText = document.getElementById('stylePreviewText');
-  const currentStyleBadge = document.getElementById('currentStyleBadge');
-  const styleOptionCards = document.querySelectorAll('.style-option-card');
-  const styleRadios = document.querySelectorAll('input[name="themeStyle"]');
-
   const powerToggle = document.getElementById('powerToggle');
   const powerStatusDesc = document.getElementById('powerStatusDesc');
 
@@ -35,22 +25,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const EXAMPLE_URL = 'https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog';
 
-  const ICON_MAP = {
-    Default: {
-      16: 'icons/icon_default_16.png',
-      48: 'icons/icon_default_48.png',
-      128: 'icons/icon_default_128.png'
-    },
-    Bootstrap: {
-      16: 'icons/icon_bootstrap_16.png',
-      48: 'icons/icon_bootstrap_48.png',
-      128: 'icons/icon_bootstrap_128.png'
-    },
-    MaterialDesign: {
-      16: 'icons/icon_material_16.png',
-      48: 'icons/icon_material_48.png',
-      128: 'icons/icon_material_128.png'
-    }
+  const DEFAULT_ICON = {
+    16: 'icons/icon_default_16.png',
+    48: 'icons/icon_default_48.png',
+    128: 'icons/icon_default_128.png'
   };
 
   let currentSettings = await BetterJiraDB.getSettings();
@@ -122,53 +100,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // 1.2 樣式 Modal 開關
-  openStyleModalBtn.addEventListener('click', () => {
-    syncStyleSelection(currentSettings.themeStyle);
-    styleModal.classList.remove('hidden');
-  });
-
-  function closeStyleModal() {
-    styleModal.classList.add('hidden');
-  }
-
-  closeStyleModalBtn.addEventListener('click', closeStyleModal);
-  cancelStyleBtn.addEventListener('click', closeStyleModal);
-
-  styleRadios.forEach((radio) => {
-    radio.addEventListener('change', () => {
-      syncStyleSelection(radio.value);
-    });
-  });
-
-  // 儲存樣式設定至 IndexedDB 並更新 Extension Icon
-  saveStyleBtn.addEventListener('click', async () => {
-    const checkedRadio = document.querySelector('input[name="themeStyle"]:checked');
-    const selectedStyle = checkedRadio ? checkedRadio.value : 'Default';
-    currentSettings = await BetterJiraDB.saveSetting('themeStyle', selectedStyle);
-    renderUI(currentSettings);
-    notifyActiveTabs(currentSettings);
-    const label = BetterJiraDB.getStyleLabel(selectedStyle);
-    setStatusMessage(`已套用「${label}」樣式並存至 IndexedDB`);
-    closeStyleModal();
-  });
-
-  function syncStyleSelection(styleName) {
-    const normalized = styleName || 'Default';
-    styleOptionCards.forEach((card) => {
-      const radio = card.querySelector('input[name="themeStyle"]');
-      const isMatch = radio.value === normalized;
-      radio.checked = isMatch;
-      card.classList.toggle('selected', isMatch);
-    });
-  }
-
-  function updateBrowserActionIcon(themeStyle, enabled = true) {
-    const styleKey = ICON_MAP[themeStyle] ? themeStyle : 'Default';
+  function updateBrowserActionIcon(enabled = true) {
     const isEnabled = enabled !== false;
     if (typeof chrome !== 'undefined' && chrome.action) {
       if (chrome.action.setIcon) {
-        chrome.action.setIcon({ path: ICON_MAP[styleKey] });
+        chrome.action.setIcon({ path: DEFAULT_ICON });
       }
       if (chrome.action.setBadgeText) {
         chrome.action.setBadgeText({ text: isEnabled ? '' : 'OFF' });
@@ -181,7 +117,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.runtime.sendMessage(
         {
           type: 'BETTER_JIRA_WT_UPDATE_ICON',
-          themeStyle: styleKey,
           enabled: isEnabled
         },
         () => {
@@ -192,22 +127,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderUI(settings) {
-    const { backlogUrl, themeStyle, enabled } = settings;
+    const { backlogUrl, enabled } = settings;
     const isEnabled = enabled !== false;
-    const styleLabel = BetterJiraDB.getStyleLabel(themeStyle);
 
-    document.body.setAttribute('data-theme', themeStyle || 'Default');
     document.body.classList.toggle('is-disabled', !isEnabled);
 
     if (powerToggle) {
       powerToggle.checked = isEnabled;
     }
     if (powerStatusDesc) {
-      powerStatusDesc.textContent = isEnabled ? '已啟用雙欄與樣式美化' : '已停用 (保持 Jira 預設介面)';
+      powerStatusDesc.textContent = isEnabled ? '已啟用雙欄版面美化' : '已停用 (保持 Jira 預設介面)';
     }
-
-    currentStyleBadge.textContent = isEnabled ? styleLabel : '已停用';
-    stylePreviewText.textContent = `目前：${styleLabel}`;
 
     if (backlogUrl) {
       backlogUrlPreview.textContent = backlogUrl;
@@ -217,8 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       backlogUrlPreview.title = '';
     }
 
-    syncStyleSelection(themeStyle);
-    updateBrowserActionIcon(themeStyle, isEnabled);
+    updateBrowserActionIcon(isEnabled);
   }
 
   function setStatusMessage(msg) {

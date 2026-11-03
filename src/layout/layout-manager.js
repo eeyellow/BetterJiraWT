@@ -419,7 +419,7 @@
       return;
     }
 
-    const activeStyle = themeStyle || 'Default';
+    const activeStyle = 'Default';
     root.setAttribute(THEME_ATTR, activeStyle);
     root.setAttribute(LAYOUT_ACTIVE_ATTR, 'two-column');
     if (document.body) {
@@ -461,7 +461,7 @@
     setSidebarCollapsed: (collapsed) => { isSidebarCollapsed = collapsed; },
     getCurrentSettings: () => currentSettings,
     setCurrentSettings: (settings) => { currentSettings = settings; },
-    getCurrentTheme: () => (currentSettings && currentSettings.themeStyle) || 'Default',
+    getCurrentTheme: () => 'Default',
     updateColumnsViewportHeight,
     resolveSprintIssuesForLayout,
     applyTwoColumnBacklogLayout,
