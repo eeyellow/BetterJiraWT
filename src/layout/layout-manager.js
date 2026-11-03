@@ -93,10 +93,10 @@
 
     let resolvedIssues = [];
     if (domIssues.length > 0) {
-      // 原生 DOM 已有展開的卡片：先以原生 DOM 卡片為基底 (已受 Jira 所有原生篩選器過濾)，再套用本地雙重確認篩選
+      // 原生 DOM 已有展開的卡片：先以原生 DOM 卡片為基底
       resolvedIssues = FilterService.filterIssuesByNativeFilter(domIssues, nativeFilter);
     } else if (!meta.isCollapsed) {
-      // 衝刺處於展開狀態，但原生 DOM 內有 0 張卡片 (代表目前篩選條件下此衝刺為 0 張卡片，或原本即為空衝刺)
+      // 衝刺處於展開狀態，但原生 DOM 內有 0 張卡片
       if (
         !isFiltered &&
         meta.headerTotalCount > 0 &&
@@ -108,7 +108,7 @@
         resolvedIssues = [];
       }
     } else {
-      // 衝刺處於收合狀態 (Jira 收合時不渲染 DOM 卡片)：若有 API 快取卡片，使用 API 卡片套用原生篩選器計算該人員點數
+      // 衝刺處於收合狀態
       if (Array.isArray(cached.allApiIssues) && cached.allApiIssues.length > 0) {
         const apiMerged = cached.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
         resolvedIssues = FilterService.filterIssuesByNativeFilter(apiMerged, nativeFilter);
@@ -117,11 +117,30 @@
       }
     }
 
+    // 儲存原始全量卡片清單供自製純前端篩選器使用
+    const rawAllIssues =
+      Array.isArray(cached.allApiIssues) && cached.allApiIssues.length > 0
+        ? cached.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss))
+        : domIssues.length > 0
+        ? domIssues
+        : resolvedIssues;
+    cached.rawIssues = rawAllIssues;
+
+    // 若自製純前端篩選器有任何條件生效，以純前端過濾結果為準
+    const { FrontendFilterService } = BetterJira;
+    const isFrontendFiltered = FrontendFilterService && FrontendFilterService.getState().isActive;
+    if (isFrontendFiltered) {
+      resolvedIssues = FrontendFilterService.filterIssues(rawAllIssues);
+    }
+
     cached.issues = resolvedIssues;
     cached.nativeFilterSig = nativeFilter ? nativeFilter.sig : '';
 
     const stats = SprintStatsService.calculateSprintStatistics(resolvedIssues);
-    if (isFiltered && meta.headerFilteredCount !== null) {
+    if (isFrontendFiltered) {
+      meta.cardCount = stats.totalIssues;
+      meta.storyPoints = stats.totalPoints;
+    } else if (isFiltered && meta.headerFilteredCount !== null) {
       meta.cardCount = meta.headerFilteredCount;
       meta.storyPoints = stats.totalPoints;
     } else if (domIssues.length > 0 || !meta.isCollapsed || Array.isArray(cached.allApiIssues)) {
@@ -170,6 +189,9 @@
 
     sprintsHost.setAttribute('data-bjwt-layout-host', 'true');
     lockBacklogAncestorWidths(sprintsHost);
+    if (DomUtils.hideNativeFilterBars) {
+      DomUtils.hideNativeFilterBars(document);
+    }
 
     // 偵測目前 Jira 原生篩選搜尋區的狀態 (人員頭像、未指派、搜尋關鍵字)
     const nativeFilter = getNativeBacklogFilterState();

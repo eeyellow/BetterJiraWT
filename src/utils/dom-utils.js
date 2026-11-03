@@ -108,10 +108,43 @@
     }
   }
 
+  /**
+   * 搜尋並隱藏 Jira 原生搜尋與篩選工具列，由擴充套件自製純前端篩選器接管
+   *
+   * @param {Document|Element} [root=document] - 搜尋根節點
+   */
+  function hideNativeFilterBars(root) {
+    const doc = root || (typeof document !== 'undefined' ? document : null);
+    if (!doc || typeof doc.querySelectorAll !== 'function') return;
+
+    const selectors = [
+      '[data-testid*="filter-bar"]',
+      '[data-testid="software-backlog.filter-bar"]',
+      '[data-testid="software-board.header.filter-bar"]',
+      '[data-testid*="quick-filters"]',
+      '[data-testid*="filters.ui.filter-bar"]',
+      '[data-testid="software-backlog.header"] [data-testid*="filter"]',
+      '[data-testid="software-backlog.header"] [role="search"]',
+      '.ghx-controls-filters',
+      '#ghx-quick-filters'
+    ];
+
+    try {
+      doc.querySelectorAll(selectors.join(', ')).forEach((el) => {
+        if (!isInsideExtensionUi(el)) {
+          el.setAttribute('data-bjwt-native-filter-hidden', 'true');
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }
+
   BetterJira.DomUtils = {
     isVisuallyHiddenOrIgnoredNode,
     findLowestCommonAncestor,
     isInsideExtensionUi,
-    lockBacklogAncestorWidths
+    lockBacklogAncestorWidths,
+    hideNativeFilterBars
   };
 })();

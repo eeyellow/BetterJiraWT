@@ -16,7 +16,7 @@
    * @param {Object|null} [nativeFilter=null] - 原生篩選器狀態物件
    */
   function renderHistoricalSprintBranch(branchEl, histItem, nativeFilter = null) {
-    const { TextUtils, SprintStatsService, FilterService, IssueStore, JiraApiService, IssueCardComponent, IssueModalComponent, LayoutManager } = BetterJira;
+    const { TextUtils, SprintStatsService, FilterService, FrontendFilterService, FilterToolbarComponent, IssueStore, JiraApiService, IssueCardComponent, IssueModalComponent, LayoutManager } = BetterJira;
     const { cleanSprintTitle, cleanSummaryText, formatShortDate, escapeHtml } = TextUtils;
     const { calculateSprintStatistics } = SprintStatsService;
     const { getNativeBacklogFilterState, filterIssuesByNativeFilter } = FilterService;
@@ -24,21 +24,14 @@
     const { renderIssueCardHtml } = IssueCardComponent;
     const { openHistoricalIssueDetailModal } = IssueModalComponent;
 
+    const allIssues = histItem.issues || [];
     const activeNativeFilter = nativeFilter || getNativeBacklogFilterState();
-    const baseFilteredIssues = filterIssuesByNativeFilter(histItem.issues || [], activeNativeFilter);
 
-    const filterKw = (histItem.filterKeyword || '').trim().toLowerCase();
-    const visibleIssues = filterKw
-      ? baseFilteredIssues.filter(
-          (iss) =>
-            iss.key.toLowerCase().includes(filterKw) ||
-            iss.summary.toLowerCase().includes(filterKw) ||
-            iss.assigneeName.toLowerCase().includes(filterKw) ||
-            (iss.assigneeInitials && iss.assigneeInitials.toLowerCase().includes(filterKw)) ||
-            iss.statusName.toLowerCase().includes(filterKw) ||
-            (iss.parentSummary && iss.parentSummary.toLowerCase().includes(filterKw))
-        )
-      : baseFilteredIssues;
+    // 透過純前端篩選服務過濾卡片
+    const visibleIssues =
+      FrontendFilterService && typeof FrontendFilterService.filterIssues === 'function'
+        ? FrontendFilterService.filterIssues(allIssues)
+        : filterIssuesByNativeFilter(allIssues, activeNativeFilter);
 
     if (Array.isArray(histItem.issues)) {
       histItem.issues.forEach((iss) => {
@@ -55,14 +48,15 @@
       .join('|');
 
     const currentTheme = LayoutManager ? LayoutManager.getCurrentTheme() : 'Default';
+    const frontendFilterSig = FrontendFilterService ? JSON.stringify(FrontendFilterService.getState()) : '';
 
     const sig = JSON.stringify({
       key: histItem.key,
       count: visibleIssues.length,
       points: stats.totalPoints,
       nativeFilterSig: activeNativeFilter.sig,
+      frontendFilterSig,
       histIssuesSig,
-      filterKw,
       theme: currentTheme
     });
 
@@ -101,12 +95,6 @@
               <span class="bjwt-counter-pill counter-inprogress" title="進行中: ${stats.inProgressPoints} 點 (${stats.inProgressCount} 個工作項目)">${stats.inProgressPoints}</span>
               <span class="bjwt-counter-pill counter-done" title="完成: ${stats.donePoints} 點 (${stats.doneCount} 個工作項目)">${stats.donePoints}</span>
             </span>
-            <input
-              type="search"
-              class="bjwt-history-card-filter"
-              placeholder="篩選卡片 (Key / 標題 / 負責人)..."
-              value="${escapeHtml(histItem.filterKeyword || '')}"
-            />
             <button type="button" class="bjwt-history-refresh-btn" title="從 Jira API 重新同步此歷史衝刺">
               ↻ 重新整理
             </button>
@@ -120,6 +108,11 @@
             ? `<div class="bjwt-history-sprint-goal"><strong>衝刺目標：</strong>${escapeHtml(histItem.goal)}</div>`
             : ''
         }
+        ${
+          FilterToolbarComponent && typeof FilterToolbarComponent.renderToolbarHtml === 'function'
+            ? FilterToolbarComponent.renderToolbarHtml(allIssues, visibleIssues, histItem.key)
+            : ''
+        }
         <div class="bjwt-history-card-list">
           ${
             visibleIssues.length === 0
@@ -130,22 +123,9 @@
       </div>
     `;
 
-    const filterInput = branchEl.querySelector('.bjwt-history-card-filter');
-    if (filterInput) {
-      filterInput.addEventListener('input', (e) => {
-        const cursorPos = e.target.selectionStart;
-        histItem.filterKeyword = e.target.value;
-        renderHistoricalSprintBranch(branchEl, histItem);
-        const newInput = branchEl.querySelector('.bjwt-history-card-filter');
-        if (newInput) {
-          newInput.focus();
-          try {
-            newInput.setSelectionRange(cursorPos, cursorPos);
-          } catch {
-            // ignore
-          }
-        }
-      });
+    // 綁定純前端篩選工具列事件
+    if (FilterToolbarComponent && typeof FilterToolbarComponent.bindToolbarEvents === 'function') {
+      FilterToolbarComponent.bindToolbarEvents(branchEl, () => renderHistoricalSprintBranch(branchEl, histItem));
     }
 
     const refreshBtn = branchEl.querySelector('.bjwt-history-refresh-btn');

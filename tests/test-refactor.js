@@ -79,7 +79,10 @@ global.window = {
 };
 global.document = {
   head: { appendChild: () => {} },
-  documentElement: { appendChild: () => {} }
+  documentElement: { appendChild: () => {} },
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  querySelectorAll: () => []
 };
 
 // 依載入順序逐一載入各模組
@@ -93,10 +96,12 @@ const filesToLoad = [
   'src/state/issue-store.js',
   'src/services/jira-api.js',
   'src/services/filter-service.js',
+  'src/services/frontend-filter-service.js',
   'src/parser/adf-parser.js',
   'src/parser/sprint-dom-parser.js',
   'src/parser/card-dom-parser.js',
   'src/components/runtime-styles.js',
+  'src/components/filter-toolbar.js',
   'src/components/issue-card.js',
   'src/components/issue-modal.js',
   'src/components/history-picker-modal.js',
@@ -1343,6 +1348,161 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(!checkActiveSprintJs.includes('+ 建立問題'), 'active-sprint-view.js 不應包含「+ 建立問題」');
 
   console.log('✓ UI 細部調整檢查通過！');
+
+  console.log('--- 測試 20: 純前端搜尋篩選服務 (FrontendFilterService) 與工具列 (FilterToolbarComponent) 檢查 ---');
+  const { FrontendFilterService, FilterToolbarComponent, DomUtils } = BetterJira;
+  assert(FrontendFilterService, 'FrontendFilterService 模組應存在');
+  assert(FilterToolbarComponent, 'FilterToolbarComponent 模組應存在');
+  assert.strictEqual(typeof FrontendFilterService.filterIssues, 'function', 'filterIssues 應為函式');
+  assert.strictEqual(typeof FrontendFilterService.extractFilterOptions, 'function', 'extractFilterOptions 應為函式');
+  assert.strictEqual(typeof FilterToolbarComponent.renderToolbarHtml, 'function', 'renderToolbarHtml 應為函式');
+
+  // 1. 準備模擬卡片清單
+  const mockFilterIssues = [
+    {
+      key: 'WMC-1',
+      summary: 'Login page responsive layout fix',
+      assigneeName: 'Ray Huang',
+      assigneeAvatar: 'https://avatar/ray.png',
+      statusName: 'In Progress',
+      statusCategory: 'indeterminate',
+      issueTypeName: 'Bug',
+      issueTypeIcon: 'https://icon/bug.png',
+      storyPoints: 3,
+      labels: ['auth', 'frontend']
+    },
+    {
+      key: 'WMC-2',
+      summary: 'Backend API performance refactor',
+      assigneeName: 'Bruce Peng',
+      assigneeAvatar: 'https://avatar/bruce.png',
+      statusName: 'To Do',
+      statusCategory: 'new',
+      issueTypeName: 'Task',
+      issueTypeIcon: 'https://icon/task.png',
+      storyPoints: 5,
+      labels: ['backend', 'perf']
+    },
+    {
+      key: 'WMC-3',
+      summary: 'Database redundant index cleanup',
+      assigneeName: '',
+      assigneeAvatar: '',
+      statusName: 'Done',
+      statusCategory: 'done',
+      issueTypeName: 'Task',
+      issueTypeIcon: 'https://icon/task.png',
+      storyPoints: 2,
+      labels: ['db']
+    },
+    {
+      key: 'WMC-4',
+      summary: 'Frontend modern search filter bar implementation',
+      assigneeName: 'Ray Huang',
+      assigneeAvatar: 'https://avatar/ray.png',
+      statusName: 'Done',
+      statusCategory: 'done',
+      issueTypeName: 'Story',
+      issueTypeIcon: 'https://icon/story.png',
+      storyPoints: 8,
+      labels: ['frontend', 'ui']
+    }
+  ];
+
+  // 2. 測試關鍵字過濾
+  FrontendFilterService.clearAll();
+  FrontendFilterService.setKeyword('Login');
+  let result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 1, '搜尋「Login」應僅命中 1 張卡片');
+  assert.strictEqual(result[0].key, 'WMC-1', '應命中 WMC-1');
+
+  FrontendFilterService.setKeyword('Task');
+  result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 2, '搜尋「Task」應命中 2 張 Task 卡片');
+
+  FrontendFilterService.setKeyword('WMC-3');
+  result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 1, '搜尋 Key「WMC-3」應命中 1 張卡片');
+  assert.strictEqual(result[0].key, 'WMC-3', '應命中 WMC-3');
+
+  // 3. 測試經辦人篩選 (多選與未指派)
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleAssignee('Ray Huang');
+  result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 2, '篩選經辦人「Ray Huang」應命中 2 張卡片');
+
+  FrontendFilterService.toggleAssignee('__UNASSIGNED__');
+  result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 3, '篩選「Ray Huang + 未指派」應命中 3 張卡片');
+
+  // 4. 測試「僅我的問題」
+  FrontendFilterService.clearAll();
+  FrontendFilterService.setCurrentUser('Ray Huang');
+  FrontendFilterService.toggleAssignee('__ME__');
+  result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 2, '「僅我的問題」應命中指派給 Ray Huang 的 2 張卡片');
+  FrontendFilterService.setCurrentUser(null);
+
+  // 5. 測試狀態與類型多維度交集 (AND) 過濾
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleAssignee('Ray Huang');
+  FrontendFilterService.toggleStatus('Done');
+  result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 1, '篩選「Ray Huang 且 Done」應僅命中 1 張卡片');
+  assert.strictEqual(result[0].key, 'WMC-4', '應命中 WMC-4');
+
+  FrontendFilterService.toggleType('Bug');
+  result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 0, '同時指定不存在交集的類型應為 0 張卡片');
+
+  FrontendFilterService.clearAll();
+  result = FrontendFilterService.filterIssues(mockFilterIssues);
+  assert.strictEqual(result.length, 4, '清空所有條件後應還原為 4 張卡片');
+
+  // 6. 測試選項統計萃取 (extractFilterOptions)
+  const options = FrontendFilterService.extractFilterOptions(mockFilterIssues);
+  assert.strictEqual(options.totalIssues, 4, '總卡片數應為 4');
+  assert.strictEqual(options.unassignedCount, 1, '未指派卡片數應為 1');
+  const rayStat = options.assignees.find((a) => a.name === 'Ray Huang');
+  assert(rayStat && rayStat.count === 2, 'Ray Huang 應統計為 2 張卡片');
+  const doneStat = options.statuses.find((s) => s.name === 'Done');
+  assert(doneStat && doneStat.count === 2, 'Done 狀態應統計為 2 張卡片');
+  const taskStat = options.types.find((t) => t.name === 'Task');
+  assert(taskStat && taskStat.count === 2, 'Task 類型應統計為 2 張卡片');
+
+  // 7. 測試工具列 HTML 渲染
+  const toolbarHtml = FilterToolbarComponent.renderToolbarHtml(mockFilterIssues, mockFilterIssues, 'sprint-test');
+  assert(toolbarHtml.includes('class="bjwt-filter-toolbar"'), '渲染之 HTML 應包含 .bjwt-filter-toolbar 容器');
+  assert(toolbarHtml.includes('class="bjwt-filter-search-input"'), '應包含搜尋輸入框');
+  assert(toolbarHtml.includes('經辦人'), '應包含經辦人下拉按鈕');
+  assert(toolbarHtml.includes('狀態'), '應包含狀態下拉按鈕');
+  assert(toolbarHtml.includes('類型'), '應包含類型下拉按鈕');
+  assert(toolbarHtml.includes('僅我的問題'), '應包含僅我的問題按鈕');
+
+  // 8. 測試隱藏 Jira 原生篩選列之 CSS 與 DOM 方法
+  assert(checkStylesCss.includes('data-bjwt-native-filter-hidden'), 'styles.css 應包含 data-bjwt-native-filter-hidden 隱藏樣式');
+  assert(checkStylesCss.includes('[data-testid*="filter-bar"]'), 'styles.css 應包含針對 filter-bar 之隱藏規則');
+  assert.strictEqual(typeof DomUtils.hideNativeFilterBars, 'function', 'DomUtils.hideNativeFilterBars 應為函式');
+
+  // 測試 hideNativeFilterBars DOM 操作
+  const mockFilterBarEl = new MockElement('div');
+  mockFilterBarEl.setAttribute('data-testid', 'software-backlog.filter-bar');
+  const mockDoc = {
+    querySelectorAll: (sel) => {
+      if (sel.includes('filter-bar')) {
+        return [mockFilterBarEl];
+      }
+      return [];
+    }
+  };
+  DomUtils.hideNativeFilterBars(mockDoc);
+  assert.strictEqual(
+    mockFilterBarEl.getAttribute('data-bjwt-native-filter-hidden'),
+    'true',
+    'hideNativeFilterBars 應為原生篩選列打上隱藏屬性'
+  );
+
+  console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
