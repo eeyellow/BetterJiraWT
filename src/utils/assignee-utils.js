@@ -143,6 +143,180 @@
   }
 
   /**
+   * 全域人員目錄與頭像反查快取映射
+   */
+  const registeredAssigneesMap = new Map(); // key: cleanName.toLowerCase()
+  const avatarToUserMap = new Map();        // key: normalizedAvatarUrl
+  const initialsToUserMap = new Map();      // key: initials.toUpperCase()
+
+  /**
+   * 註冊人員資料至人員目錄與頭像反查表
+   *
+   * @param {Object} userObj
+   * @param {string} userObj.name - 經辦人完整姓名
+   * @param {string} [userObj.avatar=''] - 頭像圖片網址
+   * @param {string} [userObj.initials=''] - 頭像縮寫
+   * @returns {Object|null} 註冊後的使用者物件
+   */
+  function registerAssignee({ name, avatar = '', initials = '' }) {
+    if (!name || typeof name !== 'string') return null;
+    const cleanName = cleanAssigneeLabel(name);
+    if (!cleanName || isUnassignedText(cleanName) || cleanName === '已指派') {
+      return null;
+    }
+
+    const normName = cleanName.toLowerCase();
+    const normAvatar = avatar ? normalizeAvatarUrl(avatar) : '';
+    const cleanInitials = initials ? initials.trim().toUpperCase() : getDisplayInitialsForIssue({ assigneeName: cleanName });
+
+    let existing = registeredAssigneesMap.get(normName);
+    if (!existing) {
+      existing = {
+        name: cleanName,
+        avatar: avatar || '',
+        initials: cleanInitials
+      };
+      registeredAssigneesMap.set(normName, existing);
+    } else {
+      if (!existing.avatar && avatar) existing.avatar = avatar;
+      if (!existing.initials && cleanInitials) existing.initials = cleanInitials;
+    }
+
+    if (normAvatar) {
+      avatarToUserMap.set(normAvatar, existing);
+    }
+    if (cleanInitials && cleanInitials.length <= 6) {
+      initialsToUserMap.set(cleanInitials, existing);
+    }
+
+    // 將所有推導出的縮寫變體均連結至該使用者 (若尚未被佔用)
+    deriveInitialsVariants(cleanName, cleanInitials).forEach((variant) => {
+      if (variant && !initialsToUserMap.has(variant)) {
+        initialsToUserMap.set(variant, existing);
+      }
+    });
+
+    return existing;
+  }
+
+  /**
+   * 依頭像網址反查人員物件
+   *
+   * @param {string} avatarUrl - 頭像網址
+   * @returns {Object|null} 人員物件
+   */
+  function resolveUserByAvatar(avatarUrl) {
+    if (!avatarUrl || typeof avatarUrl !== 'string') return null;
+    const norm = normalizeAvatarUrl(avatarUrl);
+    if (!norm) return null;
+    if (avatarToUserMap.has(norm)) {
+      return avatarToUserMap.get(norm);
+    }
+    // 模糊比對去除查詢參數之路徑
+    for (const [key, user] of avatarToUserMap.entries()) {
+      if (key && (norm.includes(key) || key.includes(norm))) {
+        return user;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 依縮寫反查人員物件
+   *
+   * @param {string} initials - 縮寫文字 (例: "RAY", "BP")
+   * @returns {Object|null} 人員物件
+   */
+  function resolveUserByInitials(initials) {
+    if (!initials || typeof initials !== 'string') return null;
+    const clean = initials.trim().toUpperCase();
+    if (!clean || clean.length > 6) return null;
+    return initialsToUserMap.get(clean) || null;
+  }
+
+  /**
+   * 取得目前已註冊之全量人員清單
+   *
+   * @returns {Object[]}
+   */
+  function getAllRegisteredAssignees() {
+    return Array.from(registeredAssigneesMap.values());
+  }
+
+  /**
+   * 主動從當前頁面 (包含原生標頭、頭像列、篩選器與看板 DOM) 探索並註冊所有人體成員
+   *
+   * @returns {Object[]} 本次新發現或更新之人員清單
+   */
+  function discoverAssigneesFromPage() {
+    if (typeof document === 'undefined') return [];
+    const discovered = [];
+
+    // 尋找原生頁面標頭、頭像組與篩選工具列候選容器
+    const rootNodes = [
+      document.querySelector('[data-testid="software-backlog.page-header"]'),
+      document.querySelector('[data-testid*="page-header"]'),
+      document.querySelector('[data-testid*="avatar-group"]'),
+      document.querySelector('[data-testid*="assignee-filter"]'),
+      document.querySelector('.ghx-controls-filters'),
+      document.querySelector('#ghx-quick-filters'),
+      document.body
+    ].filter(Boolean);
+
+    const seen = new Set();
+    const candidateNodes = [];
+
+    rootNodes.forEach((root) => {
+      const items = root.querySelectorAll(
+        '[data-testid*="assignee"], [data-testid*="avatar-group"] button, [data-testid*="avatar-group"] [role="button"], [data-testid*="ak-avatar"], button[aria-label*="負責人"], button[aria-label*="經辦人"], button[aria-label*="Assignee"], button:has(img[src*="avatar"]), button:has(img[src*="atl-paas"])'
+      );
+      items.forEach((el) => {
+        if (!seen.has(el)) {
+          seen.add(el);
+          candidateNodes.push(el);
+        }
+      });
+    });
+
+    candidateNodes.forEach((node) => {
+      const rawLabels = [];
+      const add = (s) => {
+        if (s && typeof s === 'string' && s.trim()) rawLabels.push(s.trim());
+      };
+
+      add(node.getAttribute('aria-label'));
+      add(node.getAttribute('title'));
+
+      node.querySelectorAll('[aria-label], [title], img[alt], [class*="ScreenReader"], [class*="visually-hidden"], [class*="sr-only"]').forEach((d) => {
+        add(d.getAttribute('aria-label'));
+        add(d.getAttribute('title'));
+        add(d.getAttribute('alt'));
+        if (d.textContent) add(d.textContent.trim());
+      });
+
+      const cleanedNames = Array.from(
+        new Set(
+          rawLabels
+            .map(cleanAssigneeLabel)
+            .filter((s) => s && !isUnassignedText(s) && !/^(?:已選取|未選取|selected|unselected|avatar)$/i.test(s))
+        )
+      );
+
+      const img = node.querySelector('img[src]');
+      const avatarSrc = img ? img.src : '';
+      const name = cleanedNames[0];
+
+      if (name) {
+        const initials = deriveInitialsVariants(name)[0] || '';
+        const user = registerAssignee({ name, avatar: avatarSrc, initials });
+        if (user) discovered.push(user);
+      }
+    });
+
+    return discovered;
+  }
+
+  /**
    * 正規化頭像圖片網址以便比對 (去除 size 等查詢參數與尺寸路徑)
    *
    * @param {string} url - 原始頭像 URL
@@ -150,12 +324,20 @@
    */
   function normalizeAvatarUrl(url) {
     if (!url || typeof url !== 'string') return '';
-    if (/issuetype|\/type\/|priority|status/i.test(url)) return '';
+    if (/issuetype|\/type\/|priority|status|universal_avatar\/view\/type\/issuetype/i.test(url)) return '';
     try {
-      const u = new URL(url, window.location.origin);
-      return `${u.origin}${u.pathname}`.replace(/\/(?:small|medium|large|xsmall|xxlarge)$/i, '');
+      const baseOrigin = typeof window !== 'undefined' && window.location ? window.location.origin : 'https://swpc.atlassian.net';
+      const u = new URL(url, baseOrigin);
+      // 去除結尾尺寸路徑 (如 /128, /48, /32, /24, /small, /medium, /large, /xsmall)
+      let cleanPath = u.pathname.replace(/\/(?:small|medium|large|xsmall|xxlarge|\d+)$/i, '');
+      // 提取 ownerId / accountId 參數 (若有)
+      const ownerId = u.searchParams.get('ownerId') || u.searchParams.get('accountId') || u.searchParams.get('userId');
+      if (ownerId) {
+        return `${u.origin}${cleanPath}?ownerId=${ownerId}`;
+      }
+      return `${u.origin}${cleanPath}`;
     } catch {
-      return url.split('?')[0];
+      return url.split('?')[0].replace(/\/(?:small|medium|large|xsmall|xxlarge|\d+)$/i, '');
     }
   }
 
@@ -164,6 +346,11 @@
     isUnassignedText,
     deriveInitialsVariants,
     getDisplayInitialsForIssue,
-    normalizeAvatarUrl
+    normalizeAvatarUrl,
+    registerAssignee,
+    resolveUserByAvatar,
+    resolveUserByInitials,
+    getAllRegisteredAssignees,
+    discoverAssigneesFromPage
   };
 })();

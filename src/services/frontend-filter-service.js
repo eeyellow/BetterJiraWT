@@ -298,15 +298,51 @@
       // 2. 經辦人 (Assignee) 比對
       if (hasAssignee) {
         let assigneeMatched = false;
-        const assigneeName = (iss.assigneeName || '').trim();
+        let assigneeName = (iss.assigneeName || '').trim();
+
+        // 若卡片為「已指派」但有頭像，嘗試即時反查真實姓名
+        if ((!assigneeName || assigneeName === '已指派') && iss.assigneeAvatar && BetterJira.AssigneeUtils) {
+          const resolved = BetterJira.AssigneeUtils.resolveUserByAvatar(iss.assigneeAvatar);
+          if (resolved && resolved.name) {
+            assigneeName = resolved.name;
+          }
+        }
+        if ((!assigneeName || assigneeName === '已指派') && iss.assigneeInitials && BetterJira.AssigneeUtils) {
+          const resolved = BetterJira.AssigneeUtils.resolveUserByInitials(iss.assigneeInitials);
+          if (resolved && resolved.name) {
+            assigneeName = resolved.name;
+          }
+        }
+
         const isUnassigned = !assigneeName || (BetterJira.AssigneeUtils && BetterJira.AssigneeUtils.isUnassignedText(assigneeName));
 
         if (isUnassignedSelected && isUnassigned) {
           assigneeMatched = true;
         } else if (isMeSelected && isIssueAssignedToMe(iss, currentUserName)) {
           assigneeMatched = true;
-        } else if (!isUnassigned && filterState.selectedAssignees.has(assigneeName)) {
-          assigneeMatched = true;
+        } else if (!isUnassigned) {
+          const cleanName = BetterJira.AssigneeUtils ? BetterJira.AssigneeUtils.cleanAssigneeLabel(assigneeName) : assigneeName;
+          if (filterState.selectedAssignees.has(cleanName) || filterState.selectedAssignees.has(assigneeName)) {
+            assigneeMatched = true;
+          } else {
+            // 彈性比對：支援大小寫不敏感、縮寫與 token 比對
+            for (const sel of filterState.selectedAssignees) {
+              if (sel === '__UNASSIGNED__' || sel === '__ME__') continue;
+              if (cleanName.toLowerCase() === sel.toLowerCase()) {
+                assigneeMatched = true;
+                break;
+              }
+              const initialsList = BetterJira.AssigneeUtils ? BetterJira.AssigneeUtils.deriveInitialsVariants(sel) : [];
+              if (iss.assigneeInitials && initialsList.includes(iss.assigneeInitials.toUpperCase())) {
+                assigneeMatched = true;
+                break;
+              }
+              if (iss.assigneeTokens && iss.assigneeTokens.includes(sel.toLowerCase())) {
+                assigneeMatched = true;
+                break;
+              }
+            }
+          }
         }
 
         if (!assigneeMatched) return false;
@@ -366,6 +402,15 @@
     const safeIssues = Array.isArray(issues) ? issues : [];
     const currentUserName = filterState.currentUser || detectCurrentUserName();
 
+    // 先主動探索當前頁面原生標頭與頭像列之全量成員
+    if (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.discoverAssigneesFromPage === 'function') {
+      try {
+        BetterJira.AssigneeUtils.discoverAssigneesFromPage();
+      } catch {
+        // ignore
+      }
+    }
+
     const assigneeMap = new Map();
     let unassignedCount = 0;
     let myIssuesCount = 0;
@@ -377,7 +422,25 @@
       if (!iss) return;
 
       // 經辦人統計
-      const rawAssignee = (iss.assigneeName || '').trim();
+      let rawAssignee = (iss.assigneeName || '').trim();
+
+      // 若卡片僅有頭像或為「已指派」，嘗試從全域人員目錄即時反查
+      if ((!rawAssignee || rawAssignee === '已指派') && iss.assigneeAvatar && BetterJira.AssigneeUtils) {
+        const resolved = BetterJira.AssigneeUtils.resolveUserByAvatar(iss.assigneeAvatar);
+        if (resolved && resolved.name) {
+          rawAssignee = resolved.name;
+          iss.assigneeName = resolved.name;
+          if (!iss.assigneeInitials) iss.assigneeInitials = resolved.initials || '';
+        }
+      }
+      if ((!rawAssignee || rawAssignee === '已指派') && iss.assigneeInitials && BetterJira.AssigneeUtils) {
+        const resolved = BetterJira.AssigneeUtils.resolveUserByInitials(iss.assigneeInitials);
+        if (resolved && resolved.name) {
+          rawAssignee = resolved.name;
+          iss.assigneeName = resolved.name;
+        }
+      }
+
       const isUnassigned = !rawAssignee || (BetterJira.AssigneeUtils && BetterJira.AssigneeUtils.isUnassignedText(rawAssignee));
 
       if (isUnassigned) {

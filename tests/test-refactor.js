@@ -654,6 +654,18 @@ class MockElement {
   removeAttribute(k) {
     delete this.attributes[k];
   }
+  get src() {
+    return this.getAttribute('src') || '';
+  }
+  set src(v) {
+    this.setAttribute('src', v);
+  }
+  get href() {
+    return this.getAttribute('href') || '';
+  }
+  set href(v) {
+    this.setAttribute('href', v);
+  }
   get className() {
     return Array.from(this.classList._classes).join(' ');
   }
@@ -746,14 +758,19 @@ class MockElement {
       if (part.startsWith('.')) return this.classList.contains(part.slice(1));
       if (part.startsWith('#')) return this.getAttribute('id') === part.slice(1);
       if (part.includes('[')) {
-        const m = part.match(/\[([a-zA-Z0-9_-]+)(?:([*^$]?=)(?:"([^"]*)"|'([^']*)'|([^\]]+)))?\]/);
+        const m = part.match(/\[([a-zA-Z0-9_-]+)(?:([*^$]?=)(?:"([^"]*)"|'([^']*)'|([^\]\s]+))(?:\s*([iI]))?)?\]/);
         if (m) {
           const attr = m[1];
           const op = m[2];
-          const val = m[3] || m[4] || m[5] || '';
-          const actual = this.getAttribute(attr);
+          let val = m[3] || m[4] || m[5] || '';
+          const isCaseInsensitive = Boolean(m[6]);
+          let actual = this.getAttribute(attr);
           if (actual === null) return false;
           if (!op) return true;
+          if (isCaseInsensitive) {
+            actual = actual.toLowerCase();
+            val = val.toLowerCase();
+          }
           if (op === '=') return actual === val;
           if (op === '*=') return actual.includes(val);
           if (op === '^=') return actual.startsWith(val);
@@ -1684,6 +1701,64 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   const parsedCardStory = CardDomParser.parseIssueFromDomCard(mockCardElStory);
   assert(parsedCardStory, '解析結果應存在');
   assert.strictEqual(parsedCardStory.issueTypeName, 'Story', 'avatarId 10315 應精準反向解析為 Story');
+
+  // 19. 測試人員目錄註冊與頭像網址 (Avatar URL) 逆向解析經辦人
+  const { AssigneeUtils } = BetterJira;
+  AssigneeUtils.registerAssignee({
+    name: 'Bruce Peng',
+    avatar: 'https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/557058:bruce123/avatar/48',
+    initials: 'BP'
+  });
+
+  const resolvedBruce = AssigneeUtils.resolveUserByAvatar(
+    'https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/557058:bruce123/avatar/128'
+  );
+  assert(resolvedBruce, '應透過不同尺寸之頭像網址成功反查 Bruce Peng');
+  assert.strictEqual(resolvedBruce.name, 'Bruce Peng', '反查名稱應為 Bruce Peng');
+
+  // 20. 測試卡片僅有頭像 URL (無 alt 與 aria-label) 時自動反查真實人員姓名與選項萃取
+  const mockCardWithOnlyAvatarUrl = new MockElement('div');
+  const linkKey2 = new MockElement('a');
+  linkKey2.textContent = 'WMC-888 Card Without Alt';
+  linkKey2.setAttribute('href', '/browse/WMC-888');
+  mockCardWithOnlyAvatarUrl.appendChild(linkKey2);
+
+  const avatarContainer = new MockElement('div');
+  avatarContainer.setAttribute('data-testid', 'software-backlog.card-list.card.card-contents.avatar-container');
+  const avatarImgWithoutAlt = new MockElement('img');
+  avatarImgWithoutAlt.setAttribute('src', 'https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/557058:bruce123/avatar/32');
+  avatarContainer.appendChild(avatarImgWithoutAlt);
+  mockCardWithOnlyAvatarUrl.appendChild(avatarContainer);
+
+  const parsedCardBruce = CardDomParser.parseIssueFromDomCard(mockCardWithOnlyAvatarUrl);
+  assert(parsedCardBruce, '解析應成功');
+  assert.strictEqual(parsedCardBruce.assigneeName, 'Bruce Peng', '卡片經辦人應透過頭像網址目錄成功解析為 Bruce Peng，非空字串或已指派');
+
+  // 21. 測試 extractFilterOptions 中經辦人選單完整列出 Sprint 內真實成員與正確計數
+  const sprintTestIssues = [
+    { key: 'S-1', summary: 'Issue 1', assigneeName: 'Ray Huang', assigneeAvatar: 'https://avatar/ray.png' },
+    { key: 'S-2', summary: 'Issue 2', assigneeName: 'Ray Huang', assigneeAvatar: 'https://avatar/ray.png' },
+    { key: 'S-3', summary: 'Issue 3', assigneeName: 'Bruce Peng', assigneeAvatar: 'https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/557058:bruce123/avatar/48' },
+    { key: 'S-4', summary: 'Issue 4', assigneeName: '已指派', assigneeAvatar: 'https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/557058:bruce123/avatar/128' },
+    { key: 'S-5', summary: 'Issue 5', assigneeName: '未指派' }
+  ];
+
+  const sprintExtractedOptions = FrontendFilterService.extractFilterOptions(sprintTestIssues);
+  assert.strictEqual(sprintExtractedOptions.unassignedCount, 1, '未指派卡片數應為 1');
+  assert.strictEqual(sprintExtractedOptions.assignees.length, 2, '經辦人選單應包含 Ray Huang 與 Bruce Peng (已指派應成功反查合併)');
+  
+  const rayEntry = sprintExtractedOptions.assignees.find((a) => a.name === 'Ray Huang');
+  const bruceEntry = sprintExtractedOptions.assignees.find((a) => a.name === 'Bruce Peng');
+  assert(rayEntry && rayEntry.count === 2, 'Ray Huang 應有 2 張卡片');
+  assert(bruceEntry && bruceEntry.count === 2, 'Bruce Peng 應有 2 張卡片 (包含已指派反查升級者)');
+
+  // 22. 測試選取經辦人精準篩選
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleAssignee('Bruce Peng');
+  const bruceFilterResult = FrontendFilterService.filterIssues(sprintTestIssues);
+  assert.strictEqual(bruceFilterResult.length, 2, '篩選 Bruce Peng 應精確命中 2 張卡片');
+  assert(bruceFilterResult.every((iss) => iss.key === 'S-3' || iss.key === 'S-4'), '應命中 S-3 與 S-4');
+  FrontendFilterService.clearAll();
 
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 
