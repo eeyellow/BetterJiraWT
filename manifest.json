@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BetterJiraWT",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "擴充 & 簡化 Jira 的功能，美化 Jira 版面",
   "permissions": [
     "storage",

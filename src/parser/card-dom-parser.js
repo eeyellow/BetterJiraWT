@@ -8,6 +8,8 @@
   const BetterJira = (typeof window !== 'undefined' ? window : global).BetterJira =
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
+  let typeImg = null;
+
   /**
    * 從原生卡片 DOM 中提取乾淨且無重複的標題
    *
@@ -339,11 +341,12 @@
 
     const isIssueTypeElement = (el) => {
       if (!el || !(el instanceof Element)) return true;
+      const currentTypeImg = typeof typeImg !== 'undefined' ? typeImg : null;
       if (
-        typeImg &&
-        (el === typeImg ||
-          (typeof el.contains === 'function' && el.contains(typeImg)) ||
-          (typeof typeImg.contains === 'function' && typeImg.contains(el)))
+        currentTypeImg &&
+        (el === currentTypeImg ||
+          (typeof el.contains === 'function' && el.contains(currentTypeImg)) ||
+          (typeof currentTypeImg.contains === 'function' && currentTypeImg.contains(el)))
       ) {
         return true;
       }
@@ -384,10 +387,11 @@
               'img:not([src*="issuetype"]):not([src*="avatar/type"]):not([src*="priority"])'
             );
 
+      const currentTypeImg = typeof typeImg !== 'undefined' ? typeImg : null;
       if (
         avatarImg &&
         avatarImg.src &&
-        avatarImg !== typeImg &&
+        (!currentTypeImg || avatarImg !== currentTypeImg) &&
         (!issueTypeIcon || avatarImg.src !== issueTypeIcon) &&
         !/issuetype|avatar\/type|universal_avatar\/view\/type\/issuetype/i.test(avatarImg.src)
       ) {
@@ -698,10 +702,14 @@
     const issues = [];
     const seenKeys = new Set();
     foundCards.forEach((cardEl) => {
-      const iss = parseIssueFromDomCard(cardEl);
-      if (iss && iss.key && !seenKeys.has(iss.key)) {
-        seenKeys.add(iss.key);
-        issues.push(iss);
+      try {
+        const iss = parseIssueFromDomCard(cardEl);
+        if (iss && iss.key && !seenKeys.has(iss.key)) {
+          seenKeys.add(iss.key);
+          issues.push(iss);
+        }
+      } catch (err) {
+        console.warn('[BetterJiraWT] Card parsing warning:', err);
       }
     });
 
