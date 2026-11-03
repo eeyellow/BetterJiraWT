@@ -331,6 +331,25 @@ assert(minimalCardHtml.includes('bjwt-card-col-right'), '最後一欄仍正確�
 assert(minimalCardHtml.includes('bjwt-history-status-badge'), '最後一欄狀態徽章仍正確存在');
 assert(!minimalCardHtml.includes('bjwt-history-parent-badge'), '無標籤時不應渲染標籤徽章');
 assert(!minimalCardHtml.includes('bjwt-history-duedate-badge'), '無截止日期時不應渲染日期徽章');
+
+// 驗證 StoryPoint, 優先度, 指派人員 三個欄位皆使用等寬 slot 容器
+assert(fullCardHtml.includes('bjwt-card-slot-points'), '應包含 StoryPoint 等寬 slot 容器');
+assert(fullCardHtml.includes('bjwt-card-slot-priority'), '應包含 優先度 等寬 slot 容器');
+assert(fullCardHtml.includes('bjwt-card-slot-assignee'), '應包含 指派人員 等寬 slot 容器');
+
+// 測試無優先度卡片，驗證優先度 slot 仍存在且有 placeholder 占位，保證排版不歪斜
+const noPriorityIssue = {
+  ...normalized,
+  priorityIcon: '',
+  prioritySvg: '',
+  priorityName: ''
+};
+const noPriorityCardHtml = IssueCardComponent.renderIssueCardHtml(noPriorityIssue);
+assert(noPriorityCardHtml.includes('bjwt-card-slot-priority'), '無優先度卡片仍應保留優先度 slot 容器占位');
+assert(noPriorityCardHtml.includes('bjwt-history-priority-placeholder'), '無優先度卡片應包含占位 element');
+assert(!noPriorityCardHtml.includes('bjwt-history-priority-icon'), '無優先度卡片不應渲染優先度圖示');
+assert(noPriorityCardHtml.includes('bjwt-card-slot-points'), '無優先度卡片 StoryPoint slot 仍正確存在');
+assert(noPriorityCardHtml.includes('bjwt-card-slot-assignee'), '無優先度卡片經辦人 slot 仍正確存在');
 console.log('✓ IssueCardComponent 測試通過！');
 
 console.log('--- 測試 8: IssueModal 全版面樣式檢查 ---');
@@ -363,8 +382,13 @@ assert(runtimeStylesJs.includes('.bjwt-card-col-right'), 'runtime-styles.js 應�
 
 assert(stylesCss.includes('width: 88px !important;'), 'styles.css 狀態徽章應設定固定寬度 88px');
 assert(stylesCss.includes('justify-content: flex-start !important;'), 'styles.css 狀態徽章應設定靠左對齊');
+assert(stylesCss.includes('.bjwt-card-action-slot'), 'styles.css 應包含 .bjwt-card-action-slot 樣式');
+assert(stylesCss.includes('min-width: 196px !important;'), 'styles.css 應設定右側欄位最小保證寬度 196px');
+
 assert(runtimeStylesJs.includes('width: 88px !important;'), 'runtime-styles.js 狀態徽章應設定固定寬度 88px');
 assert(runtimeStylesJs.includes('justify-content: flex-start !important;'), 'runtime-styles.js 狀態徽章應設定靠左對齊');
+assert(runtimeStylesJs.includes('.bjwt-card-action-slot'), 'runtime-styles.js 應包含 .bjwt-card-action-slot 樣式');
+assert(runtimeStylesJs.includes('min-width: 196px !important;'), 'runtime-styles.js 應設定右側欄位最小保證寬度 196px');
 console.log('✓ 卡片第二列 flex n 欄排版樣式測試通過！');
 
 console.log('--- 測試 10: 未結束衝刺自定義檢視新增卡片按鈕與 triggerCreateIssue 檢查 ---');
@@ -1041,24 +1065,31 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
 
   console.log('✓ 擴充功能快捷開關與設定檢查通過！');
 
-  console.log('--- 測試 16: 方案 B：Bootstrap 5 與 Material Design 3 完整元件級樣式檢查 ---');
+  console.log('--- 測試 16: 移除樣式切換功能，僅保留預設 Jira 樣式檢查 ---');
   const updatedStylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+  const updatedRuntimeStyles = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+  const updatedPopupHtml = fs.readFileSync(path.resolve(__dirname, '..', 'popup.html'), 'utf8');
+  const updatedPopupJs = fs.readFileSync(path.resolve(__dirname, '..', 'popup.js'), 'utf8');
 
-  // Bootstrap 5 元件檢查
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-sprint-tab'), '應包含 Bootstrap 側邊欄清單樣式');
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-active-create-btn'), '應包含 Bootstrap 新增按鈕樣式');
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-history-card-filter'), '應包含 Bootstrap 搜尋輸入框樣式');
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-history-status-badge'), '應包含 Bootstrap 狀態徽章樣式');
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"] .bjwt-history-card'), '應包含 Bootstrap 卡片樣式');
+  // 確認 Bootstrap 與 MaterialDesign 主題已被完全移除，防止多餘樣式殘留
+  assert(!updatedStylesCss.includes('html[data-betterjira-theme="Bootstrap"]'), 'styles.css 不應殘留 Bootstrap 主題樣式');
+  assert(!updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"]'), 'styles.css 不應殘留 MaterialDesign 主題樣式');
+  assert(!updatedRuntimeStyles.includes('html[data-betterjira-theme="Bootstrap"]'), 'runtime-styles.js 不應殘留 Bootstrap 主題樣式');
+  assert(!updatedRuntimeStyles.includes('html[data-betterjira-theme="MaterialDesign"]'), 'runtime-styles.js 不應殘留 MaterialDesign 主題樣式');
 
-  // Material Design 3 元件檢查
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-sprint-tab'), '應包含 M3 側邊欄清單膠囊樣式');
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-active-create-btn'), '應包含 M3 Filled 按鈕樣式');
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-history-card-filter'), '應包含 M3 Search Bar 樣式');
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-history-status-badge'), '應包含 M3 狀態膠囊 Chip 樣式');
-  assert(updatedStylesCss.includes('html[data-betterjira-theme="MaterialDesign"] .bjwt-history-card'), '應包含 M3 Elevated 卡片樣式');
+  // 確認 popup.html 與 popup.js 不再包含樣式切換功能與 modal
+  assert(!updatedPopupHtml.includes('id="styleModal"'), 'popup.html 不應包含樣式設定彈跳視窗');
+  assert(!updatedPopupHtml.includes('name="themeStyle"'), 'popup.html 不應包含樣式選擇單選框');
+  assert(!updatedPopupHtml.includes('id="openStyleModalBtn"'), 'popup.html 不應包含樣式開啟按鈕');
+  assert(!updatedPopupJs.includes('openStyleModalBtn'), 'popup.js 不應包含樣式彈窗按鈕邏輯');
+  assert(!updatedPopupJs.includes('themeStyle: styleKey'), 'popup.js 不應發送樣式切換訊息');
 
-  console.log('✓ 方案 B 元件級樣式檢查通過！');
+  // 確認預設雙欄與卡片排版樣式保持完整
+  assert(updatedStylesCss.includes('.bjwt-card-row-bottom'), 'styles.css 應完整保留卡片第二列排版');
+  assert(updatedStylesCss.includes('.bjwt-card-action-slot'), 'styles.css 應完整保留等寬 action slot');
+  assert(updatedStylesCss.includes('#bjwt-sprint-sidebar'), 'styles.css 應完整保留側邊欄樣式');
+
+  console.log('✓ 樣式功能移除與純淨預設排版檢查通過！');
 
   console.log('--- 測試 17: CardDomParser.parseIssueFromDomCard DOM 解析與變數範疇檢查 ---');
   const { CardDomParser } = BetterJira;

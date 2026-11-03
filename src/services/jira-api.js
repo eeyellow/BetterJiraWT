@@ -754,12 +754,11 @@
    * @param {string} themeStyle - 當前樣式名稱 (Default / Bootstrap / MaterialDesign)
    * @param {boolean} [enabled=true] - 擴充功能是否啟用
    */
-  function syncExtensionIcon(themeStyle, enabled = true) {
+  function syncExtensionIcon(enabled = true) {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage(
         {
           type: 'BETTER_JIRA_WT_UPDATE_ICON',
-          themeStyle: themeStyle || 'Default',
           enabled: enabled !== false
         },
         () => {

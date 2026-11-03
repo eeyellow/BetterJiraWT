@@ -17,14 +17,13 @@
           <p>Jira 擴充與版面美化工具</p>
         </div>
       </div>
-      <span class="theme-badge" id="currentStyleBadge">預設</span>
     </header>
 
     <!-- 快捷啟用/停用開關列 -->
     <div class="power-bar" id="powerBar">
       <div class="power-bar-label">
         <span class="power-bar-title">功能啟用狀態</span>
-        <span class="power-bar-desc" id="powerStatusDesc">已啟用雙欄與樣式美化</span>
+        <span class="power-bar-desc" id="powerStatusDesc">已啟用雙欄版面美化</span>
       </div>
       <label class="toggle-switch" title="快速開啟或關閉 BetterJiraWT 功能">
         <input type="checkbox" id="powerToggle" checked />
@@ -49,18 +48,6 @@
               <div class="submenu-text">
                 <span class="submenu-label">待辦事項網址</span>
                 <span class="submenu-preview" id="backlogUrlPreview">尚未設定網址</span>
-              </div>
-            </div>
-            <span class="submenu-arrow">›</span>
-          </button>
-
-          <!-- 1.2 樣式 -->
-          <button class="submenu-item" id="openStyleModalBtn" type="button">
-            <div class="submenu-item-main">
-              <span class="submenu-index">1.2</span>
-              <div class="submenu-text">
-                <span class="submenu-label">樣式</span>
-                <span class="submenu-preview" id="stylePreviewText">目前：預設</span>
               </div>
             </div>
             <span class="submenu-arrow">›</span>
@@ -106,50 +93,6 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelBacklogBtn">取消</button>
           <button type="button" class="btn btn-primary" id="saveBacklogBtn">儲存設定</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 彈出視窗 1.2：設定 - 樣式 (僅保留標題，精簡高度) -->
-    <div class="modal-overlay hidden" id="styleModal">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h2>設定 - 樣式</h2>
-          <button class="close-btn" id="closeStyleModalBtn" type="button" aria-label="關閉">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="style-options" id="styleOptionsList">
-            <!-- 預設 (Default) 選項 -->
-            <label class="style-option-card" data-style="Default">
-              <input type="radio" name="themeStyle" value="Default" />
-              <div class="style-option-title">
-                <span class="style-swatch swatch-default">J</span>
-                <strong>預設</strong>
-              </div>
-            </label>
-
-            <!-- Bootstrap 選項 -->
-            <label class="style-option-card" data-style="Bootstrap">
-              <input type="radio" name="themeStyle" value="Bootstrap" />
-              <div class="style-option-title">
-                <span class="style-swatch swatch-bootstrap">B</span>
-                <strong>Bootstrap</strong>
-              </div>
-            </label>
-
-            <!-- MaterialDesign 選項 -->
-            <label class="style-option-card" data-style="MaterialDesign">
-              <input type="radio" name="themeStyle" value="MaterialDesign" />
-              <div class="style-option-title">
-                <span class="style-swatch swatch-material">M</span>
-                <strong>MaterialDesign</strong>
-              </div>
-            </label>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" id="cancelStyleBtn">關閉</button>
-          <button type="button" class="btn btn-primary" id="saveStyleBtn">套用樣式</button>
         </div>
       </div>
     </div>

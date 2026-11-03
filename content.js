@@ -203,7 +203,7 @@
       const settings = await BetterJiraDB.getSettings();
       setCurrentSettings(settings);
       await BetterJiraDB.syncFromObject(settings);
-      syncExtensionIcon(settings.themeStyle, settings.enabled);
+      syncExtensionIcon(settings.enabled);
       evaluateAndApply();
       console.log('[BetterJiraWT] v1.1.1 版面評估完成');
     } catch (err) {
@@ -217,7 +217,7 @@
       if (message && message.type === 'BETTER_JIRA_WT_SETTINGS_UPDATED' && message.payload) {
         const newSettings = message.payload;
         setCurrentSettings(newSettings);
-        syncExtensionIcon(newSettings.themeStyle, newSettings.enabled);
+        syncExtensionIcon(newSettings.enabled);
         BetterJiraDB.syncFromObject(newSettings).then(() => {
           evaluateAndApply();
           sendResponse({ ok: true });
@@ -235,14 +235,11 @@
         if (changes.backlogUrl) {
           current.backlogUrl = changes.backlogUrl.newValue;
         }
-        if (changes.themeStyle) {
-          current.themeStyle = changes.themeStyle.newValue;
-        }
         if (changes.enabled) {
           current.enabled = changes.enabled.newValue;
         }
-        if (changes.themeStyle || changes.enabled) {
-          syncExtensionIcon(current.themeStyle, current.enabled);
+        if (changes.enabled) {
+          syncExtensionIcon(current.enabled);
         }
         setCurrentSettings(current);
         BetterJiraDB.syncFromObject(current).then(() => {

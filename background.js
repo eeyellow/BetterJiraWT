@@ -1,51 +1,27 @@
 /**
  * @fileoverview BetterJiraWT Background Service Worker
- * 根據目前設定的樣式 (Default / Bootstrap / MaterialDesign) 動態切換瀏覽器上的 Extension Icon，並在安裝或啟動時注入腳本。
+ * 維護 Extension Icon 狀態與啟用徽章，並在安裝或啟動時注入腳本。
  * @module background
  */
 
 /**
- * 外觀樣式對應的圖示路徑設定
- * @type {Record<string, {16: string, 48: string, 128: string}>}
+ * 預設擴充功能圖示路徑設定
+ * @type {{16: string, 48: string, 128: string}}
  */
-const ICON_MAP = {
-  Default: {
-    16: 'icons/icon_default_16.png',
-    48: 'icons/icon_default_48.png',
-    128: 'icons/icon_default_128.png'
-  },
-  Bootstrap: {
-    16: 'icons/icon_bootstrap_16.png',
-    48: 'icons/icon_bootstrap_48.png',
-    128: 'icons/icon_bootstrap_128.png'
-  },
-  MaterialDesign: {
-    16: 'icons/icon_material_16.png',
-    48: 'icons/icon_material_48.png',
-    128: 'icons/icon_material_128.png'
-  }
+const DEFAULT_ICON = {
+  16: 'icons/icon_default_16.png',
+  48: 'icons/icon_default_48.png',
+  128: 'icons/icon_default_128.png'
 };
 
 /**
- * 樣式對應的延伸工具列標題
- * @type {Record<string, string>}
- */
-const TITLE_MAP = {
-  Default: 'BetterJiraWT (樣式：預設)',
-  Bootstrap: 'BetterJiraWT (樣式：Bootstrap)',
-  MaterialDesign: 'BetterJiraWT (樣式：MaterialDesign)'
-};
-
-/**
- * 依據外觀樣式與啟用狀態動態更新擴充功能圖示與提示標題
- * @param {string} themeStyle - 主題名稱 (Default / Bootstrap / MaterialDesign)
+ * 依據啟用狀態動態更新擴充功能圖示與提示標題
  * @param {boolean} [enabled=true] - 擴充功能是否啟用
  */
-function updateExtensionIcon(themeStyle, enabled = true) {
-  const styleKey = ICON_MAP[themeStyle] ? themeStyle : 'Default';
+function updateExtensionIcon(enabled = true) {
   const isEnabled = enabled !== false;
   if (chrome.action && chrome.action.setIcon) {
-    chrome.action.setIcon({ path: ICON_MAP[styleKey] });
+    chrome.action.setIcon({ path: DEFAULT_ICON });
   }
   if (chrome.action && chrome.action.setBadgeText) {
     chrome.action.setBadgeText({ text: isEnabled ? '' : 'OFF' });
@@ -54,22 +30,19 @@ function updateExtensionIcon(themeStyle, enabled = true) {
     chrome.action.setBadgeBackgroundColor({ color: '#6c757d' });
   }
   if (chrome.action && chrome.action.setTitle) {
-    const title = isEnabled
-      ? (TITLE_MAP[styleKey] || 'BetterJiraWT')
-      : 'BetterJiraWT (已關閉)';
+    const title = isEnabled ? 'BetterJiraWT' : 'BetterJiraWT (已關閉)';
     chrome.action.setTitle({ title });
   }
 }
 
 /**
- * 從 chrome.storage.local 讀取目前樣式與啟用狀態並同步圖示
+ * 從 chrome.storage.local 讀取啟用狀態並同步圖示
  */
 function syncIconFromStorage() {
   if (chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get(['themeStyle', 'enabled'], (res) => {
-      const theme = (res && res.themeStyle) || 'Default';
+    chrome.storage.local.get(['enabled'], (res) => {
       const isEnabled = res ? res.enabled !== false : true;
-      updateExtensionIcon(theme, isEnabled);
+      updateExtensionIcon(isEnabled);
     });
   }
 }
@@ -128,18 +101,17 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === 'local' && (changes.themeStyle || changes.enabled)) {
-    chrome.storage.local.get(['themeStyle', 'enabled'], (res) => {
-      const theme = (res && res.themeStyle) || 'Default';
+  if (areaName === 'local' && changes.enabled !== undefined) {
+    chrome.storage.local.get(['enabled'], (res) => {
       const isEnabled = res ? res.enabled !== false : true;
-      updateExtensionIcon(theme, isEnabled);
+      updateExtensionIcon(isEnabled);
     });
   }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message && message.type === 'BETTER_JIRA_WT_UPDATE_ICON') {
-    updateExtensionIcon(message.themeStyle, message.enabled !== false);
+    updateExtensionIcon(message.enabled !== false);
     sendResponse({ ok: true });
     return true;
   }

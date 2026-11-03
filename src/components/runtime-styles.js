@@ -320,10 +320,30 @@
         flex-direction: row !important;
         align-items: center !important;
         justify-content: flex-end !important;
-        gap: 10px !important;
+        gap: 8px !important;
         flex: 0 0 auto !important;
+        min-width: 196px !important;
         margin-left: auto !important;
         box-sizing: border-box !important;
+      }
+      .bjwt-card-action-slot {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 28px !important;
+        min-width: 28px !important;
+        max-width: 28px !important;
+        height: 24px !important;
+        flex: 0 0 28px !important;
+        flex-shrink: 0 !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-history-priority-placeholder {
+        display: inline-block !important;
+        width: 16px !important;
+        height: 16px !important;
+        visibility: hidden !important;
+        flex-shrink: 0 !important;
       }
       .bjwt-card-row-bottom-left {
         display: flex !important;
@@ -418,14 +438,26 @@
         display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
+        width: 26px !important;
         min-width: 26px !important;
+        max-width: 26px !important;
         height: 20px !important;
-        padding: 0 6px !important;
+        padding: 0 !important;
         border-radius: 4px !important;
         font-size: 11px !important;
         font-weight: 700 !important;
         background: rgba(148, 163, 184, 0.2) !important;
         color: var(--ds-text, #cbd5e1) !important;
+        flex-shrink: 0 !important;
+        box-sizing: border-box !important;
+        text-align: center !important;
+      }
+      .bjwt-history-assignee {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 24px !important;
+        height: 24px !important;
         flex-shrink: 0 !important;
         box-sizing: border-box !important;
       }
@@ -1046,62 +1078,6 @@
         background: var(--ds-surface-sunken, rgba(255, 255, 255, 0.08)) !important;
         color: var(--ds-text-subtle, #9fadbc) !important;
         border: 1px dashed var(--ds-border, rgba(255, 255, 255, 0.25)) !important;
-      }
-
-      /* Bootstrap 5 執行期主題元件保險樣式 */
-      html[data-betterjira-theme="Bootstrap"] .bjwt-sprint-tab {
-        border-radius: 0 !important;
-        border-bottom: 1px solid #dee2e6 !important;
-      }
-      html[data-betterjira-theme="Bootstrap"] .bjwt-sprint-tab.active {
-        background-color: #0d6efd !important;
-        color: #ffffff !important;
-      }
-      html[data-betterjira-theme="Bootstrap"] .bjwt-active-create-btn {
-        background: #0d6efd !important;
-        border: 1px solid #0d6efd !important;
-        color: #ffffff !important;
-        border-radius: 0.375rem !important;
-      }
-      html[data-betterjira-theme="Bootstrap"] .bjwt-history-card-filter {
-        background: #ffffff !important;
-        border: 1px solid #ced4da !important;
-        border-radius: 0.375rem !important;
-        color: #212529 !important;
-      }
-      html[data-betterjira-theme="Bootstrap"] .bjwt-history-status-badge.status-done {
-        background: #d1e7dd !important;
-        border: 1px solid #a3cfbb !important;
-        color: #0a3622 !important;
-        border-radius: 50rem !important;
-      }
-
-      /* Material Design 3 執行期主題元件保險樣式 */
-      html[data-betterjira-theme="MaterialDesign"] .bjwt-sprint-tab {
-        border-radius: 999px !important;
-        margin: 4px 4px !important;
-      }
-      html[data-betterjira-theme="MaterialDesign"] .bjwt-sprint-tab.active {
-        background-color: #eaddff !important;
-        color: #21005d !important;
-      }
-      html[data-betterjira-theme="MaterialDesign"] .bjwt-active-create-btn {
-        background: #6750a4 !important;
-        border: none !important;
-        color: #ffffff !important;
-        border-radius: 999px !important;
-      }
-      html[data-betterjira-theme="MaterialDesign"] .bjwt-history-card-filter {
-        background: #ece6f0 !important;
-        border: none !important;
-        border-radius: 999px !important;
-        color: #1d1b20 !important;
-      }
-      html[data-betterjira-theme="MaterialDesign"] .bjwt-history-status-badge.status-done {
-        background: #c8eed0 !important;
-        border: 1px solid #a3ddae !important;
-        color: #0d3815 !important;
-        border-radius: 999px !important;
       }
     `;
     (document.head || document.documentElement).appendChild(styleEl);
