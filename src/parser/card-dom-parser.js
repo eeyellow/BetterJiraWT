@@ -11,6 +11,19 @@
   let typeImg = null;
 
   /**
+   * Jira 官方標準 Issue Type Avatar ID 映射表
+   */
+  const JIRA_STANDARD_AVATAR_MAP = {
+    '10315': 'Story',
+    '10303': 'Bug',
+    '10318': 'Task',
+    '10316': 'Sub-task',
+    '10307': 'Epic',
+    '10311': 'New Feature',
+    '10310': 'Improvement'
+  };
+
+  /**
    * 嘗試從圖片 URL 或與專案已知問題類型 (IssueStore.getProjectIssueTypes) 比對解析問題類型名稱
    *
    * @param {string} url - 圖示 URL
@@ -19,12 +32,26 @@
   function resolveIssueTypeFromProjectOrUrl(url) {
     if (!url || typeof url !== 'string') return '';
     const lower = url.toLowerCase();
-    if (lower.includes('story') || lower.includes('故事')) return 'Story';
-    if (lower.includes('bug') || lower.includes('缺陷') || lower.includes('錯誤')) return 'Bug';
-    if (lower.includes('subtask') || lower.includes('sub-task') || lower.includes('子任務')) return 'Sub-task';
-    if (lower.includes('epic') || lower.includes('史詩')) return 'Epic';
-    if (lower.includes('task') || lower.includes('任務')) return 'Task';
 
+    // 1. 優先從 URL 參數或路徑提取 avatarId (如 /avatar/10315 或 avatarId=10315)
+    const matchAvatarId = url.match(/(?:\/avatar\/|avatarId=)(\d+)/i);
+    if (matchAvatarId) {
+      const avatarId = matchAvatarId[1];
+      // 1-1. 優先檢查專案定義之問題類型 (支援自訂類型)
+      if (BetterJira.IssueStore && typeof BetterJira.IssueStore.getProjectIssueTypes === 'function') {
+        const pTypes = BetterJira.IssueStore.getProjectIssueTypes();
+        if (Array.isArray(pTypes)) {
+          const found = pTypes.find((pt) => pt.avatarId === avatarId || pt.id === avatarId);
+          if (found && found.name) return found.name;
+        }
+      }
+      // 1-2. 檢查官方標準 avatarId 映射
+      if (JIRA_STANDARD_AVATAR_MAP[avatarId]) {
+        return JIRA_STANDARD_AVATAR_MAP[avatarId];
+      }
+    }
+
+    // 2. 檢查專案自訂類型的完整 iconUrl 吻合
     if (BetterJira.IssueStore && typeof BetterJira.IssueStore.getProjectIssueTypes === 'function') {
       const pTypes = BetterJira.IssueStore.getProjectIssueTypes();
       if (Array.isArray(pTypes)) {
@@ -32,12 +59,17 @@
           if (pt.iconUrl && (pt.iconUrl === url || url.includes(pt.iconUrl))) {
             return pt.name;
           }
-          if (pt.avatarId && (url.includes(`/avatar/${pt.avatarId}`) || url.includes(`avatarId=${pt.avatarId}`))) {
-            return pt.name;
-          }
         }
       }
     }
+
+    // 3. 檢查常見類型關鍵字路徑 (subtask 優先於 task，避免誤判)
+    if (lower.includes('subtask') || lower.includes('sub-task') || lower.includes('子任務')) return 'Sub-task';
+    if (lower.includes('story') || lower.includes('故事')) return 'Story';
+    if (lower.includes('bug') || lower.includes('缺陷') || lower.includes('錯誤')) return 'Bug';
+    if (lower.includes('epic') || lower.includes('史詩')) return 'Epic';
+    if (lower.includes('task') || lower.includes('任務') || lower.includes('工作')) return 'Task';
+
     return '';
   }
 
@@ -626,27 +658,30 @@
         .forEach((el) => el.remove());
 
       const fallbackChunks = [];
-      const walker = document.createTreeWalker(cloneCard, NodeFilter.SHOW_TEXT, null);
-      let node = walker.nextNode();
-      while (node) {
-        const val = (node.nodeValue || '')
-          .replace(/[\u200B-\u200D\uFEFF]/g, '')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (
-          val &&
-          val !== key &&
-          val !== statusName &&
-          val !== parentSummary &&
-          val !== dueDate &&
-          val !== assigneeName &&
-          val !== assigneeInitials &&
-          val !== '-' &&
-          !/^\d{1,3}(\.\d)?$/.test(val)
-        ) {
-          fallbackChunks.push(val);
+      if (typeof document !== 'undefined' && typeof document.createTreeWalker === 'function') {
+        const showText = typeof NodeFilter !== 'undefined' && NodeFilter.SHOW_TEXT ? NodeFilter.SHOW_TEXT : 4;
+        const walker = document.createTreeWalker(cloneCard, showText, null);
+        let node = walker ? walker.nextNode() : null;
+        while (node) {
+          const val = (node.nodeValue || '')
+            .replace(/[\u200B-\u200D\uFEFF]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (
+            val &&
+            val !== key &&
+            val !== statusName &&
+            val !== parentSummary &&
+            val !== dueDate &&
+            val !== assigneeName &&
+            val !== assigneeInitials &&
+            val !== '-' &&
+            !/^\d{1,3}(\.\d)?$/.test(val)
+          ) {
+            fallbackChunks.push(val);
+          }
+          node = walker.nextNode();
         }
-        node = walker.nextNode();
       }
 
       const dedupedFallback = deduplicateSummaryChunks(fallbackChunks, key);

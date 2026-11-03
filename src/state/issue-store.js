@@ -138,9 +138,10 @@
         (domSide && domSide.statusCategory) || primaryIss.statusCategory || existing.statusCategory,
       issueTypeIcon: primaryIss.issueTypeIcon || existing.issueTypeIcon,
       issueTypeName:
-        primaryIss.issueTypeName && primaryIss.issueTypeName !== '任務'
-          ? primaryIss.issueTypeName
-          : existing.issueTypeName || primaryIss.issueTypeName || '任務',
+        (apiSide && apiSide.issueTypeName) ||
+        primaryIss.issueTypeName ||
+        existing.issueTypeName ||
+        '',
       priorityIcon: primaryIss.priorityIcon || existing.priorityIcon,
       prioritySvg: primaryIss.prioritySvg || existing.prioritySvg,
       priorityName: primaryIss.priorityName || existing.priorityName,
