@@ -2140,3 +2140,311 @@ html[data-betterjira-layout="two-column"] #bjwt-history-issue-modal,
   background: var(--ds-surface-raised, rgba(255, 255, 255, 0.06)) !important;
   font-weight: 600 !important;
 }
+
+/* ==========================================================================
+   純前端待辦事項篩選工具列 (Frontend Filter Toolbar) & 隱藏原生篩選區塊
+   ========================================================================== */
+
+/* 雙欄模式下乾淨隱藏 Jira 原生篩選區塊，杜絕跑版與狀態丟失 */
+html[data-betterjira-layout="two-column"] [data-testid*="filter-bar"],
+html[data-betterjira-layout="two-column"] [data-testid="software-backlog.filter-bar"],
+html[data-betterjira-layout="two-column"] [data-testid="software-board.header.filter-bar"],
+html[data-betterjira-layout="two-column"] [data-testid*="quick-filters"],
+html[data-betterjira-layout="two-column"] [data-testid*="filters.ui.filter-bar"],
+html[data-betterjira-layout="two-column"] [data-testid="software-backlog.header"] [data-testid*="filter"],
+html[data-betterjira-layout="two-column"] [data-testid="software-backlog.header"] [role="search"],
+html[data-betterjira-layout="two-column"] .ghx-controls-filters,
+html[data-betterjira-layout="two-column"] #ghx-quick-filters,
+html[data-betterjira-layout="two-column"] [data-bjwt-native-filter-hidden="true"] {
+  display: none !important;
+}
+
+/* 自製篩選工具列容器 */
+.bjwt-filter-toolbar {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  margin: 10px 0 14px 0 !important;
+  padding: 10px 14px !important;
+  background: var(--ds-surface-sunken, rgba(255, 255, 255, 0.04)) !important;
+  border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.1)) !important;
+  border-radius: 8px !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  z-index: 10 !important;
+}
+
+.bjwt-filter-toolbar-main {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 10px !important;
+}
+
+/* 搜尋輸入框 */
+.bjwt-filter-search-box {
+  display: inline-flex !important;
+  align-items: center !important;
+  position: relative !important;
+  flex: 1 1 240px !important;
+  max-width: 380px !important;
+  min-width: 200px !important;
+}
+
+.bjwt-filter-search-icon {
+  position: absolute !important;
+  left: 10px !important;
+  color: var(--ds-text-subtlest, #8c9bab) !important;
+  pointer-events: none !important;
+}
+
+.bjwt-filter-search-input {
+  width: 100% !important;
+  height: 32px !important;
+  padding: 0 28px 0 30px !important;
+  background: var(--ds-surface, rgba(0, 0, 0, 0.25)) !important;
+  border: 1px solid var(--ds-border, #455260) !important;
+  border-radius: 6px !important;
+  color: var(--ds-text, #dee4ea) !important;
+  font-size: 13px !important;
+  outline: none !important;
+  box-sizing: border-box !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.bjwt-filter-search-input:focus {
+  border-color: #579dff !important;
+  box-shadow: 0 0 0 2px rgba(87, 157, 255, 0.25) !important;
+}
+
+.bjwt-filter-clear-kw-btn {
+  position: absolute !important;
+  right: 6px !important;
+  background: transparent !important;
+  border: none !important;
+  color: var(--ds-text-subtlest, #8c9bab) !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+  padding: 2px 4px !important;
+  border-radius: 4px !important;
+}
+
+.bjwt-filter-clear-kw-btn:hover {
+  color: #dee4ea !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 篩選按鈕群組 */
+.bjwt-filter-chips-group {
+  display: inline-flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}
+
+.bjwt-filter-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  height: 30px !important;
+  padding: 0 10px !important;
+  background: var(--ds-surface-raised, rgba(255, 255, 255, 0.06)) !important;
+  border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.12)) !important;
+  border-radius: 6px !important;
+  color: var(--ds-text, #dee4ea) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  transition: all 0.15s ease !important;
+}
+
+.bjwt-filter-chip:hover {
+  background: var(--ds-surface-raised-hovered, rgba(255, 255, 255, 0.12)) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.bjwt-filter-chip.is-active,
+.bjwt-filter-chip.is-open {
+  background: rgba(87, 157, 255, 0.2) !important;
+  border-color: #579dff !important;
+  color: #579dff !important;
+  font-weight: 600 !important;
+}
+
+.bjwt-chip-badge {
+  display: inline-block !important;
+  padding: 1px 5px !important;
+  background: rgba(87, 157, 255, 0.3) !important;
+  border-radius: 10px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
+
+.bjwt-chip-arrow {
+  font-size: 10px !important;
+  margin-left: 2px !important;
+  transition: transform 0.15s ease !important;
+}
+
+.bjwt-filter-chip.is-open .bjwt-chip-arrow {
+  transform: rotate(180deg) !important;
+}
+
+.bjwt-filter-chip-reset {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #f87171 !important;
+  font-weight: 600 !important;
+}
+
+.bjwt-filter-chip-reset:hover {
+  background: rgba(239, 68, 68, 0.24) !important;
+  border-color: #f87171 !important;
+  color: #fca5a5 !important;
+}
+
+/* 下拉選單浮層 */
+.bjwt-filter-dropdown {
+  position: relative !important;
+}
+
+.bjwt-filter-dropdown-menu {
+  position: absolute !important;
+  top: calc(100% + 4px) !important;
+  left: 0 !important;
+  min-width: 220px !important;
+  max-width: 320px !important;
+  max-height: 320px !important;
+  background: var(--ds-surface-overlay, #1f262d) !important;
+  border: 1px solid var(--ds-border, #455260) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45) !important;
+  z-index: 100 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.bjwt-filter-dropdown-menu.hidden {
+  display: none !important;
+}
+
+.bjwt-dropdown-header {
+  padding: 8px 12px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  color: var(--ds-text-subtle, #8c9bab) !important;
+  border-bottom: 1px solid var(--ds-border, rgba(255, 255, 255, 0.08)) !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+.bjwt-dropdown-list {
+  padding: 4px 0 !important;
+  overflow-y: auto !important;
+  max-height: 270px !important;
+}
+
+.bjwt-dropdown-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 6px 12px !important;
+  font-size: 13px !important;
+  color: var(--ds-text, #dee4ea) !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  transition: background 0.1s ease !important;
+}
+
+.bjwt-dropdown-item:hover {
+  background: var(--ds-surface-overlay-hovered, rgba(255, 255, 255, 0.08)) !important;
+}
+
+.bjwt-filter-cb {
+  cursor: pointer !important;
+  width: 14px !important;
+  height: 14px !important;
+  accent-color: #579dff !important;
+  flex-shrink: 0 !important;
+}
+
+.bjwt-dropdown-avatar {
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: 50% !important;
+  object-fit: cover !important;
+  flex-shrink: 0 !important;
+}
+
+.bjwt-avatar-placeholder {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: 50% !important;
+  background: #3b82f6 !important;
+  color: #fff !important;
+  font-size: 9px !important;
+  font-weight: 700 !important;
+  flex-shrink: 0 !important;
+}
+
+.bjwt-avatar-placeholder.unassigned {
+  background: #64748b !important;
+}
+
+.bjwt-status-dot {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
+}
+
+.bjwt-status-new,
+.bjwt-status-todo {
+  background: #64748b !important;
+}
+
+.bjwt-status-indeterminate,
+.bjwt-status-inprogress {
+  background: #3b82f6 !important;
+}
+
+.bjwt-status-done,
+.bjwt-status-success {
+  background: #22c55e !important;
+}
+
+.bjwt-dropdown-item-name {
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.bjwt-dropdown-item-count {
+  font-size: 11px !important;
+  color: var(--ds-text-subtlest, #8c9bab) !important;
+  padding: 1px 6px !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-radius: 10px !important;
+  flex-shrink: 0 !important;
+}
+
+/* 篩選數量提示 */
+.bjwt-filter-stats-bar {
+  font-size: 12px !important;
+  color: var(--ds-text-subtle, #8c9bab) !important;
+}
+
+.bjwt-filter-stats-bar.is-filtered {
+  color: #579dff !important;
+}
+
+.bjwt-filter-stats-bar strong {
+  color: var(--ds-text, #dee4ea) !important;
+}
+

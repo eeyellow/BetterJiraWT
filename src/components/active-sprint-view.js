@@ -162,7 +162,7 @@
    * @param {Object|null} [nativeFilter=null] - 原生篩選狀態物件
    */
   function renderActiveSprintBranch(item, nativeFilter = null) {
-    const { TextUtils, SprintStatsService, FilterService, IssueStore, IssueCardComponent, IssueModalComponent, LayoutManager } = BetterJira;
+    const { TextUtils, SprintStatsService, FilterService, FrontendFilterService, FilterToolbarComponent, IssueStore, IssueCardComponent, IssueModalComponent, LayoutManager } = BetterJira;
     const { cleanSprintTitle, cleanSummaryText, escapeHtml } = TextUtils;
     const { calculateSprintStatistics } = SprintStatsService;
     const { getNativeBacklogFilterState } = FilterService;
@@ -232,19 +232,19 @@
       branchEl.appendChild(customView);
     }
 
-    // 根據自定義卡片搜尋框關鍵字二次篩選卡片 (sprintData.issues 已由原生篩選器過濾)
-    const filterKw = (sprintData.filterKeyword || '').trim().toLowerCase();
-    const visibleIssues = filterKw
-      ? sprintData.issues.filter(
-          (iss) =>
-            iss.key.toLowerCase().includes(filterKw) ||
-            iss.summary.toLowerCase().includes(filterKw) ||
-            iss.assigneeName.toLowerCase().includes(filterKw) ||
-            (iss.assigneeInitials && iss.assigneeInitials.toLowerCase().includes(filterKw)) ||
-            iss.statusName.toLowerCase().includes(filterKw) ||
-            (iss.parentSummary && iss.parentSummary.toLowerCase().includes(filterKw))
-        )
-      : sprintData.issues;
+    // 取得衝刺完整未篩選卡片清單 (API 快取優先，DOM 解析為次)
+    const allIssues =
+      Array.isArray(sprintData.allApiIssues) && sprintData.allApiIssues.length > 0
+        ? sprintData.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss))
+        : Array.isArray(sprintData.rawIssues) && sprintData.rawIssues.length > 0
+        ? sprintData.rawIssues
+        : sprintData.issues || [];
+
+    // 透過純前端篩選服務多維度過濾卡片
+    const visibleIssues =
+      FrontendFilterService && typeof FrontendFilterService.filterIssues === 'function'
+        ? FrontendFilterService.filterIssues(allIssues)
+        : allIssues;
 
     // 點數與數量統計完全依據目前篩選後可見的卡片計算
     const stats = calculateSprintStatistics(visibleIssues);
@@ -258,6 +258,7 @@
       .join('|');
 
     const currentTheme = LayoutManager ? LayoutManager.getCurrentTheme() : 'Default';
+    const frontendFilterSig = FrontendFilterService ? JSON.stringify(FrontendFilterService.getState()) : '';
 
     const sig = JSON.stringify({
       key,
@@ -265,8 +266,8 @@
       points: stats.totalPoints,
       fromApi: Boolean(sprintData.fromApi),
       nativeFilterSig: activeNativeFilter.sig,
+      frontendFilterSig,
       issuesSig,
-      filterKw,
       dateRange,
       theme: currentTheme
     });
@@ -303,12 +304,6 @@
               <span class="bjwt-counter-pill counter-inprogress" title="進行中: ${stats.inProgressPoints} 點 (${stats.inProgressCount} 個工作項目)">${stats.inProgressPoints}</span>
               <span class="bjwt-counter-pill counter-done" title="完成: ${stats.donePoints} 點 (${stats.doneCount} 個工作項目)">${stats.donePoints}</span>
             </span>
-            <input
-              type="search"
-              class="bjwt-history-card-filter"
-              placeholder="篩選卡片 (Key / 標題 / 負責人)..."
-              value="${escapeHtml(sprintData.filterKeyword || '')}"
-            />
             <button type="button" class="bjwt-active-create-btn" title="在此衝刺新增卡片">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -331,6 +326,11 @@
             ? `<div class="bjwt-history-sprint-goal"><strong>衝刺目標：</strong>${escapeHtml(sprintData.goal)}</div>`
             : ''
         }
+        ${
+          FilterToolbarComponent && typeof FilterToolbarComponent.renderToolbarHtml === 'function'
+            ? FilterToolbarComponent.renderToolbarHtml(allIssues, visibleIssues, key)
+            : ''
+        }
         <div class="bjwt-history-card-list">
           ${
             visibleIssues.length === 0
@@ -350,23 +350,9 @@
       </div>
     `;
 
-    // 綁定篩選搜尋事件
-    const filterInput = customView.querySelector('.bjwt-history-card-filter');
-    if (filterInput) {
-      filterInput.addEventListener('input', (e) => {
-        const cursorPos = e.target.selectionStart;
-        sprintData.filterKeyword = e.target.value;
-        renderActiveSprintBranch(item);
-        const newInput = customView.querySelector('.bjwt-history-card-filter');
-        if (newInput) {
-          newInput.focus();
-          try {
-            newInput.setSelectionRange(cursorPos, cursorPos);
-          } catch {
-            // ignore
-          }
-        }
-      });
+    // 綁定純前端篩選工具列事件
+    if (FilterToolbarComponent && typeof FilterToolbarComponent.bindToolbarEvents === 'function') {
+      FilterToolbarComponent.bindToolbarEvents(customView, () => renderActiveSprintBranch(item));
     }
 
     // 綁定重新整理按鈕
