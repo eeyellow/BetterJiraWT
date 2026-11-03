@@ -192,6 +192,22 @@
                   ${options.types
                     .map((tp) => {
                       const checked = state.selectedTypes.includes(tp.name);
+                      const typeLabelMap = {
+                        'Story': 'Story (故事)',
+                        'Bug': 'Bug (缺陷 / 錯誤)',
+                        'Task': 'Task (任務)',
+                        'Sub-task': 'Sub-task (子任務)',
+                        'Epic': 'Epic (史詩)'
+                      };
+                      const displayName = typeLabelMap[tp.name] || tp.name;
+                      const fallbackIconMap = {
+                        'Story': '📗',
+                        'Bug': '🐞',
+                        'Task': '📋',
+                        'Sub-task': '🔹',
+                        'Epic': '⚡'
+                      };
+                      const fallbackIcon = fallbackIconMap[tp.name] || '📄';
                       return `
                         <label class="bjwt-dropdown-item">
                           <input
@@ -203,10 +219,10 @@
                           />
                           ${
                             tp.icon
-                              ? `<img class="bjwt-type-icon" src="${escapeHtml(tp.icon)}" alt="${escapeHtml(tp.name)}" style="width: 14px; height: 14px;" />`
-                              : '<span class="bjwt-type-icon-fallback">📄</span>'
+                              ? `<img class="bjwt-type-icon" src="${escapeHtml(tp.icon)}" alt="${escapeHtml(tp.name)}" style="width: 14px; height: 14px; object-fit: contain;" />`
+                              : `<span class="bjwt-type-icon-fallback" style="font-size: 13px;">${fallbackIcon}</span>`
                           }
-                          <span class="bjwt-dropdown-item-name">${escapeHtml(tp.name)}</span>
+                          <span class="bjwt-dropdown-item-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
                           <span class="bjwt-dropdown-item-count">${tp.count}</span>
                         </label>
                       `;

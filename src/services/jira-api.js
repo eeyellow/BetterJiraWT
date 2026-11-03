@@ -768,9 +768,85 @@
     }
   }
 
+  /**
+   * 向 Jira REST API 查詢當前專案或站點定義之全部問題類型 (包含 Story, Bug, Task, Epic 及自訂類型)
+   *
+   * @returns {Promise<Array<Object>>} 問題類型清單
+   */
+  async function fetchProjectIssueTypes() {
+    const { IssueStore } = BetterJira;
+    if (typeof window === 'undefined') return [];
+
+    const cachedTypes = IssueStore.getProjectIssueTypes && IssueStore.getProjectIssueTypes();
+    if (Array.isArray(cachedTypes) && cachedTypes.length > 0) {
+      return cachedTypes;
+    }
+
+    try {
+      const { projectKey } = await detectJiraContext();
+      let types = [];
+
+      // 1. 優先嘗試當前專案的 issueTypes (createmeta)
+      if (projectKey) {
+        try {
+          const res = await fetch(
+            `${window.location.origin}/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&maxResults=50`,
+            { credentials: 'include', headers: { Accept: 'application/json' } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const proj = data && Array.isArray(data.projects) ? data.projects[0] : null;
+            if (proj && Array.isArray(proj.issuetypes) && proj.issuetypes.length > 0) {
+              types = proj.issuetypes;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // 2. 若 createmeta 未取得，回退向全站 /rest/api/2/issuetype 請求
+      if (types.length === 0) {
+        try {
+          const res = await fetch(
+            `${window.location.origin}/rest/api/2/issuetype`,
+            { credentials: 'include', headers: { Accept: 'application/json' } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0) {
+              types = data;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (Array.isArray(types) && types.length > 0) {
+        const normalized = types.map((t) => ({
+          id: String(t.id || ''),
+          name: String(t.name || '').trim(),
+          subtask: Boolean(t.subtask),
+          iconUrl: String(t.iconUrl || ''),
+          avatarId: t.avatarId ? String(t.avatarId) : ''
+        }));
+        if (IssueStore.setProjectIssueTypes) {
+          IssueStore.setProjectIssueTypes(normalized);
+        }
+        return normalized;
+      }
+    } catch {
+      // ignore
+    }
+
+    return [];
+  }
+
   BetterJira.JiraApiService = {
     detectJiraContext,
     detectStoryPointsCustomField,
+    fetchProjectIssueTypes,
     fetchActiveAndFutureSprintsForBoard,
     fetchClosedSprintsForBoard,
     fetchHistoricalSprintData,

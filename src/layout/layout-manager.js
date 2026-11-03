@@ -504,6 +504,30 @@
         }
       });
     });
+
+    // 額外匯總全域已快取卡片池 (確保收合衝刺或 API 快取中已知的卡片類型與成員全數納入)
+    if (IssueStore && IssueStore.issueMetadataMap) {
+      IssueStore.issueMetadataMap.forEach((iss, k) => {
+        if (iss && k && !allBoardIssuesMap.has(k)) {
+          allBoardIssuesMap.set(k, iss);
+        }
+      });
+    }
+
+    // 在背景非同步預載專案所有定義之問題類型 (包含自訂類型)，取得後自動刷新工具列選單
+    if (BetterJira.JiraApiService && typeof BetterJira.JiraApiService.fetchProjectIssueTypes === 'function') {
+      const pTypes = IssueStore.getProjectIssueTypes && IssueStore.getProjectIssueTypes();
+      if (!Array.isArray(pTypes) || pTypes.length === 0) {
+        BetterJira.JiraApiService.fetchProjectIssueTypes()
+          .then((types) => {
+            if (Array.isArray(types) && types.length > 0 && typeof scheduleLayoutRefresh === 'function') {
+              scheduleLayoutRefresh();
+            }
+          })
+          .catch(() => {});
+      }
+    }
+
     const allBoardIssues = Array.from(allBoardIssuesMap.values());
     const isFrontendFilterActive = FrontendFilterService && FrontendFilterService.getState().isActive;
     const allBoardFilteredIssues = isFrontendFilterActive && typeof FrontendFilterService.filterIssues === 'function'

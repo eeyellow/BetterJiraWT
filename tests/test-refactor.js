@@ -1593,6 +1593,31 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert.strictEqual(typeof IssueStore.getSprintIssueCache, 'function', 'IssueStore.getSprintIssueCache 應為函式');
   assert.strictEqual(typeof IssueStore.getActiveSprintCache, 'function', 'IssueStore.getActiveSprintCache 應為函式');
 
+  // 15. 測試專案問題類型 (Project Issue Types) 注入與 extractFilterOptions 完整度
+  IssueStore.setProjectIssueTypes([
+    { id: '10001', name: 'Story', avatarId: '10315', iconUrl: 'https://avatar/story.png' },
+    { id: '10002', name: 'Bug', avatarId: '10303', iconUrl: 'https://avatar/bug.png' },
+    { id: '10003', name: 'Task', avatarId: '10318', iconUrl: 'https://avatar/task.png' },
+    { id: '10004', name: 'Epic', avatarId: '10307', iconUrl: 'https://avatar/epic.png' },
+    { id: '10005', name: 'Spike', avatarId: '10320', iconUrl: 'https://avatar/spike.png' }
+  ]);
+  const pOptions = FrontendFilterService.extractFilterOptions([
+    { key: 'TEST-1', summary: 'Just a story', issueTypeName: 'Story', assigneeName: 'Ray' }
+  ]);
+  const pTypeNames = pOptions.types.map((t) => t.name);
+  assert(pTypeNames.includes('Story'), '應包含 Story');
+  assert(pTypeNames.includes('Bug'), '即使卡片清單中沒有 Bug，亦應依專案定義完整包含 Bug');
+  assert(pTypeNames.includes('Task'), '應完整包含 Task');
+  assert(pTypeNames.includes('Epic'), '應完整包含 Epic');
+  assert(pTypeNames.includes('Spike'), '應完整包含專案自訂類型 Spike');
+
+  // 16. 測試工具列渲染問題類型雙語清晰標籤
+  const htmlWithOptions = FilterToolbarComponent.renderToolbarHtml([
+    { key: 'TEST-1', summary: 'Just a story', issueTypeName: 'Story', assigneeName: 'Ray' }
+  ], [], 'global');
+  assert(htmlWithOptions.includes('Story (故事)'), '工具列應渲染 Story (故事) 雙語清晰標籤');
+  assert(htmlWithOptions.includes('Bug (缺陷 / 錯誤)'), '工具列應渲染 Bug (缺陷 / 錯誤) 雙語清晰標籤');
+
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 
   console.log('============================================');
