@@ -191,6 +191,7 @@
    */
   async function init() {
     try {
+      console.log('[BetterJiraWT] v1.1.1 擴充功能初始化啟動');
       const oldStyle = document.getElementById(RUNTIME_STYLE_ID);
       if (oldStyle) {
         oldStyle.remove();
@@ -204,6 +205,7 @@
       await BetterJiraDB.syncFromObject(settings);
       syncExtensionIcon(settings.themeStyle, settings.enabled);
       evaluateAndApply();
+      console.log('[BetterJiraWT] v1.1.1 版面評估完成');
     } catch (err) {
       console.warn('[BetterJiraWT] Initialization error:', err);
     }
