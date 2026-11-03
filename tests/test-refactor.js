@@ -1316,6 +1316,34 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
 
   console.log('✓ 預設 Sprint 設定儲存與重整自動切換檢查通過！');
 
+  console.log('--- 測試 19: UI 細部調整檢查 (新分頁按鈕右間距加大 30px 與按鈕文字去除去多餘「+」符號) ---');
+  const checkStylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+  const checkRuntimeStyles = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+  const checkActiveSprintJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/active-sprint-view.js'), 'utf8');
+
+  // 1. 檢查在新分頁開啟按鈕 margin-right 是否已加大 30px
+  assert(
+    checkStylesCss.includes('.bjwt-history-modal-open-tab') &&
+    checkStylesCss.includes('margin-right: 30px !important;'),
+    'styles.css 中 .bjwt-history-modal-open-tab 應設定 margin-right: 30px !important;'
+  );
+  assert(
+    checkRuntimeStyles.includes('.bjwt-history-modal-open-tab') &&
+    checkRuntimeStyles.includes('margin-right: 30px !important;'),
+    'runtime-styles.js 中 .bjwt-history-modal-open-tab 應設定 margin-right: 30px !important;'
+  );
+
+  // 2. 檢查「新增卡片」與「建立問題」按鈕前面不可再包含全形或半形 +
+  assert(checkActiveSprintJs.includes('新增卡片'), 'active-sprint-view.js 應保留「新增卡片」文字');
+  assert(!checkActiveSprintJs.includes('＋ 新增卡片'), 'active-sprint-view.js 不應包含「＋ 新增卡片」');
+  assert(!checkActiveSprintJs.includes('+ 新增卡片'), 'active-sprint-view.js 不應包含「+ 新增卡片」');
+
+  assert(checkActiveSprintJs.includes('建立問題 (Create Issue)'), 'active-sprint-view.js 應保留「建立問題 (Create Issue)」文字');
+  assert(!checkActiveSprintJs.includes('＋ 建立問題'), 'active-sprint-view.js 不應包含「＋ 建立問題」');
+  assert(!checkActiveSprintJs.includes('+ 建立問題'), 'active-sprint-view.js 不應包含「+ 建立問題」');
+
+  console.log('✓ UI 細部調整檢查通過！');
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');
