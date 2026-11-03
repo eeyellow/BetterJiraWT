@@ -595,6 +595,7 @@
         font-size: 12px !important;
         font-weight: 600 !important;
         text-decoration: none !important;
+        margin-right: 30px !important;
       }
       .bjwt-history-modal-open-tab:hover {
         background: rgba(12, 102, 228, 0.35) !important;

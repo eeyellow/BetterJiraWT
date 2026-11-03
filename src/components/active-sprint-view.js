@@ -314,7 +314,7 @@
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
-              ＋ 新增卡片
+              新增卡片
             </button>
             <button type="button" class="bjwt-history-refresh-btn" title="從 Jira 重新同步此衝刺">
               ↻ 重新整理
@@ -344,7 +344,7 @@
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            ＋ 建立問題 (Create Issue)
+            建立問題 (Create Issue)
           </button>
         </div>
       </div>

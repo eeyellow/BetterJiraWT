@@ -1585,6 +1585,7 @@ html[data-betterjira-layout="two-column"] #bjwt-history-issue-modal,
   padding: 5px 10px !important;
   border-radius: 6px !important;
   background: rgba(12, 102, 228, 0.16) !important;
+  margin-right: 30px !important;
 }
 
 .bjwt-history-modal-open-tab:hover {
