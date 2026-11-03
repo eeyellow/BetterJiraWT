@@ -202,21 +202,33 @@
     const clean = raw.trim();
     const lower = clean.toLowerCase();
 
-    if (/^(?:story|故事)$/i.test(lower) || lower.includes('story') || lower.includes('故事')) {
-      return 'Story';
-    }
-    if (/^(?:bug|錯誤|缺陷)$/i.test(lower) || lower.includes('bug') || lower.includes('錯誤') || lower.includes('缺陷')) {
-      return 'Bug';
-    }
-    if (/^(?:sub[\s_-]?task|子任務|子工作)$/i.test(lower) || lower.includes('subtask') || lower.includes('sub-task') || lower.includes('子任務')) {
+    // 0. 清理常見的前綴或後綴 (如 "工作項目類型: Story" 或 "Bug - 類型")
+    const stripped = lower
+      .replace(/^(?:issue\s*type|工作項目類型|問題類型|類型)\s*[:：\-]\s*/i, '')
+      .replace(/\s*[-:：]\s*(?:issue\s*type|工作項目類型|問題類型|類型)$/i, '')
+      .trim();
+
+    // 1. Sub-task 優先於 Task 比對 (嚴格防止 subtask 誤判為 task)
+    if (/^(?:sub[\s_-]?task|子任務|子工作)$/i.test(stripped) || stripped.includes('subtask') || stripped.includes('sub-task') || stripped.includes('子任務')) {
       return 'Sub-task';
     }
-    if (/^(?:epic|史詩)$/i.test(lower) || lower.includes('epic') || lower.includes('史詩')) {
+    // 2. Story (故事)
+    if (/^(?:story|故事)$/i.test(stripped) || stripped === 'story' || stripped === '故事') {
+      return 'Story';
+    }
+    // 3. Bug (缺陷 / 錯誤)
+    if (/^(?:bug|錯誤|缺陷)$/i.test(stripped) || stripped === 'bug' || stripped === '錯誤' || stripped === '缺陷') {
+      return 'Bug';
+    }
+    // 4. Epic (史詩)
+    if (/^(?:epic|史詩)$/i.test(stripped) || stripped === 'epic' || stripped === '史詩') {
       return 'Epic';
     }
-    if (/^(?:task|任務|工作)$/i.test(lower) || lower.includes('task') || lower.includes('任務') || lower.includes('工作')) {
+    // 5. Task (任務 / 工作)
+    if (/^(?:task|任務|工作)$/i.test(stripped) || stripped === 'task' || stripped === '任務' || stripped === '工作') {
       return 'Task';
     }
+    // 6. 其他專案自訂類型 (如 Spike, Feature, Improvement 等)，保留原始乾淨名稱
     return clean;
   }
 
@@ -308,22 +320,35 @@
         }
       }
 
-      // 4. 問題類型 (Issue Type) 比對 (支援中英文雙向正規化比對)
+      // 4. 問題類型 (Issue Type) 精準比對 (支援中英文雙向正規化精準對齊，嚴格排除未定類型與子字串誤傷)
       if (hasType) {
         const rawType = (iss.issueTypeName || '').trim();
+        // 卡片若完全未解析出類型，決不盲目命中
+        if (!rawType) {
+          return false;
+        }
+
         const normCardType = normalizeIssueTypeName(rawType).toLowerCase();
         let typeMatched = false;
+
         for (const selected of filterState.selectedTypes) {
-          if (
-            selected === rawType ||
-            normalizeIssueTypeName(selected).toLowerCase() === normCardType ||
-            rawType.toLowerCase().includes(selected.toLowerCase()) ||
-            selected.toLowerCase().includes(rawType.toLowerCase())
-          ) {
+          const cleanSelected = (selected || '').trim();
+          if (!cleanSelected) continue;
+
+          // 1. 原始名稱精確比對 (大小寫不敏感)
+          if (cleanSelected.toLowerCase() === rawType.toLowerCase()) {
+            typeMatched = true;
+            break;
+          }
+
+          // 2. 正規化後標準名稱對齊 (如 'Story' === '故事', 'Bug' === '缺陷')
+          const normSelected = normalizeIssueTypeName(cleanSelected).toLowerCase();
+          if (normSelected && normCardType && normSelected === normCardType) {
             typeMatched = true;
             break;
           }
         }
+
         if (!typeMatched) return false;
       }
 

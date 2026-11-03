@@ -77,12 +77,39 @@ global.window = {
   indexedDB: global.indexedDB,
   chrome: global.chrome
 };
+global.NodeFilter = {
+  SHOW_ALL: -1,
+  SHOW_ELEMENT: 1,
+  SHOW_TEXT: 4,
+  FILTER_ACCEPT: 1,
+  FILTER_REJECT: 2,
+  FILTER_SKIP: 3
+};
+global.window.NodeFilter = global.NodeFilter;
+
 global.document = {
   head: { appendChild: () => {} },
   documentElement: { appendChild: () => {} },
   addEventListener: () => {},
   removeEventListener: () => {},
-  querySelectorAll: () => []
+  querySelectorAll: () => [],
+  createTreeWalker: (root, whatToShow, filter) => {
+    const nodes = [];
+    function collect(el) {
+      if (!el) return;
+      if (el._textContent !== undefined) {
+        nodes.push({ nodeValue: el._textContent, parentElement: el.parentElement });
+      }
+      if (Array.isArray(el.children)) {
+        el.children.forEach(collect);
+      }
+    }
+    collect(root);
+    let idx = 0;
+    return {
+      nextNode: () => nodes[idx++] || null
+    };
+  }
 };
 
 // 依載入順序逐一載入各模組
@@ -1617,6 +1644,46 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   ], [], 'global');
   assert(htmlWithOptions.includes('Story (故事)'), '工具列應渲染 Story (故事) 雙語清晰標籤');
   assert(htmlWithOptions.includes('Bug (缺陷 / 錯誤)'), '工具列應渲染 Bug (缺陷 / 錯誤) 雙語清晰標籤');
+
+  // 17. 測試嚴格類型篩選防護 (防止 Sub-task 與 Task 相互誤判、防止空類型誤判)
+  const testRigidIssues = [
+    { key: 'T-1', summary: 'Standard Task', issueTypeName: 'Task' },
+    { key: 'T-2', summary: 'Sub Task', issueTypeName: 'Sub-task' },
+    { key: 'T-3', summary: 'Bug issue', issueTypeName: '缺陷' },
+    { key: 'T-4', summary: 'Unknown issue', issueTypeName: '' }
+  ];
+
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleType('Task');
+  let rigidResult = FrontendFilterService.filterIssues(testRigidIssues);
+  assert.strictEqual(rigidResult.length, 1, '選取 Task 時應僅命中 1 張 Task 卡片');
+  assert.strictEqual(rigidResult[0].key, 'T-1', '應命中 T-1 (Task)，絕不可誤判 T-2 (Sub-task) 或 T-4 (空類型)');
+
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleType('Sub-task');
+  rigidResult = FrontendFilterService.filterIssues(testRigidIssues);
+  assert.strictEqual(rigidResult.length, 1, '選取 Sub-task 時應僅命中 1 張 Sub-task 卡片');
+  assert.strictEqual(rigidResult[0].key, 'T-2', '應命中 T-2 (Sub-task)，絕不可誤判 T-1 (Task)');
+
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleType('Bug');
+  rigidResult = FrontendFilterService.filterIssues(testRigidIssues);
+  assert.strictEqual(rigidResult.length, 1, '選取 Bug 時應命中「缺陷」卡片');
+  assert.strictEqual(rigidResult[0].key, 'T-3', '應命中 T-3 (缺陷)');
+  FrontendFilterService.clearAll();
+
+  // 18. 測試 Jira 官方標準 Avatar ID 反向解析
+  const mockCardElStory = new MockElement('div');
+  const mockLink = new MockElement('a');
+  mockLink.textContent = 'PROJ-101';
+  mockCardElStory.appendChild(mockLink);
+  const mockImgStory = new MockElement('img');
+  mockImgStory.setAttribute('src', 'https://swpc.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10315?size=medium');
+  mockCardElStory.appendChild(mockImgStory);
+
+  const parsedCardStory = CardDomParser.parseIssueFromDomCard(mockCardElStory);
+  assert(parsedCardStory, '解析結果應存在');
+  assert.strictEqual(parsedCardStory.issueTypeName, 'Story', 'avatarId 10315 應精準反向解析為 Story');
 
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 
