@@ -78,11 +78,15 @@
       SIDEBAR_ID,
       MODAL_BACKDROP_ID,
       HISTORY_PICKER_MODAL_ID,
-      HISTORY_ISSUE_MODAL_ID
+      HISTORY_ISSUE_MODAL_ID,
+      GLOBAL_FILTER_TOOLBAR_ID
     } = BetterJira.Constants;
 
     return Boolean(
       el.closest(`#${SIDEBAR_ID}`) ||
+        el.closest(`#${GLOBAL_FILTER_TOOLBAR_ID || 'bjwt-global-filter-toolbar'}`) ||
+        el.closest('.bjwt-global-toolbar-container') ||
+        el.closest('.bjwt-filter-toolbar') ||
         el.closest(`#${MODAL_BACKDROP_ID}`) ||
         el.closest(`#${HISTORY_PICKER_MODAL_ID}`) ||
         el.closest(`#${HISTORY_ISSUE_MODAL_ID}`) ||

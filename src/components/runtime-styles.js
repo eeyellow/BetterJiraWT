@@ -1097,15 +1097,21 @@
       #bjwt-global-filter-toolbar,
       .bjwt-global-toolbar-container {
         display: block !important;
+        flex: 0 0 100% !important;
         width: 100% !important;
-        margin: 0 0 12px 0 !important;
+        max-width: 100% !important;
+        margin: 0 0 10px 0 !important;
         box-sizing: border-box !important;
         position: relative !important;
         z-index: 25 !important;
+        visibility: visible !important;
+        opacity: 1 !important;
       }
       #bjwt-global-filter-toolbar .bjwt-filter-toolbar,
       .bjwt-global-toolbar-container .bjwt-filter-toolbar {
         margin: 0 !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
       }
       .bjwt-filter-toolbar {
         display: flex !important;

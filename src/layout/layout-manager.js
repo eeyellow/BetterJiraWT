@@ -198,22 +198,14 @@
 
     if (!globalToolbar) return;
 
-    // 優先掛在原生標頭位置 (原標頭已被隱藏，自製工具列直接頂替它)，或插在 sprintsHost 前方
-    if (nativePageHeader && nativePageHeader.parentElement) {
-      if (globalToolbar.previousElementSibling !== nativePageHeader) {
-        if (typeof nativePageHeader.insertAdjacentElement === 'function') {
-          nativePageHeader.insertAdjacentElement('afterend', globalToolbar);
-        } else if (nativePageHeader.nextElementSibling) {
-          nativePageHeader.parentElement.insertBefore(globalToolbar, nativePageHeader.nextElementSibling);
-        } else {
-          nativePageHeader.parentElement.appendChild(globalToolbar);
-        }
-      }
-    } else if (sprintsHost && sprintsHost.parentElement) {
-      if (globalToolbar.nextElementSibling !== sprintsHost) {
-        sprintsHost.parentElement.insertBefore(globalToolbar, sprintsHost);
-      }
+    // 將全域工具列掛載於待辦事項最上方 (sprintsHost 內部最開頭，在側邊欄之前，橫跨 100% 寬度)
+    // 這正好位於原生標頭位置，完全取代原生標頭，且絕不受外部高度塌陷或 overflow 影響
+    const sidebar = document.getElementById((Constants && Constants.SIDEBAR_ID) || 'bjwt-sprint-sidebar');
+    const insertBeforeTarget = sidebar || sprintsHost.firstChild;
+    if (globalToolbar.parentElement !== sprintsHost || globalToolbar.nextElementSibling !== insertBeforeTarget) {
+      sprintsHost.insertBefore(globalToolbar, insertBeforeTarget);
     }
+    globalToolbar.setAttribute('data-bjwt-non-sprint-child', 'true');
 
     // 偵測打字中的搜尋輸入框焦點與游標位置，在重新渲染後無縫恢復
     const currentActive = typeof document !== 'undefined' ? document.activeElement : null;
@@ -267,7 +259,9 @@
       HistorySprintView,
       ActiveSprintView,
       SidebarComponent,
-      TextUtils
+      TextUtils,
+      FrontendFilterService,
+      FilterToolbarComponent
     } = BetterJira;
     const { SIDEBAR_ID } = Constants;
     const { findLowestCommonAncestor, lockBacklogAncestorWidths } = DomUtils;
@@ -487,9 +481,6 @@
       sprintsHost.insertBefore(sidebar, firstTarget);
     }
 
-    updateColumnsViewportHeight(sprintsHost, sidebar);
-    SidebarComponent.renderSidebarContents(sidebar, sprintBranches, resolvedIndex, nativeFilter);
-
     // 匯總全看板所有已載入衝刺的卡片母體 (支援跨 Sprint 搜尋)
     const allBoardIssuesMap = new Map();
     sprintBranches.forEach((item) => {
@@ -515,8 +506,11 @@
       ? FrontendFilterService.filterIssues(allBoardIssues)
       : allBoardIssues;
 
-    // 掛載與渲染頂部跨 Sprint 純前端搜尋篩選工具列 (位於原生標頭位置)
+    // 掛載與渲染頂部跨 Sprint 純前端搜尋篩選工具列 (位於待辦事項頂端原生標頭位置)
     renderGlobalFilterToolbar(sprintsHost, allBoardIssues, allBoardFilteredIssues);
+
+    updateColumnsViewportHeight(sprintsHost, sidebar);
+    SidebarComponent.renderSidebarContents(sidebar, sprintBranches, resolvedIndex, nativeFilter);
 
     return sprintsHost;
   }

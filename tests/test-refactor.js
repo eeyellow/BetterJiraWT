@@ -1581,6 +1581,13 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(ActiveSprintView, 'ActiveSprintView 應存在');
   assert(HistorySprintView, 'HistorySprintView 應存在');
 
+  // 13. 測試 DomUtils.isInsideExtensionUi 包含全域工具列容器防護
+  const mockToolbarEl = new MockElement('div');
+  mockToolbarEl.setAttribute('id', Constants.GLOBAL_FILTER_TOOLBAR_ID);
+  const mockChildInput = new MockElement('input');
+  mockToolbarEl.appendChild(mockChildInput);
+  assert.strictEqual(DomUtils.isInsideExtensionUi(mockChildInput), true, '工具列內部元素應被識別為擴充套件 UI，避免被誤傷隱藏');
+
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 
   console.log('============================================');
