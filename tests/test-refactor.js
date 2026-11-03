@@ -1435,13 +1435,16 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   result = FrontendFilterService.filterIssues(mockFilterIssues);
   assert.strictEqual(result.length, 3, '篩選「Ray Huang + 未指派」應命中 3 張卡片');
 
-  // 4. 測試「僅我的問題」
+  // 4. 測試問題類型中英文正規化比對 (解決「類型篩選後與實際卡片不符」)
+  assert.strictEqual(FrontendFilterService.normalizeIssueTypeName('故事'), 'Story', '「故事」應正規化為 Story');
+  assert.strictEqual(FrontendFilterService.normalizeIssueTypeName('缺陷'), 'Bug', '「缺陷」應正規化為 Bug');
+  assert.strictEqual(FrontendFilterService.normalizeIssueTypeName('任務'), 'Task', '「任務」應正規化為 Task');
+
   FrontendFilterService.clearAll();
-  FrontendFilterService.setCurrentUser('Ray Huang');
-  FrontendFilterService.toggleAssignee('__ME__');
+  FrontendFilterService.toggleType('故事'); // 使用者勾選中文「故事」
   result = FrontendFilterService.filterIssues(mockFilterIssues);
-  assert.strictEqual(result.length, 2, '「僅我的問題」應命中指派給 Ray Huang 的 2 張卡片');
-  FrontendFilterService.setCurrentUser(null);
+  assert.strictEqual(result.length, 1, '勾選「故事」應成功比對到 issueTypeName 為 Story 的卡片');
+  assert.strictEqual(result[0].key, 'WMC-4', '應命中 WMC-4');
 
   // 5. 測試狀態與類型多維度交集 (AND) 過濾
   FrontendFilterService.clearAll();
@@ -1470,36 +1473,37 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   const taskStat = options.types.find((t) => t.name === 'Task');
   assert(taskStat && taskStat.count === 2, 'Task 類型應統計為 2 張卡片');
 
-  // 7. 測試工具列 HTML 渲染
+  // 7. 測試工具列 HTML 渲染 (已移除「僅我的問題」按鈕)
   const toolbarHtml = FilterToolbarComponent.renderToolbarHtml(mockFilterIssues, mockFilterIssues, 'sprint-test');
   assert(toolbarHtml.includes('class="bjwt-filter-toolbar"'), '渲染之 HTML 應包含 .bjwt-filter-toolbar 容器');
   assert(toolbarHtml.includes('class="bjwt-filter-search-input"'), '應包含搜尋輸入框');
   assert(toolbarHtml.includes('經辦人'), '應包含經辦人下拉按鈕');
   assert(toolbarHtml.includes('狀態'), '應包含狀態下拉按鈕');
   assert(toolbarHtml.includes('類型'), '應包含類型下拉按鈕');
-  assert(toolbarHtml.includes('僅我的問題'), '應包含僅我的問題按鈕');
+  assert(!toolbarHtml.includes('僅我的問題'), '依使用者要求，工具列不應包含「僅我的問題」');
 
-  // 8. 測試隱藏 Jira 原生篩選列之 CSS 與 DOM 方法
+  // 8. 測試隱藏 Jira 原生篩選列之 CSS 與 DOM 方法 (包含 software-backlog.page-header)
+  assert(checkStylesCss.includes('software-backlog.page-header'), 'styles.css 應隱藏 [data-testid="software-backlog.page-header"]');
   assert(checkStylesCss.includes('data-bjwt-native-filter-hidden'), 'styles.css 應包含 data-bjwt-native-filter-hidden 隱藏樣式');
   assert(checkStylesCss.includes('[data-testid*="filter-bar"]'), 'styles.css 應包含針對 filter-bar 之隱藏規則');
   assert.strictEqual(typeof DomUtils.hideNativeFilterBars, 'function', 'DomUtils.hideNativeFilterBars 應為函式');
 
   // 測試 hideNativeFilterBars DOM 操作
-  const mockFilterBarEl = new MockElement('div');
-  mockFilterBarEl.setAttribute('data-testid', 'software-backlog.filter-bar');
+  const mockPageHeaderEl = new MockElement('div');
+  mockPageHeaderEl.setAttribute('data-testid', 'software-backlog.page-header');
   const mockDoc = {
     querySelectorAll: (sel) => {
-      if (sel.includes('filter-bar')) {
-        return [mockFilterBarEl];
+      if (sel.includes('page-header')) {
+        return [mockPageHeaderEl];
       }
       return [];
     }
   };
   DomUtils.hideNativeFilterBars(mockDoc);
   assert.strictEqual(
-    mockFilterBarEl.getAttribute('data-bjwt-native-filter-hidden'),
+    mockPageHeaderEl.getAttribute('data-bjwt-native-filter-hidden'),
     'true',
-    'hideNativeFilterBars 應為原生篩選列打上隱藏屬性'
+    'hideNativeFilterBars 應為 software-backlog.page-header 打上隱藏屬性'
   );
 
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');

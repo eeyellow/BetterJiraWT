@@ -313,6 +313,7 @@
     issueMetadataMap,
     activeSprintCache,
     loadedHistoricalSprints,
+    getCachedIssue: (key) => issueMetadataMap.get(key),
     mergeAndCacheIssue,
     normalizeJiraIssue,
     appendHistoricalSprintToState,

@@ -118,6 +118,7 @@
     if (!doc || typeof doc.querySelectorAll !== 'function') return;
 
     const selectors = [
+      '[data-testid="software-backlog.page-header"]',
       '[data-testid*="filter-bar"]',
       '[data-testid="software-backlog.filter-bar"]',
       '[data-testid="software-board.header.filter-bar"]',

@@ -50,10 +50,18 @@
 
       if (Array.isArray(apiIssues) && apiIssues.length > 0) {
         const mergedList = apiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
-        const prevIssuesSig = (cached.allApiIssues || []).map((i) => `${i.key}:${i.statusName}`).join('|');
-        const nextIssuesSig = mergedList.map((i) => `${i.key}:${i.statusName}`).join('|');
+        const prevIssuesSig = (cached.allApiIssues || [])
+          .map((i) => `${i.key}:${i.statusName}:${i.assigneeName || ''}:${i.issueTypeName || ''}`)
+          .join('|');
+        const nextIssuesSig = mergedList
+          .map((i) => `${i.key}:${i.statusName}:${i.assigneeName || ''}:${i.issueTypeName || ''}`)
+          .join('|');
 
         cached.allApiIssues = mergedList;
+        if (!cached.masterIssuesMap) cached.masterIssuesMap = new Map();
+        mergedList.forEach((iss) => cached.masterIssuesMap.set(iss.key, iss));
+        cached.rawIssues = Array.from(cached.masterIssuesMap.values());
+
         IssueStore.setActiveSprintCache(cacheKey, cached);
         IssueStore.setActiveSprintCache(key, cached);
 
@@ -232,12 +240,12 @@
       branchEl.appendChild(customView);
     }
 
-    // 取得衝刺完整未篩選卡片清單 (API 快取優先，DOM 解析為次)
+    // 取得衝刺完整未篩選卡片清單 (母體卡片池優先，確保選單中人員與類型 100% 完整列出)
     const allIssues =
-      Array.isArray(sprintData.allApiIssues) && sprintData.allApiIssues.length > 0
-        ? sprintData.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss))
-        : Array.isArray(sprintData.rawIssues) && sprintData.rawIssues.length > 0
+      Array.isArray(sprintData.rawIssues) && sprintData.rawIssues.length > 0
         ? sprintData.rawIssues
+        : Array.isArray(sprintData.allApiIssues) && sprintData.allApiIssues.length > 0
+        ? sprintData.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss))
         : sprintData.issues || [];
 
     // 透過純前端篩選服務多維度過濾卡片
@@ -259,6 +267,10 @@
 
     const currentTheme = LayoutManager ? LayoutManager.getCurrentTheme() : 'Default';
     const frontendFilterSig = FrontendFilterService ? JSON.stringify(FrontendFilterService.getState()) : '';
+    const filterOptions = FrontendFilterService ? FrontendFilterService.extractFilterOptions(allIssues) : null;
+    const optionsSig = filterOptions
+      ? `${filterOptions.assignees.length}:${filterOptions.types.length}:${allIssues.length}`
+      : '';
 
     const sig = JSON.stringify({
       key,
@@ -267,6 +279,7 @@
       fromApi: Boolean(sprintData.fromApi),
       nativeFilterSig: activeNativeFilter.sig,
       frontendFilterSig,
+      optionsSig,
       issuesSig,
       dateRange,
       theme: currentTheme

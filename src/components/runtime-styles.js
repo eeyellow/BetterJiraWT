@@ -1081,6 +1081,7 @@
         border: 1px dashed var(--ds-border, rgba(255, 255, 255, 0.25)) !important;
       }
       /* 雙欄模式隱藏原生篩選列與自製篩選工具列樣式 */
+      html[data-betterjira-layout="two-column"] [data-testid="software-backlog.page-header"],
       html[data-betterjira-layout="two-column"] [data-testid*="filter-bar"],
       html[data-betterjira-layout="two-column"] [data-testid="software-backlog.filter-bar"],
       html[data-betterjira-layout="two-column"] [data-testid="software-board.header.filter-bar"],

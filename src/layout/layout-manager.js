@@ -117,13 +117,23 @@
       }
     }
 
-    // 儲存原始全量卡片清單供自製純前端篩選器使用
-    const rawAllIssues =
-      Array.isArray(cached.allApiIssues) && cached.allApiIssues.length > 0
-        ? cached.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss))
-        : domIssues.length > 0
-        ? domIssues
-        : resolvedIssues;
+    // 維護此衝刺永不縮水的母體卡片池 (Master Issues Pool)，確保篩選選單人員與類型永遠完整
+    if (!cached.masterIssuesMap) {
+      cached.masterIssuesMap = new Map();
+    }
+    const incomingSources = [
+      ...(Array.isArray(cached.allApiIssues) ? cached.allApiIssues : []),
+      ...domIssues
+    ];
+    incomingSources.forEach((iss) => {
+      if (iss && iss.key) {
+        const existing = cached.masterIssuesMap.get(iss.key);
+        cached.masterIssuesMap.set(iss.key, existing ? IssueStore.mergeAndCacheIssue(iss) : iss);
+      }
+    });
+
+    const masterIssues = Array.from(cached.masterIssuesMap.values());
+    const rawAllIssues = masterIssues.length > 0 ? masterIssues : resolvedIssues;
     cached.rawIssues = rawAllIssues;
 
     // 若自製純前端篩選器有任何條件生效，以純前端過濾結果為準
