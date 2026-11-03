@@ -1094,6 +1094,19 @@
       html[data-betterjira-layout="two-column"] [data-bjwt-native-filter-hidden="true"] {
         display: none !important;
       }
+      #bjwt-global-filter-toolbar,
+      .bjwt-global-toolbar-container {
+        display: block !important;
+        width: 100% !important;
+        margin: 0 0 12px 0 !important;
+        box-sizing: border-box !important;
+        position: relative !important;
+        z-index: 25 !important;
+      }
+      #bjwt-global-filter-toolbar .bjwt-filter-toolbar,
+      .bjwt-global-toolbar-container .bjwt-filter-toolbar {
+        margin: 0 !important;
+      }
       .bjwt-filter-toolbar {
         display: flex !important;
         flex-direction: column !important;
@@ -1217,7 +1230,7 @@
         border: 1px solid var(--ds-border, #455260) !important;
         border-radius: 8px !important;
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45) !important;
-        z-index: 100 !important;
+        z-index: 1000 !important;
         display: flex !important;
         flex-direction: column !important;
         overflow: hidden !important;

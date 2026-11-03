@@ -232,9 +232,13 @@
         <!-- 3. 結果數量提示 -->
         <div class="bjwt-filter-stats-bar ${isFiltered ? 'is-filtered' : ''}">
           ${
-            isFiltered
-              ? `篩選顯示 <strong>${visibleCount}</strong> / 全部 ${totalCount} 張卡片`
-              : `共 <strong>${totalCount}</strong> 張卡片`
+            scopeId === 'global'
+              ? isFiltered
+                ? `跨衝刺篩選顯示 <strong>${visibleCount}</strong> / 全看板共 ${totalCount} 個工作項目`
+                : `全看板共 <strong>${totalCount}</strong> 個工作項目`
+              : isFiltered
+                ? `篩選顯示 <strong>${visibleCount}</strong> / 全部 ${totalCount} 張卡片`
+                : `共 <strong>${totalCount}</strong> 張卡片`
           }
         </div>
       </div>
