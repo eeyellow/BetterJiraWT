@@ -1774,6 +1774,19 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(latestPopupHtml.includes('id="assigneesList"'), 'popup.html 應包含已設定人員列表容器');
   assert(latestPopupHtml.includes('id="saveAssigneesBtn"'), 'popup.html 應包含儲存經辦人名單按鈕');
 
+  // 1-1. 檢查儲存按鈕是否已置於最上方 Header 與關閉按鈕並排
+  const assigneesModalHtml = latestPopupHtml.slice(latestPopupHtml.indexOf('id="assigneesModal"'));
+  const headerHtml = assigneesModalHtml.slice(0, assigneesModalHtml.indexOf('class="modal-body"'));
+  assert(
+    headerHtml.includes('id="saveAssigneesBtn"') && headerHtml.includes('id="closeAssigneesModalBtn"'),
+    'popup.html 中 saveAssigneesBtn 應位於頂部 Header 中且與 closeAssigneesModalBtn 相鄰'
+  );
+
+  // 1-2. 檢查 popup.css 是否具備 Header 動作按鈕排版與 Modal 滾動支援
+  const checkPopupCss = fs.readFileSync(path.resolve(__dirname, '..', 'popup.css'), 'utf8');
+  assert(checkPopupCss.includes('.modal-header-actions'), 'popup.css 應包含 .modal-header-actions');
+  assert(checkPopupCss.includes('overflow-y: auto'), 'popup.css 應支援 overflow-y: auto 捲動');
+
   // 2. 檢查 popup.js 是否包含經辦人設定互動邏輯
   const latestPopupJs = fs.readFileSync(path.resolve(__dirname, '..', 'popup.js'), 'utf8');
   assert(latestPopupJs.includes('openAssigneesModalBtn'), 'popup.js 應包含開啟經辦人名單彈窗邏輯');
