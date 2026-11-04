@@ -797,6 +797,24 @@ class MockElement {
     const all = this.querySelectorAll(sel);
     return all.length > 0 ? all[0] : null;
   }
+  addEventListener(event, fn) {
+    this._listeners = this._listeners || {};
+    this._listeners[event] = this._listeners[event] || [];
+    this._listeners[event].push(fn);
+  }
+  removeEventListener(event, fn) {
+    if (!this._listeners || !this._listeners[event]) return;
+    this._listeners[event] = this._listeners[event].filter((f) => f !== fn);
+  }
+  dispatchEvent(evt) {
+    if (!this._listeners || !this._listeners[evt.type]) return true;
+    evt.target = evt.target || this;
+    evt.currentTarget = this;
+    for (const fn of this._listeners[evt.type]) {
+      fn.call(this, evt);
+    }
+    return !evt.defaultPrevented;
+  }
 }
 global.Element = MockElement;
 
@@ -1759,6 +1777,93 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert.strictEqual(bruceFilterResult.length, 2, '篩選 Bruce Peng 應精確命中 2 張卡片');
   assert(bruceFilterResult.every((iss) => iss.key === 'S-3' || iss.key === 'S-4'), '應命中 S-3 與 S-4');
   FrontendFilterService.clearAll();
+
+  // 23. 測試下拉選單防裁切 CSS 與連續開啟狀態保持 (Active Dropdown State & Styles)
+  const reloadedStylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+  assert(reloadedStylesCss.includes('[data-bjwt-layout-host="true"]') && reloadedStylesCss.includes('overflow: visible !important;'),
+    'styles.css 中 [data-bjwt-layout-host="true"] 應設定 overflow: visible !important 以免裁切下拉選單');
+  assert(reloadedStylesCss.includes('.bjwt-filter-dropdown.is-open') && reloadedStylesCss.includes('1500 !important;'),
+    'styles.css 應為 .bjwt-filter-dropdown.is-open 提高 z-index 至 1500');
+  assert(reloadedStylesCss.includes('.bjwt-filter-dropdown-menu') && reloadedStylesCss.includes('2000 !important;'),
+    'styles.css 應為 .bjwt-filter-dropdown-menu 設定 z-index: 2000 以確保浮於所有看板卡片與標頭上方');
+
+  // 測試 activeDropdownName 狀態與 HTML 渲染連動
+  FilterToolbarComponent.setActiveDropdownName('assignee');
+  assert.strictEqual(FilterToolbarComponent.getActiveDropdownName(), 'assignee', 'getActiveDropdownName 應為 assignee');
+  const assigneeOpenHtml = FilterToolbarComponent.renderToolbarHtml(mockFilterIssues, mockFilterIssues, 'sprint-test');
+  assert(assigneeOpenHtml.includes('data-dropdown="assignee"') && assigneeOpenHtml.includes('is-open'),
+    '當 activeDropdownName 為 assignee 時，經辦人下拉選單容器與按鈕應包含 is-open');
+  assert(assigneeOpenHtml.includes('display: flex !important;'),
+    '當 activeDropdownName 為 assignee 時，選單 style 應包含 display: flex !important 以保持連續勾選開啟');
+
+  FilterToolbarComponent.closeAllDropdowns();
+  assert.strictEqual(FilterToolbarComponent.getActiveDropdownName(), null, 'closeAllDropdowns 後 activeDropdownName 應重設為 null');
+  const closedHtml = FilterToolbarComponent.renderToolbarHtml(mockFilterIssues, mockFilterIssues, 'sprint-test');
+  assert(closedHtml.includes('display: none !important;'), '選單關閉時 style 應包含 display: none !important');
+
+  // 24. 測試工具列事件委派 (bindToolbarEvents) 下拉選單點擊展開與選項點擊勾選
+  const mockToolbarContainer = new MockElement('div');
+  const mockDropdownWrapper = new MockElement('div');
+  mockDropdownWrapper.className = 'bjwt-filter-dropdown';
+  mockDropdownWrapper.setAttribute('data-dropdown', 'assignee');
+
+  const mockDropdownBtn = new MockElement('button');
+  mockDropdownBtn.className = 'bjwt-filter-chip bjwt-filter-dropdown-btn';
+  mockDropdownWrapper.appendChild(mockDropdownBtn);
+
+  const mockDropdownMenu = new MockElement('div');
+  mockDropdownMenu.className = 'bjwt-filter-dropdown-menu hidden';
+  mockDropdownWrapper.appendChild(mockDropdownMenu);
+
+  const mockItemLabel = new MockElement('label');
+  mockItemLabel.className = 'bjwt-dropdown-item';
+  const mockCb = new MockElement('input');
+  mockCb.className = 'bjwt-filter-cb';
+  mockCb.setAttribute('type', 'checkbox');
+  mockCb.setAttribute('data-filter-type', 'assignee');
+  mockCb.value = 'Ray Huang';
+  mockItemLabel.appendChild(mockCb);
+  const mockItemSpan = new MockElement('span');
+  mockItemSpan.className = 'bjwt-dropdown-item-name';
+  mockItemSpan.textContent = 'Ray Huang';
+  mockItemLabel.appendChild(mockItemSpan);
+  mockDropdownMenu.appendChild(mockItemLabel);
+
+  mockToolbarContainer.appendChild(mockDropdownWrapper);
+
+  let filterChangedCallCount = 0;
+  FilterToolbarComponent.bindToolbarEvents(mockToolbarContainer, () => {
+    filterChangedCallCount++;
+  });
+
+  const createEvent = (type, target) => ({
+    type,
+    target,
+    currentTarget: mockToolbarContainer,
+    defaultPrevented: false,
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { this.propagationStopped = true; }
+  });
+
+  // (1) 點擊經辦人按鈕 -> 觸發展開
+  mockToolbarContainer.dispatchEvent(createEvent('click', mockDropdownBtn));
+  assert.strictEqual(FilterToolbarComponent.getActiveDropdownName(), 'assignee', '點擊按鈕後 activeDropdownName 應為 assignee');
+  assert(mockDropdownBtn.classList.contains('is-open'), '按鈕應獲得 is-open class');
+  assert(!mockDropdownMenu.classList.contains('hidden'), '選單應移除 hidden class');
+  assert.strictEqual(mockDropdownMenu.style.display, 'flex', '選單 style.display 應設為 flex');
+
+  // (2) 點擊選項文字 (mockItemSpan) -> 觸發勾選與 onFilterChanged
+  FrontendFilterService.clearAll();
+  mockToolbarContainer.dispatchEvent(createEvent('click', mockItemSpan));
+  assert(FrontendFilterService.getState().selectedAssignees.includes('Ray Huang'), '點擊選項應成功加入 Ray Huang 篩選');
+  assert.strictEqual(filterChangedCallCount, 1, '勾選變更應觸發 onFilterChanged 回呼');
+  FrontendFilterService.clearAll();
+
+  // (3) 再次點擊按鈕 -> 觸發關閉
+  mockToolbarContainer.dispatchEvent(createEvent('click', mockDropdownBtn));
+  assert.strictEqual(FilterToolbarComponent.getActiveDropdownName(), null, '再次點擊按鈕應關閉選單，activeDropdownName 為 null');
+  assert(mockDropdownMenu.classList.contains('hidden'), '選單應加上 hidden class');
+  assert.strictEqual(mockDropdownMenu.style.display, 'none', '選單 style.display 應設為 none');
 
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 

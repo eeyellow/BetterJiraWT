@@ -1103,7 +1103,8 @@
         margin: 0 0 10px 0 !important;
         box-sizing: border-box !important;
         position: relative !important;
-        z-index: 25 !important;
+        z-index: 1000 !important;
+        overflow: visible !important;
         visibility: visible !important;
         opacity: 1 !important;
       }
@@ -1112,6 +1113,7 @@
         margin: 0 !important;
         width: 100% !important;
         box-sizing: border-box !important;
+        overflow: visible !important;
       }
       .bjwt-filter-toolbar {
         display: flex !important;
@@ -1124,7 +1126,8 @@
         border-radius: 8px !important;
         box-sizing: border-box !important;
         position: relative !important;
-        z-index: 10 !important;
+        z-index: 1000 !important;
+        overflow: visible !important;
       }
       .bjwt-filter-toolbar-main {
         display: flex !important;
@@ -1224,6 +1227,10 @@
       }
       .bjwt-filter-dropdown {
         position: relative !important;
+        overflow: visible !important;
+      }
+      .bjwt-filter-dropdown.is-open {
+        z-index: 1500 !important;
       }
       .bjwt-filter-dropdown-menu {
         position: absolute !important;
@@ -1235,8 +1242,8 @@
         background: var(--ds-surface-overlay, #1f262d) !important;
         border: 1px solid var(--ds-border, #455260) !important;
         border-radius: 8px !important;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45) !important;
-        z-index: 1000 !important;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+        z-index: 2000 !important;
         display: flex !important;
         flex-direction: column !important;
         overflow: hidden !important;
