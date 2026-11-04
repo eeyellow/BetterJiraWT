@@ -13,20 +13,34 @@
   // 監聽點擊視窗外部關閉下拉選單
   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('.bjwt-filter-dropdown')) {
+      const target = e.target;
+      if (!target || typeof target.closest !== 'function') {
+        closeAllDropdowns();
+        return;
+      }
+      if (!target.closest('.bjwt-filter-dropdown')) {
         closeAllDropdowns();
       }
     });
   }
 
-  function closeAllDropdowns() {
-    if (typeof document === 'undefined') return;
+  function closeAllDropdowns(scopeRoot) {
     activeDropdownName = null;
-    document.querySelectorAll('.bjwt-filter-dropdown-menu').forEach((menu) => {
-      menu.classList.add('hidden');
-    });
-    document.querySelectorAll('.bjwt-filter-dropdown-btn').forEach((btn) => {
-      btn.classList.remove('is-open');
+    const roots = [];
+    if (scopeRoot && typeof scopeRoot.querySelectorAll === 'function') roots.push(scopeRoot);
+    if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'function') roots.push(document);
+
+    roots.forEach((root) => {
+      root.querySelectorAll('.bjwt-filter-dropdown').forEach((dropdownEl) => {
+        dropdownEl.classList.remove('is-open');
+      });
+      root.querySelectorAll('.bjwt-filter-dropdown-menu').forEach((menu) => {
+        menu.classList.add('hidden');
+        menu.style.display = 'none';
+      });
+      root.querySelectorAll('.bjwt-filter-dropdown-btn').forEach((btn) => {
+        btn.classList.remove('is-open');
+      });
     });
   }
 
@@ -83,7 +97,7 @@
           <!-- 2. 快捷按鈕與下拉選單組 -->
           <div class="bjwt-filter-chips-group">
             <!-- 👥 經辦人下拉 -->
-            <div class="bjwt-filter-dropdown" data-dropdown="assignee">
+            <div class="bjwt-filter-dropdown ${activeDropdownName === 'assignee' ? 'is-open' : ''}" data-dropdown="assignee">
               <button
                 type="button"
                 class="bjwt-filter-chip bjwt-filter-dropdown-btn ${assigneeSelectedCount > 0 ? 'is-active' : ''} ${activeDropdownName === 'assignee' ? 'is-open' : ''}"
@@ -93,7 +107,7 @@
                 <span class="bjwt-chip-label">經辦人${assigneeSelectedCount > 0 ? ` (${assigneeSelectedCount})` : ''}</span>
                 <span class="bjwt-chip-arrow">▾</span>
               </button>
-              <div class="bjwt-filter-dropdown-menu ${activeDropdownName === 'assignee' ? '' : 'hidden'}">
+              <div class="bjwt-filter-dropdown-menu ${activeDropdownName === 'assignee' ? '' : 'hidden'}" style="${activeDropdownName === 'assignee' ? 'display: flex !important;' : 'display: none !important;'}">
                 <div class="bjwt-dropdown-header">篩選經辦人</div>
                 <div class="bjwt-dropdown-list">
                   <!-- 未指派選項 -->
@@ -146,7 +160,7 @@
             </div>
 
             <!-- 🏷️ 狀態下拉 -->
-            <div class="bjwt-filter-dropdown" data-dropdown="status">
+            <div class="bjwt-filter-dropdown ${activeDropdownName === 'status' ? 'is-open' : ''}" data-dropdown="status">
               <button
                 type="button"
                 class="bjwt-filter-chip bjwt-filter-dropdown-btn ${statusSelectedCount > 0 ? 'is-active' : ''} ${activeDropdownName === 'status' ? 'is-open' : ''}"
@@ -156,7 +170,7 @@
                 <span class="bjwt-chip-label">狀態${statusSelectedCount > 0 ? ` (${statusSelectedCount})` : ''}</span>
                 <span class="bjwt-chip-arrow">▾</span>
               </button>
-              <div class="bjwt-filter-dropdown-menu ${activeDropdownName === 'status' ? '' : 'hidden'}">
+              <div class="bjwt-filter-dropdown-menu ${activeDropdownName === 'status' ? '' : 'hidden'}" style="${activeDropdownName === 'status' ? 'display: flex !important;' : 'display: none !important;'}">
                 <div class="bjwt-dropdown-header">篩選狀態</div>
                 <div class="bjwt-dropdown-list">
                   ${options.statuses
@@ -183,7 +197,7 @@
             </div>
 
             <!-- 📌 類型下拉 -->
-            <div class="bjwt-filter-dropdown" data-dropdown="type">
+            <div class="bjwt-filter-dropdown ${activeDropdownName === 'type' ? 'is-open' : ''}" data-dropdown="type">
               <button
                 type="button"
                 class="bjwt-filter-chip bjwt-filter-dropdown-btn ${typeSelectedCount > 0 ? 'is-active' : ''} ${activeDropdownName === 'type' ? 'is-open' : ''}"
@@ -193,7 +207,7 @@
                 <span class="bjwt-chip-label">類型${typeSelectedCount > 0 ? ` (${typeSelectedCount})` : ''}</span>
                 <span class="bjwt-chip-arrow">▾</span>
               </button>
-              <div class="bjwt-filter-dropdown-menu ${activeDropdownName === 'type' ? '' : 'hidden'}">
+              <div class="bjwt-filter-dropdown-menu ${activeDropdownName === 'type' ? '' : 'hidden'}" style="${activeDropdownName === 'type' ? 'display: flex !important;' : 'display: none !important;'}">
                 <div class="bjwt-dropdown-header">篩選類型</div>
                 <div class="bjwt-dropdown-list">
                   ${options.types
@@ -270,17 +284,18 @@
 
   /**
    * 為容器綁定工具列的所有互動事件 (包含輸入、勾選、清除、下拉開關)
+   * 採用容器層級事件委派 (Event Delegation) 確保動態重繪與點擊穿透問題完美解決
    *
    * @param {Element} container - 包含工具列的 DOM 容器節點
    * @param {Function} onFilterChanged - 當篩選變更時的回呼
    */
   function bindToolbarEvents(container, onFilterChanged) {
-    if (!container) return;
+    if (!container || typeof container.addEventListener !== 'function') return;
     const { FrontendFilterService } = BetterJira;
 
     // 1. 搜尋輸入框事件 (輸入即時過濾)
     const searchInput = container.querySelector('.bjwt-filter-search-input');
-    if (searchInput) {
+    if (searchInput && typeof searchInput.addEventListener === 'function') {
       searchInput.addEventListener('input', (e) => {
         const val = e.target.value;
         const cursorPos = e.target.selectionStart;
@@ -308,70 +323,119 @@
       });
     }
 
-    // 清空關鍵字按鈕
-    const clearKwBtn = container.querySelector('.bjwt-filter-clear-kw-btn');
-    if (clearKwBtn) {
-      clearKwBtn.addEventListener('click', (e) => {
+    // 2. 容器層級事件委派 (Click Event Delegation)
+    container.addEventListener('click', (e) => {
+      // (a) 清除關鍵字按鈕
+      const clearKwBtn = e.target.closest('.bjwt-filter-clear-kw-btn');
+      if (clearKwBtn) {
         e.stopPropagation();
         FrontendFilterService.setKeyword('');
         if (onFilterChanged) onFilterChanged();
-      });
-    }
-
-    // 2. 下拉選單開關按鈕
-    container.querySelectorAll('.bjwt-filter-dropdown').forEach((dropdownEl) => {
-      const btn = dropdownEl.querySelector('.bjwt-filter-dropdown-btn');
-      const menu = dropdownEl.querySelector('.bjwt-filter-dropdown-menu');
-      const dropdownType = dropdownEl.getAttribute('data-dropdown');
-
-      if (btn && menu) {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const isCurrentlyOpen = !menu.classList.contains('hidden');
-          closeAllDropdowns();
-          if (!isCurrentlyOpen) {
-            menu.classList.remove('hidden');
-            btn.classList.add('is-open');
-            activeDropdownName = dropdownType;
-          }
-        });
+        return;
       }
-    });
 
-    // 4. 下拉選單勾選方塊事件
-    container.querySelectorAll('.bjwt-filter-cb').forEach((cb) => {
-      cb.addEventListener('change', (e) => {
-        e.stopPropagation();
-        const type = cb.getAttribute('data-filter-type');
-        const val = cb.value;
-
-        if (type === 'assignee') {
-          FrontendFilterService.toggleAssignee(val);
-        } else if (type === 'status') {
-          FrontendFilterService.toggleStatus(val);
-        } else if (type === 'type') {
-          FrontendFilterService.toggleType(val);
-        }
-
-        if (onFilterChanged) onFilterChanged();
-      });
-    });
-
-    // 5. 清除所有篩選按鈕
-    const resetBtn = container.querySelector('.bjwt-filter-chip-reset');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', (e) => {
+      // (b) 重設所有篩選按鈕
+      const resetBtn = e.target.closest('.bjwt-filter-chip-reset');
+      if (resetBtn) {
         e.stopPropagation();
         closeAllDropdowns();
         FrontendFilterService.clearAll();
         if (onFilterChanged) onFilterChanged();
-      });
-    }
+        return;
+      }
+
+      // (c) 下拉選單開關按鈕 (點擊開關或切換)
+      const btn = e.target.closest('.bjwt-filter-dropdown-btn');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const dropdownEl = btn.closest('.bjwt-filter-dropdown');
+        const dropdownType = dropdownEl ? dropdownEl.getAttribute('data-dropdown') : null;
+        const menu = dropdownEl ? dropdownEl.querySelector('.bjwt-filter-dropdown-menu') : null;
+
+        const isCurrentlyOpen = activeDropdownName === dropdownType;
+        closeAllDropdowns(container);
+
+        if (!isCurrentlyOpen && dropdownType && menu) {
+          activeDropdownName = dropdownType;
+          if (dropdownEl) dropdownEl.classList.add('is-open');
+          btn.classList.add('is-open');
+          menu.classList.remove('hidden');
+          menu.style.display = 'flex';
+        } else if (isCurrentlyOpen && menu) {
+          if (dropdownEl) dropdownEl.classList.remove('is-open');
+          btn.classList.remove('is-open');
+          menu.classList.add('hidden');
+          menu.style.display = 'none';
+        }
+        return;
+      }
+
+      // (d) 下拉選單清單項目點擊 (Label 或內部元素)
+      const item = e.target.closest('.bjwt-dropdown-item');
+      if (item) {
+        e.stopPropagation();
+        const cb = item.querySelector('.bjwt-filter-cb');
+        if (cb) {
+          // 若點擊目標非 checkbox 本身 (點在文字、頭像或計數上)，主動切換 checked 狀態
+          if (e.target !== cb) {
+            cb.checked = !cb.checked;
+          }
+          const filterType = cb.getAttribute('data-filter-type');
+          const val = cb.value;
+
+          if (filterType === 'assignee') {
+            FrontendFilterService.toggleAssignee(val);
+          } else if (filterType === 'status') {
+            FrontendFilterService.toggleStatus(val);
+          } else if (filterType === 'type') {
+            FrontendFilterService.toggleType(val);
+          }
+
+          if (onFilterChanged) onFilterChanged();
+        }
+        return;
+      }
+
+      // (e) 點擊選單內部其他區塊 (例如 header、空白邊距等)，阻止冒泡以防止外部 click 關閉選單
+      if (e.target.closest('.bjwt-filter-dropdown-menu')) {
+        e.stopPropagation();
+        return;
+      }
+    });
+
+    // 3. 下拉選單核取方塊 change 事件備援 (支援鍵盤 Space 鍵切換，並防護重複觸發)
+    container.addEventListener('change', (e) => {
+      const cb = e.target.closest('.bjwt-filter-cb');
+      if (!cb) return;
+      e.stopPropagation();
+      const filterType = cb.getAttribute('data-filter-type');
+      const val = cb.value;
+
+      const state = FrontendFilterService.getState();
+      const isCurrentlyActive =
+        (filterType === 'assignee' && state.selectedAssignees.includes(val)) ||
+        (filterType === 'status' && state.selectedStatuses.includes(val)) ||
+        (filterType === 'type' && state.selectedTypes.includes(val));
+
+      if (cb.checked !== isCurrentlyActive) {
+        if (filterType === 'assignee') {
+          FrontendFilterService.toggleAssignee(val);
+        } else if (filterType === 'status') {
+          FrontendFilterService.toggleStatus(val);
+        } else if (filterType === 'type') {
+          FrontendFilterService.toggleType(val);
+        }
+        if (onFilterChanged) onFilterChanged();
+      }
+    });
   }
 
   BetterJira.FilterToolbarComponent = {
     renderToolbarHtml,
     bindToolbarEvents,
-    closeAllDropdowns
+    closeAllDropdowns,
+    getActiveDropdownName: () => activeDropdownName,
+    setActiveDropdownName: (name) => { activeDropdownName = name; }
   };
 })();
