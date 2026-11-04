@@ -119,9 +119,7 @@
                       value="__UNASSIGNED__"
                       ${isUnassignedActive ? 'checked' : ''}
                     />
-                    <span class="bjwt-avatar-placeholder unassigned">?</span>
                     <span class="bjwt-dropdown-item-name">未指派</span>
-                    <span class="bjwt-dropdown-item-count">${options.unassignedCount}</span>
                   </label>
 
                   <!-- 各成員列表 -->
@@ -139,16 +137,10 @@
                                   value="${escapeHtml(a.name)}"
                                   ${checked ? 'checked' : ''}
                                 />
-                                ${
-                                  a.avatar
-                                    ? `<img class="bjwt-dropdown-avatar" src="${escapeHtml(a.avatar)}" alt="${escapeHtml(a.name)}" />`
-                                    : `<span class="bjwt-avatar-placeholder">${escapeHtml(a.initials || a.name.slice(0, 2).toUpperCase())}</span>`
-                                }
                                 <div class="bjwt-dropdown-item-info" style="display:flex; flex-direction:column; overflow:hidden; min-width:0; flex:1;">
                                   <span class="bjwt-dropdown-item-name" title="${escapeHtml(a.email ? `${a.name} (${a.email})` : a.name)}">${escapeHtml(a.name)}</span>
                                   ${a.email ? `<small class="bjwt-dropdown-item-email" style="font-size:10px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(a.email)}</small>` : ''}
                                 </div>
-                                <span class="bjwt-dropdown-item-count">${a.count}</span>
                               </label>
                             `;
                           })
@@ -187,7 +179,6 @@
                           />
                           <span class="bjwt-status-dot bjwt-status-${escapeHtml(st.category || 'new')}"></span>
                           <span class="bjwt-dropdown-item-name">${escapeHtml(st.name)}</span>
-                          <span class="bjwt-dropdown-item-count">${st.count}</span>
                         </label>
                       `;
                     })
@@ -244,7 +235,6 @@
                               : `<span class="bjwt-type-icon-fallback" style="font-size: 13px;">${fallbackIcon}</span>`
                           }
                           <span class="bjwt-dropdown-item-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
-                          <span class="bjwt-dropdown-item-count">${tp.count}</span>
                         </label>
                       `;
                     })
@@ -266,18 +256,20 @@
           </div>
         </div>
 
-        <!-- 3. 結果數量提示 -->
-        <div class="bjwt-filter-stats-bar ${isFiltered ? 'is-filtered' : ''}">
-          ${
-            scopeId === 'global'
-              ? isFiltered
-                ? `跨衝刺篩選顯示 <strong>${visibleCount}</strong> / 全看板共 ${totalCount} 個工作項目`
-                : `全看板共 <strong>${totalCount}</strong> 個工作項目`
-              : isFiltered
-                ? `篩選顯示 <strong>${visibleCount}</strong> / 全部 ${totalCount} 張卡片`
-                : `共 <strong>${totalCount}</strong> 張卡片`
-          }
-        </div>
+        <!-- 3. 結果數量提示 (僅篩選啟用時顯示) -->
+        ${
+          isFiltered
+            ? `
+              <div class="bjwt-filter-stats-bar is-filtered">
+                ${
+                  scopeId === 'global'
+                    ? `跨衝刺篩選顯示 <strong>${visibleCount}</strong> 個工作項目`
+                    : `篩選顯示 <strong>${visibleCount}</strong> 張卡片`
+                }
+              </div>
+            `
+            : ''
+        }
       </div>
     `;
   }
