@@ -44,43 +44,34 @@
 
     try {
       const apiIssues = await JiraApiService.fetchSprintIssuesForActive(item, forceRefresh);
-      cached.apiSyncing = false;
-      cached.fromApi = true;
-      cached.lastSyncTime = Date.now();
 
       if (Array.isArray(apiIssues) && apiIssues.length > 0) {
         const mergedList = apiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
-        const prevIssuesSig = (cached.allApiIssues || [])
-          .map((i) => `${i.key}:${i.statusName}:${i.assigneeName || ''}:${i.issueTypeName || ''}`)
-          .join('|');
-        const nextIssuesSig = mergedList
-          .map((i) => `${i.key}:${i.statusName}:${i.assigneeName || ''}:${i.issueTypeName || ''}`)
-          .join('|');
-
         cached.allApiIssues = mergedList;
         if (!cached.masterIssuesMap) cached.masterIssuesMap = new Map();
         mergedList.forEach((iss) => cached.masterIssuesMap.set(iss.key, iss));
         cached.rawIssues = Array.from(cached.masterIssuesMap.values());
-
-        IssueStore.setActiveSprintCache(cacheKey, cached);
-        IssueStore.setActiveSprintCache(key, cached);
-
-        // 僅在卡片內容確實有變更時才觸發排版刷新，避免自激振盪重繪
-        if (prevIssuesSig !== nextIssuesSig && LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
-          LayoutManager.scheduleLayoutRefresh();
-        }
-      } else {
-        // 若 API 回傳 0 張卡片，也明確標記已同步與快取，避免重複發送
-        if (!cached.allApiIssues) cached.allApiIssues = [];
-        IssueStore.setActiveSprintCache(cacheKey, cached);
-        IssueStore.setActiveSprintCache(key, cached);
+      } else if (!cached.allApiIssues) {
+        cached.allApiIssues = [];
       }
     } catch {
+      // ignore network errors, fallback to cooldown
+    } finally {
       cached.apiSyncing = false;
-      cached.fromApi = true; // 即使出錯也標記已同步，進入冷卻期
+      cached.fromApi = true;
       cached.lastSyncTime = Date.now();
       IssueStore.setActiveSprintCache(cacheKey, cached);
       IssueStore.setActiveSprintCache(key, cached);
+
+      // 同步完成後清除自定義檢視的舊渲染簽名，確保卡片即時重繪出現在畫面上
+      if (item.branch) {
+        const cv = item.branch.querySelector('.bjwt-active-sprint-custom-view');
+        if (cv) cv.removeAttribute('data-bjwt-render-sig');
+      }
+
+      if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
+        LayoutManager.scheduleLayoutRefresh();
+      }
     }
   }
 
@@ -277,6 +268,7 @@
       count: visibleIssues.length,
       points: stats.totalPoints,
       fromApi: Boolean(sprintData.fromApi),
+      apiSyncing: Boolean(sprintData.apiSyncing),
       nativeFilterSig: activeNativeFilter.sig,
       frontendFilterSig,
       optionsSig,
