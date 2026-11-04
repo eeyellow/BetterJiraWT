@@ -153,7 +153,10 @@
       <div class="modal-card modal-card-large">
         <div class="modal-header">
           <h2>設定 - 經辦人名單</h2>
-          <button class="close-btn" id="closeAssigneesModalBtn" type="button" aria-label="關閉">✕</button>
+          <div class="modal-header-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="saveAssigneesBtn">儲存設定</button>
+            <button class="close-btn" id="closeAssigneesModalBtn" type="button" aria-label="關閉">✕</button>
+          </div>
         </div>
         <div class="modal-body">
           <label class="input-label">新增團隊成員（名稱與 Email）：</label>
@@ -188,10 +191,6 @@
           <p class="helper-text">
             設定的人員資料儲存於前端 IndexedDB。看板頂部自製工具列中的「經辦人」將以這些成員為基礎進行比對與篩選。
           </p>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" id="cancelAssigneesBtn">取消</button>
-          <button type="button" class="btn btn-primary" id="saveAssigneesBtn">儲存設定</button>
         </div>
       </div>
     </div>
