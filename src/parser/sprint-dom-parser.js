@@ -144,9 +144,6 @@
       if (isCandidateBtn && hdr.getAttribute('aria-expanded') === 'false' && !isInsideCard(hdr)) {
         try {
           hdr.click();
-          if (typeof MouseEvent !== 'undefined') {
-            hdr.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          }
         } catch {
           // ignore
         }
@@ -163,9 +160,6 @@
       ) {
         try {
           toggleBtn.click();
-          if (typeof MouseEvent !== 'undefined') {
-            toggleBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          }
         } catch {
           // ignore
         }

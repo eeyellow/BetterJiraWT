@@ -206,7 +206,8 @@
             const cached = (IssueStore && typeof IssueStore.getActiveSprintCache === 'function')
               ? (IssueStore.getActiveSprintCache(cacheKey) || (item.meta && IssueStore.getActiveSprintCache(item.meta.key)))
               : null;
-            const needsForceSync = !cached || !cached.fromApi || !Array.isArray(cached.issues) || cached.issues.length === 0;
+            const hasIssues = cached && ((Array.isArray(cached.rawIssues) && cached.rawIssues.length > 0) || (Array.isArray(cached.allApiIssues) && cached.allApiIssues.length > 0));
+            const needsForceSync = !cached || !cached.fromApi || !hasIssues;
             ActiveSprintView.syncActiveSprintIssuesFromApi(item, needsForceSync);
           }
         }

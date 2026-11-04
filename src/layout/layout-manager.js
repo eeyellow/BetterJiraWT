@@ -18,6 +18,7 @@
     enabled: true
   };
   let layoutRafId = null;
+  let lastPrefetchedBoardId = null;
 
   /**
    * 動態計算左右兩欄各自獨立捲動區域的可用視窗高度，
@@ -205,6 +206,28 @@
       sprintsHost.insertBefore(globalToolbar, insertBeforeTarget);
     }
     globalToolbar.setAttribute('data-bjwt-non-sprint-child', 'true');
+
+    // 檢查工具列渲染簽名 (Signature)，若資料與篩選條件未改變，絕不銷毀並重建 DOM，杜絕點擊被重繪打斷
+    const activeDropdown = (FilterToolbarComponent && typeof FilterToolbarComponent.getActiveDropdownName === 'function')
+      ? FilterToolbarComponent.getActiveDropdownName()
+      : null;
+    const filterState = (BetterJira.FrontendFilterService && typeof BetterJira.FrontendFilterService.getState === 'function')
+      ? BetterJira.FrontendFilterService.getState()
+      : {};
+    const toolbarSig = JSON.stringify({
+      total: allBoardIssues.length,
+      filtered: filteredBoardIssues.length,
+      activeDropdown,
+      kw: filterState.keyword || '',
+      ass: filterState.selectedAssignees || [],
+      st: filterState.selectedStatuses || [],
+      tp: filterState.selectedTypes || []
+    });
+
+    if (globalToolbar.getAttribute('data-bjwt-toolbar-sig') === toolbarSig && globalToolbar.firstElementChild) {
+      return;
+    }
+    globalToolbar.setAttribute('data-bjwt-toolbar-sig', toolbarSig);
 
     // 偵測打字中的搜尋輸入框焦點與游標位置，在重新渲染後無縫恢復
     const currentActive = typeof document !== 'undefined' ? document.activeElement : null;
@@ -439,14 +462,10 @@
       activeSprintKey = sprintBranches[resolvedIndex].meta.key;
     }
 
-    // 當前選取之衝刺若原生 DOM 處於收合狀態或卡片數為 0，主動觸發原生風琴夾展開與 API 同步
-    if (SprintDomParser && typeof SprintDomParser.expandSprintHeaderOnUserSelect === 'function') {
+    if (hasMatchedDefaultSprint && SprintDomParser && typeof SprintDomParser.expandSprintHeaderOnUserSelect === 'function') {
       const selectedBranch = sprintBranches[resolvedIndex];
-      if (selectedBranch && selectedBranch.meta) {
-        const isCollapsedOrEmpty = selectedBranch.meta.isCollapsed || (selectedBranch.meta.cardCount === 0);
-        if (isCollapsedOrEmpty) {
-          SprintDomParser.expandSprintHeaderOnUserSelect(selectedBranch.branch, selectedBranch.sprintEl, selectedBranch.headerPartner);
-        }
+      if (selectedBranch && selectedBranch.meta && selectedBranch.meta.isCollapsed) {
+        SprintDomParser.expandSprintHeaderOnUserSelect(selectedBranch.branch, selectedBranch.sprintEl, selectedBranch.headerPartner);
       }
     }
 
@@ -541,9 +560,11 @@
     }
 
     // 在背景非同步預熱看板 Backlog 全部未結束卡片 (包含 Future Sprints 與待辦池)，秒開未開始衝刺並充實跨衝刺搜尋
+    // 嚴格限制每個 Board ID 僅預熱一次，絕不在每次排版重繪時重複觸發造成無限刷新循環
     if (BetterJira.JiraApiService && typeof BetterJira.JiraApiService.prefetchBoardBacklogIssues === 'function') {
       const currentBoardId = IssueStore.getBoardId && IssueStore.getBoardId();
-      if (currentBoardId) {
+      if (currentBoardId && lastPrefetchedBoardId !== String(currentBoardId)) {
+        lastPrefetchedBoardId = String(currentBoardId);
         BetterJira.JiraApiService.prefetchBoardBacklogIssues(currentBoardId)
           .then((bIssues) => {
             if (Array.isArray(bIssues) && bIssues.length > 0 && typeof scheduleLayoutRefresh === 'function') {
@@ -573,6 +594,7 @@
    * 當離開「待辦事項」網址時，還原原本 Jira DOM 屬性與側邊欄
    */
   function teardownTwoColumnBacklogLayout() {
+    lastPrefetchedBoardId = null;
     const { Constants, IssueModalComponent } = BetterJira;
     const { SIDEBAR_ID, HISTORY_PICKER_MODAL_ID, HISTORY_ISSUE_MODAL_ID, GLOBAL_FILTER_TOOLBAR_ID } = Constants;
 
