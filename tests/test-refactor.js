@@ -1620,16 +1620,24 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(assigneeNames.includes('Alice Chen') && assigneeNames.includes('Bob Lin') && assigneeNames.includes('Charlie Wang'),
     '跨 Sprint 搜尋選項中經辦人應完整包含所有衝刺人員 (Alice, Bob, Charlie)');
 
-  // 10. 測試全域頂部工具列 (scopeId='global') 渲染字樣
+  // 10. 測試全域頂部工具列 (scopeId='global') 渲染字樣 (未篩選時移除「全看板共n個工作項目」)
   const globalToolbarHtml = FilterToolbarComponent.renderToolbarHtml(mockAllBoardIssues, mockAllBoardIssues, 'global');
-  assert(globalToolbarHtml.includes('全看板共 <strong>3</strong> 個工作項目'), '全域工具列在未過濾時應顯示「全看板共 3 個工作項目」');
+  assert(!globalToolbarHtml.includes('全看板共'), '依使用者要求，未篩選時工具列不應顯示「全看板共n個工作項目」');
+  assert(!globalToolbarHtml.includes('bjwt-filter-stats-bar'), '未篩選時不應渲染 bjwt-filter-stats-bar 數量提示條');
+
+  // 測試經辦人已移除 Icon 與計數、狀態與類型已移除計數
+  assert(!globalToolbarHtml.includes('bjwt-avatar-placeholder'), '經辦人選項應已移除最前方頭像 Icon');
+  assert(!globalToolbarHtml.includes('bjwt-dropdown-avatar'), '經辦人選項應已移除最前方頭像圖片');
+  assert(!globalToolbarHtml.includes('bjwt-dropdown-item-count'), '經辦人、狀態、類型選項均應已移除最後方計數');
+  assert(globalToolbarHtml.includes('bjwt-status-dot'), '狀態選項應依然保留狀態顏色圓點');
 
   FrontendFilterService.clearAll();
   FrontendFilterService.setKeyword('Sprint 1');
   const filteredBoardIssues = FrontendFilterService.filterIssues(mockAllBoardIssues);
   assert.strictEqual(filteredBoardIssues.length, 2, '搜尋「Sprint 1」應篩出 2 個跨衝刺工作項目');
   const globalFilteredToolbarHtml = FilterToolbarComponent.renderToolbarHtml(mockAllBoardIssues, filteredBoardIssues, 'global');
-  assert(globalFilteredToolbarHtml.includes('跨衝刺篩選顯示 <strong>2</strong> / 全看板共 3 個工作項目'), '全域工具列在過濾時應顯示「跨衝刺篩選顯示 2 / 全看板共 3 個工作項目」');
+  assert(globalFilteredToolbarHtml.includes('跨衝刺篩選顯示 <strong>2</strong> 個工作項目'), '全域工具列在過濾時應顯示「跨衝刺篩選顯示 2 個工作項目」');
+  assert(!globalFilteredToolbarHtml.includes('全看板共'), '過濾時亦不應出現「全看板共n個工作項目」');
   FrontendFilterService.clearAll();
 
   // 11. 測試 Constants.GLOBAL_FILTER_TOOLBAR_ID 與樣式定義
