@@ -321,13 +321,26 @@
         } else if (isMeSelected && isIssueAssignedToMe(iss, currentUserName)) {
           assigneeMatched = true;
         } else if (!isUnassigned) {
-          const cleanName = BetterJira.AssigneeUtils ? BetterJira.AssigneeUtils.cleanAssigneeLabel(assigneeName) : assigneeName;
-          if (filterState.selectedAssignees.has(cleanName) || filterState.selectedAssignees.has(assigneeName)) {
-            assigneeMatched = true;
-          } else {
-            // 彈性比對：支援大小寫不敏感、縮寫與 token 比對
-            for (const sel of filterState.selectedAssignees) {
-              if (sel === '__UNASSIGNED__' || sel === '__ME__') continue;
+          const customList =
+            BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.getCustomAssignees === 'function'
+              ? BetterJira.AssigneeUtils.getCustomAssignees()
+              : [];
+
+          for (const sel of filterState.selectedAssignees) {
+            if (sel === '__UNASSIGNED__' || sel === '__ME__') continue;
+
+            // 1. 若該選項屬於自訂人員清單，呼叫 matchCustomAssignee 進行全方位精準比對 (含 Name、Email、縮寫、Token)
+            const matchedCustom = customList.find(
+              (m) => m && m.name && m.name.toLowerCase() === sel.toLowerCase()
+            );
+            if (matchedCustom) {
+              if (BetterJira.AssigneeUtils && BetterJira.AssigneeUtils.matchCustomAssignee(iss, matchedCustom)) {
+                assigneeMatched = true;
+                break;
+              }
+            } else {
+              // 2. 備援標準名稱比對
+              const cleanName = BetterJira.AssigneeUtils ? BetterJira.AssigneeUtils.cleanAssigneeLabel(assigneeName) : assigneeName;
               if (cleanName.toLowerCase() === sel.toLowerCase()) {
                 assigneeMatched = true;
                 break;
@@ -411,6 +424,16 @@
       }
     }
 
+    const customList =
+      BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.getCustomAssignees === 'function'
+        ? BetterJira.AssigneeUtils.getCustomAssignees()
+        : [];
+    const hasCustomAssignees = Array.isArray(customList) && customList.length > 0;
+    const customCounts = new Map();
+    if (hasCustomAssignees) {
+      customList.forEach((m) => customCounts.set(m.name, 0));
+    }
+
     const assigneeMap = new Map();
     let unassignedCount = 0;
     let myIssuesCount = 0;
@@ -423,29 +446,36 @@
 
       // 經辦人統計
       let rawAssignee = (iss.assigneeName || '').trim();
-
-      // 若卡片僅有頭像或為「已指派」，嘗試從全域人員目錄即時反查
-      if ((!rawAssignee || rawAssignee === '已指派') && iss.assigneeAvatar && BetterJira.AssigneeUtils) {
-        const resolved = BetterJira.AssigneeUtils.resolveUserByAvatar(iss.assigneeAvatar);
-        if (resolved && resolved.name) {
-          rawAssignee = resolved.name;
-          iss.assigneeName = resolved.name;
-          if (!iss.assigneeInitials) iss.assigneeInitials = resolved.initials || '';
-        }
-      }
-      if ((!rawAssignee || rawAssignee === '已指派') && iss.assigneeInitials && BetterJira.AssigneeUtils) {
-        const resolved = BetterJira.AssigneeUtils.resolveUserByInitials(iss.assigneeInitials);
-        if (resolved && resolved.name) {
-          rawAssignee = resolved.name;
-          iss.assigneeName = resolved.name;
-        }
-      }
-
       const isUnassigned = !rawAssignee || (BetterJira.AssigneeUtils && BetterJira.AssigneeUtils.isUnassignedText(rawAssignee));
 
       if (isUnassigned) {
         unassignedCount++;
+      } else if (hasCustomAssignees) {
+        // 優先依據自訂人員名單 (Email、姓名、縮寫、Token) 精準比對
+        for (const member of customList) {
+          if (BetterJira.AssigneeUtils.matchCustomAssignee(iss, member)) {
+            customCounts.set(member.name, (customCounts.get(member.name) || 0) + 1);
+            break;
+          }
+        }
       } else {
+        // 若卡片僅有頭像或為「已指派」，嘗試從全域人員目錄即時反查
+        if ((!rawAssignee || rawAssignee === '已指派') && iss.assigneeAvatar && BetterJira.AssigneeUtils) {
+          const resolved = BetterJira.AssigneeUtils.resolveUserByAvatar(iss.assigneeAvatar);
+          if (resolved && resolved.name) {
+            rawAssignee = resolved.name;
+            iss.assigneeName = resolved.name;
+            if (!iss.assigneeInitials) iss.assigneeInitials = resolved.initials || '';
+          }
+        }
+        if ((!rawAssignee || rawAssignee === '已指派') && iss.assigneeInitials && BetterJira.AssigneeUtils) {
+          const resolved = BetterJira.AssigneeUtils.resolveUserByInitials(iss.assigneeInitials);
+          if (resolved && resolved.name) {
+            rawAssignee = resolved.name;
+            iss.assigneeName = resolved.name;
+          }
+        }
+
         const cleanName = BetterJira.AssigneeUtils ? BetterJira.AssigneeUtils.cleanAssigneeLabel(rawAssignee) : rawAssignee;
         if (cleanName && cleanName !== '已指派') {
           if (!assigneeMap.has(cleanName)) {
@@ -495,6 +525,23 @@
         entry.count++;
       }
     });
+
+    // 若為自訂成員模式，依自訂名單完整輸出選項 (包含 Email 與計算後的張數)
+    if (hasCustomAssignees) {
+      customList.forEach((member) => {
+        const count = customCounts.get(member.name) || 0;
+        const initials = BetterJira.AssigneeUtils
+          ? BetterJira.AssigneeUtils.deriveInitialsVariants(member.name)[0] || ''
+          : '';
+        assigneeMap.set(member.name, {
+          name: member.name,
+          email: member.email || '',
+          avatar: '',
+          initials,
+          count
+        });
+      });
+    }
 
     // 補充專案已知的所有類型 (即使當前衝刺或可見卡片中尚未出現該類型，亦完整列出)
     const { IssueStore } = BetterJira;

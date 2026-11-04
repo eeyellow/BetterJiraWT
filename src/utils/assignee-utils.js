@@ -9,7 +9,7 @@
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
   /**
-   * 清理負責人標籤字串 (去除 Jira 前綴與篩選後綴)
+   * 清理負責人標籤字串 (去除 Jira 前綴、動作詞與篩選後綴)
    *
    * @param {string} raw - 原始標籤或名稱字串
    * @returns {string} 清理後的經辦人姓名
@@ -21,16 +21,25 @@
       .replace(/\s+/g, ' ')
       .trim();
     if (!s) return '';
+
+    // 去除前綴動作詞與屬性標籤 (例如 "按 ", "依 ", "負責人: ", "Filter by assignee: ")
     s = s
       .replace(
-        /^(?:負責人|經辦人|指派給|指派對象|篩選依據|依|使用者|頭像|Assignee|Assigned\s+to|Filter\s+by(?:\s+assignee)?|User|Avatar(?:\s+for)?)\s*[:：]?\s*/i,
+        /^(?:按\s*|依\s*|篩選依據\s*[:：]?\s*|負責人\s*[:：]?\s*|經辦人\s*[:：]?\s*|受託人\s*[:：]?\s*|指派給\s*[:：]?\s*|指派對象\s*[:：]?\s*|使用者\s*[:：]?\s*|頭像\s*[:：]?\s*|Assignee\s*[:：]?\s*|Assigned\s+to\s*[:：]?\s*|Filter\s+by(?:\s+assignee)?\s*[:：]?\s*|User\s*[:：]?\s*|Avatar(?:\s+for)?\s*[:：]?\s*)/i,
         ''
       )
       .trim();
+
+    // 去除後綴狀態與動作名詞 (例如 "篩選受託人", "已選取", "filter")
     s = s
       .replace(/\s*[,，(（]?\s*(?:已選取|未選取|selected|not\s+selected|unselected)\s*[)）]?$/i, '')
       .trim();
-    s = s.replace(/\s*(?:篩選|的頭像|filter|avatar)$/i, '').trim();
+    s = s.replace(/\s*(?:篩選受託人|受託人|篩選經辦人|篩選負責人|篩選|的頭像|filter|avatar)$/i, '').trim();
+
+    // 若清理後仍屬於未指派詞彙或純指令動作詞，一律回傳空字串
+    if (/^(?:未指派|未分配|無負責人|無經辦人|無受託人|unassigned|none)$/i.test(s) || /^(?:按|篩選|filter)$/i.test(s)) {
+      return '';
+    }
     return s;
   }
 
@@ -42,8 +51,13 @@
    */
   function isUnassignedText(str) {
     if (!str) return false;
+    const raw = String(str).toLowerCase().trim();
+    // 包含常見的未指派相關詞彙 (如 "按 未指派 篩選受託人", "unassigned", "no assignee")
+    if (/未指派|未分配|無負責人|無經辦人|無受託人|unassigned|no\s*assignee|none/i.test(raw)) {
+      return true;
+    }
     const t = cleanAssigneeLabel(str).toLowerCase();
-    return /^(?:未指派|未分配|無負責人|無經辦人|無|unassigned|no\s+assignee|none)$/i.test(t);
+    return !t || /^(?:未指派|未分配|無負責人|無經辦人|無受託人|無|unassigned|no\s+assignee|none)$/i.test(t);
   }
 
   /**
@@ -341,6 +355,122 @@
     }
   }
 
+  /**
+   * 使用者在設定中自訂的人員名單 (由 IndexedDB 載入)
+   * @type {Array<{name: string, email: string}>}
+   */
+  let customAssigneesList = [];
+
+  /**
+   * 設定自訂人員名單，並自動註冊至目錄中
+   *
+   * @param {Array<{name: string, email: string}>} list - 人員名單
+   */
+  function setCustomAssignees(list) {
+    customAssigneesList = Array.isArray(list)
+      ? list
+          .filter((m) => m && typeof m.name === 'string' && m.name.trim())
+          .map((m) => ({
+            name: m.name.trim(),
+            email: (m.email || '').trim()
+          }))
+      : [];
+
+    // 自動為每位自訂成員註冊縮寫與名稱
+    customAssigneesList.forEach((m) => {
+      const initials = deriveInitialsVariants(m.name)[0] || '';
+      registerAssignee({ name: m.name, initials, avatar: '' });
+      if (m.email) {
+        const emailPrefix = m.email.split('@')[0];
+        const cleanEmailPrefix = emailPrefix.replace(/[._-]+/g, ' ');
+        deriveInitialsVariants(cleanEmailPrefix).forEach((variant) => {
+          if (variant && !initialsToUserMap.has(variant)) {
+            initialsToUserMap.set(variant, { name: m.name, initials, avatar: '' });
+          }
+        });
+      }
+    });
+  }
+
+  /**
+   * 取得自訂人員名單
+   *
+   * @returns {Array<{name: string, email: string}>}
+   */
+  function getCustomAssignees() {
+    return customAssigneesList;
+  }
+
+  /**
+   * 判斷卡片是否屬於指定的自訂人員 (透過名稱、Email、縮寫與 Token 比對)
+   *
+   * @param {Object} issue - 卡片資料物件
+   * @param {Object} member - 自訂人員物件 { name, email }
+   * @returns {boolean} 是否符合
+   */
+  function matchCustomAssignee(issue, member) {
+    if (!issue || !member || !member.name) return false;
+    if (issue.isUnassigned || isUnassignedText(issue.assigneeName)) return false;
+
+    const targetName = member.name.toLowerCase().trim();
+    const targetEmail = (member.email || '').toLowerCase().trim();
+    const emailPrefix = targetEmail ? targetEmail.split('@')[0] : '';
+    const cleanEmailPrefix = emailPrefix ? emailPrefix.replace(/[._-]+/g, ' ') : '';
+
+    const targetInitials = deriveInitialsVariants(member.name);
+    if (cleanEmailPrefix) {
+      deriveInitialsVariants(cleanEmailPrefix).forEach((v) => targetInitials.push(v));
+    }
+
+    const cardName = cleanAssigneeLabel(issue.assigneeName || '').toLowerCase().trim();
+    const cardInitials = (issue.assigneeInitials || '').toUpperCase().trim();
+    const cardTokens = Array.isArray(issue.assigneeTokens)
+      ? issue.assigneeTokens.map((t) => String(t).toLowerCase())
+      : [];
+    const cardEmail = (issue.assigneeEmail || '').toLowerCase().trim();
+
+    // 1. Email 精確比對
+    if (targetEmail && cardEmail && targetEmail === cardEmail) {
+      return true;
+    }
+
+    // 2. 名稱完全或部分吻合
+    if (cardName && cardName !== '已指派') {
+      if (cardName === targetName) return true;
+      if (cardName.includes(targetName) || targetName.includes(cardName)) return true;
+      if (cleanEmailPrefix && (cardName.includes(cleanEmailPrefix) || cleanEmailPrefix.includes(cardName))) return true;
+    }
+
+    // 3. Email 帳號前綴吻合 (例如 "Ray_Huang" 與卡片名稱比對)
+    if (emailPrefix && cardName && cardName !== '已指派') {
+      if (cardName.includes(emailPrefix) || emailPrefix.includes(cardName)) return true;
+    }
+
+    // 4. 頭像縮寫吻合 (例如 "RH", "RAY", "BP")
+    if (cardInitials && targetInitials.includes(cardInitials)) {
+      return true;
+    }
+
+    // 5. 卡片 Token 比對
+    if (cardTokens.length > 0) {
+      if (cardTokens.includes(targetName)) return true;
+      if (emailPrefix && cardTokens.includes(emailPrefix)) return true;
+      for (const ti of targetInitials) {
+        if (cardTokens.includes(ti.toLowerCase())) return true;
+      }
+    }
+
+    // 6. 頭像已由全域目錄解析為此姓名
+    if (issue.assigneeAvatar) {
+      const resolved = resolveUserByAvatar(issue.assigneeAvatar);
+      if (resolved && resolved.name && resolved.name.toLowerCase() === targetName) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   BetterJira.AssigneeUtils = {
     cleanAssigneeLabel,
     isUnassignedText,
@@ -351,6 +481,9 @@
     resolveUserByAvatar,
     resolveUserByInitials,
     getAllRegisteredAssignees,
-    discoverAssigneesFromPage
+    discoverAssigneesFromPage,
+    setCustomAssignees,
+    getCustomAssignees,
+    matchCustomAssignee
   };
 })();

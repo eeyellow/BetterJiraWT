@@ -111,29 +111,36 @@
                   </label>
 
                   <!-- 各成員列表 -->
-                  ${options.assignees
-                    .map((a) => {
-                      const checked = state.selectedAssignees.includes(a.name);
-                      return `
-                        <label class="bjwt-dropdown-item">
-                          <input
-                            type="checkbox"
-                            class="bjwt-filter-cb"
-                            data-filter-type="assignee"
-                            value="${escapeHtml(a.name)}"
-                            ${checked ? 'checked' : ''}
-                          />
-                          ${
-                            a.avatar
-                              ? `<img class="bjwt-dropdown-avatar" src="${escapeHtml(a.avatar)}" alt="${escapeHtml(a.name)}" />`
-                              : `<span class="bjwt-avatar-placeholder">${escapeHtml(a.initials || a.name.slice(0, 2).toUpperCase())}</span>`
-                          }
-                          <span class="bjwt-dropdown-item-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
-                          <span class="bjwt-dropdown-item-count">${a.count}</span>
-                        </label>
-                      `;
-                    })
-                    .join('')}
+                  ${
+                    options.assignees.length > 0
+                      ? options.assignees
+                          .map((a) => {
+                            const checked = state.selectedAssignees.includes(a.name);
+                            return `
+                              <label class="bjwt-dropdown-item">
+                                <input
+                                  type="checkbox"
+                                  class="bjwt-filter-cb"
+                                  data-filter-type="assignee"
+                                  value="${escapeHtml(a.name)}"
+                                  ${checked ? 'checked' : ''}
+                                />
+                                ${
+                                  a.avatar
+                                    ? `<img class="bjwt-dropdown-avatar" src="${escapeHtml(a.avatar)}" alt="${escapeHtml(a.name)}" />`
+                                    : `<span class="bjwt-avatar-placeholder">${escapeHtml(a.initials || a.name.slice(0, 2).toUpperCase())}</span>`
+                                }
+                                <div class="bjwt-dropdown-item-info" style="display:flex; flex-direction:column; overflow:hidden; min-width:0; flex:1;">
+                                  <span class="bjwt-dropdown-item-name" title="${escapeHtml(a.email ? `${a.name} (${a.email})` : a.name)}">${escapeHtml(a.name)}</span>
+                                  ${a.email ? `<small class="bjwt-dropdown-item-email" style="font-size:10px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(a.email)}</small>` : ''}
+                                </div>
+                                <span class="bjwt-dropdown-item-count">${a.count}</span>
+                              </label>
+                            `;
+                          })
+                          .join('')
+                      : `<div class="bjwt-dropdown-empty-hint" style="padding: 8px 12px; font-size: 11px; color: #888; text-align: center;">尚未於設定中新增人員名單</div>`
+                  }
                 </div>
               </div>
             </div>

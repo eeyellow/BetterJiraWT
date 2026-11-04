@@ -64,6 +64,18 @@
             </div>
             <span class="submenu-arrow">›</span>
           </button>
+
+          <!-- 1.3 經辦人名單 -->
+          <button class="submenu-item" id="openAssigneesModalBtn" type="button">
+            <div class="submenu-item-main">
+              <span class="submenu-index">1.3</span>
+              <div class="submenu-text">
+                <span class="submenu-label">經辦人名單</span>
+                <span class="submenu-preview" id="assigneesPreview">尚未設定人員 (點擊設定)</span>
+              </div>
+            </div>
+            <span class="submenu-arrow">›</span>
+          </button>
         </div>
       </div>
     </main>
@@ -132,6 +144,54 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelDefaultSprintBtn">取消</button>
           <button type="button" class="btn btn-primary" id="saveDefaultSprintBtn">儲存設定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 彈出視窗 1.3：設定 - 經辦人名單 -->
+    <div class="modal-overlay hidden" id="assigneesModal">
+      <div class="modal-card modal-card-large">
+        <div class="modal-header">
+          <h2>設定 - 經辦人名單</h2>
+          <button class="close-btn" id="closeAssigneesModalBtn" type="button" aria-label="關閉">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="input-label">新增團隊成員（名稱與 Email）：</label>
+          <div class="assignee-input-row">
+            <input
+              type="text"
+              id="newAssigneeNameInput"
+              class="assignee-input"
+              placeholder="名稱 (例：Ray Huang)"
+              autocomplete="off"
+            />
+            <input
+              type="email"
+              id="newAssigneeEmailInput"
+              class="assignee-input"
+              placeholder="Email (例：Ray_Huang@wistron.com)"
+              autocomplete="off"
+            />
+            <button type="button" class="btn btn-primary" id="addAssigneeBtn">新增</button>
+          </div>
+
+          <div class="assignees-list-container">
+            <div class="assignees-list-header">
+              <span>已設定人員列表 (<span id="assigneesCount">0</span>)</span>
+              <button type="button" class="link-btn-danger" id="clearAllAssigneesBtn">全部清空</button>
+            </div>
+            <div class="assignees-list" id="assigneesList">
+              <!-- 動態生成人員項目 -->
+            </div>
+          </div>
+
+          <p class="helper-text">
+            設定的人員資料儲存於前端 IndexedDB。看板頂部自製工具列中的「經辦人」將以這些成員為基礎進行比對與篩選。
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelAssigneesBtn">取消</button>
+          <button type="button" class="btn btn-primary" id="saveAssigneesBtn">儲存設定</button>
         </div>
       </div>
     </div>

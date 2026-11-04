@@ -202,6 +202,9 @@
       }
       const settings = await BetterJiraDB.getSettings();
       setCurrentSettings(settings);
+      if (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.setCustomAssignees === 'function') {
+        BetterJira.AssigneeUtils.setCustomAssignees(settings.customAssignees || []);
+      }
       await BetterJiraDB.syncFromObject(settings);
       syncExtensionIcon(settings.enabled);
       evaluateAndApply();
@@ -223,6 +226,9 @@
           }
         }
         setCurrentSettings(newSettings);
+        if (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.setCustomAssignees === 'function') {
+          BetterJira.AssigneeUtils.setCustomAssignees(newSettings.customAssignees || []);
+        }
         syncExtensionIcon(newSettings.enabled);
         BetterJiraDB.syncFromObject(newSettings).then(() => {
           evaluateAndApply();
@@ -245,6 +251,12 @@
           current.defaultSprint = changes.defaultSprint.newValue;
           if (BetterJira.LayoutManager && typeof BetterJira.LayoutManager.setActiveSprintKey === 'function') {
             BetterJira.LayoutManager.setActiveSprintKey(null);
+          }
+        }
+        if (changes.customAssignees) {
+          current.customAssignees = changes.customAssignees.newValue || [];
+          if (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.setCustomAssignees === 'function') {
+            BetterJira.AssigneeUtils.setCustomAssignees(current.customAssignees);
           }
         }
         if (changes.enabled) {
