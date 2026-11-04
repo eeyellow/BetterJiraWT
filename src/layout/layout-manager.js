@@ -440,10 +440,14 @@
       activeSprintKey = sprintBranches[resolvedIndex].meta.key;
     }
 
-    if (hasMatchedDefaultSprint && SprintDomParser && typeof SprintDomParser.expandSprintHeaderOnUserSelect === 'function') {
+    // 當前選取之衝刺若原生 DOM 處於收合狀態或卡片數為 0，主動觸發原生風琴夾展開與 API 同步
+    if (SprintDomParser && typeof SprintDomParser.expandSprintHeaderOnUserSelect === 'function') {
       const selectedBranch = sprintBranches[resolvedIndex];
-      if (selectedBranch && selectedBranch.meta && selectedBranch.meta.isCollapsed) {
-        SprintDomParser.expandSprintHeaderOnUserSelect(selectedBranch.branch, selectedBranch.sprintEl, selectedBranch.headerPartner);
+      if (selectedBranch && selectedBranch.meta) {
+        const isCollapsedOrEmpty = selectedBranch.meta.isCollapsed || (selectedBranch.meta.cardCount === 0);
+        if (isCollapsedOrEmpty) {
+          SprintDomParser.expandSprintHeaderOnUserSelect(selectedBranch.branch, selectedBranch.sprintEl, selectedBranch.headerPartner);
+        }
       }
     }
 
@@ -530,6 +534,20 @@
         BetterJira.JiraApiService.fetchProjectIssueTypes()
           .then((types) => {
             if (Array.isArray(types) && types.length > 0 && typeof scheduleLayoutRefresh === 'function') {
+              scheduleLayoutRefresh();
+            }
+          })
+          .catch(() => {});
+      }
+    }
+
+    // 在背景非同步預熱看板 Backlog 全部未結束卡片 (包含 Future Sprints 與待辦池)，秒開未開始衝刺並充實跨衝刺搜尋
+    if (BetterJira.JiraApiService && typeof BetterJira.JiraApiService.prefetchBoardBacklogIssues === 'function') {
+      const currentBoardId = IssueStore.getBoardId && IssueStore.getBoardId();
+      if (currentBoardId) {
+        BetterJira.JiraApiService.prefetchBoardBacklogIssues(currentBoardId)
+          .then((bIssues) => {
+            if (Array.isArray(bIssues) && bIssues.length > 0 && typeof scheduleLayoutRefresh === 'function') {
               scheduleLayoutRefresh();
             }
           })

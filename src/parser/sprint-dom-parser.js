@@ -79,23 +79,33 @@
     const headerCandidates = [
       headerPartner,
       branchEl && branchEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header'),
-      sprintEl && sprintEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header')
+      sprintEl && sprintEl.querySelector('[data-testid*="card-list.header"], [data-testid*="sprint-header"], .ghx-backlog-header, header'),
+      branchEl,
+      sprintEl
     ].filter(Boolean);
 
     for (const hdr of headerCandidates) {
-      const toggleBtn = hdr.querySelector('[aria-expanded="false"]');
+      if (hdr.getAttribute('aria-expanded') === 'false') {
+        return true;
+      }
+      const toggleBtn = hdr.querySelector(
+        '[aria-expanded="false"], button[data-testid*="toggle"], button[data-testid*="expand"], [role="button"][aria-expanded="false"], button[aria-label*="展開"], button[aria-label*="Expand"]'
+      );
       if (toggleBtn && !toggleBtn.hasAttribute('aria-haspopup') && !isInsideCard(toggleBtn)) {
         return true;
       }
     }
-    if (sprintEl && sprintEl.classList && sprintEl.classList.contains('ghx-closed')) {
+    if (sprintEl && sprintEl.classList && (sprintEl.classList.contains('ghx-closed') || sprintEl.querySelector('.ghx-closed'))) {
+      return true;
+    }
+    if (branchEl && branchEl.classList && (branchEl.classList.contains('ghx-closed') || branchEl.querySelector('.ghx-closed'))) {
       return true;
     }
     return false;
   }
 
   /**
-   * 僅在使用者於左欄手動點擊切換衝刺時，檢查該衝刺標頭是否處於收合狀態；
+   * 僅在使用者切換衝刺時，檢查該衝刺標頭是否處於收合狀態並自動觸發展開；
    * 絕不在 MutationObserver 中自動觸發任何 click，避免誤觸「+ 建立問題」按鈕。
    *
    * @param {Element|null} branchEl - 衝刺 branch 節點
@@ -104,12 +114,17 @@
    */
   function expandSprintHeaderOnUserSelect(branchEl, sprintEl, headerPartner) {
     const { CARD_SELECTORS } = BetterJira.Constants;
+    const root = branchEl || sprintEl;
 
-    // 若該衝刺內已經有可見的卡片，代表已經是展開狀態，不需點擊任何按鈕
-    for (const sel of CARD_SELECTORS) {
-      const existingCard = (branchEl || sprintEl).querySelector(sel);
-      if (existingCard && existingCard.offsetParent !== null) {
-        return;
+    // 若該衝刺原生 DOM 內已經有可見的卡片 (排除自定義檢視內的卡片)，代表已經是展開狀態，不需點擊任何按鈕
+    if (root) {
+      for (const sel of CARD_SELECTORS) {
+        const matched = Array.from(root.querySelectorAll(sel)).filter(
+          (c) => !c.closest('[data-bjwt-custom-view]') && !c.classList.contains('bjwt-history-card')
+        );
+        if (matched.length > 0 && matched.some((c) => c.offsetParent !== null)) {
+          return;
+        }
       }
     }
 
@@ -121,13 +136,39 @@
     ].filter(Boolean);
 
     for (const hdr of headerCandidates) {
-      const toggleBtn = hdr.querySelector('[aria-expanded="false"]');
+      const isCandidateBtn =
+        hdr.tagName === 'BUTTON' ||
+        hdr.getAttribute('role') === 'button' ||
+        hdr.getAttribute('aria-expanded') === 'false';
+
+      if (isCandidateBtn && hdr.getAttribute('aria-expanded') === 'false' && !isInsideCard(hdr)) {
+        try {
+          hdr.click();
+          if (typeof MouseEvent !== 'undefined') {
+            hdr.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          }
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      const toggleBtn = hdr.querySelector(
+        '[aria-expanded="false"], button[data-testid*="toggle"], button[data-testid*="expand"], [role="button"][aria-expanded="false"], button[aria-label*="展開"], button[aria-label*="Expand"], .ghx-expander, .js-expander'
+      );
       if (
         toggleBtn &&
         !toggleBtn.hasAttribute('aria-haspopup') &&
         !isInsideCard(toggleBtn)
       ) {
-        toggleBtn.click();
+        try {
+          toggleBtn.click();
+          if (typeof MouseEvent !== 'undefined') {
+            toggleBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          }
+        } catch {
+          // ignore
+        }
         return;
       }
     }

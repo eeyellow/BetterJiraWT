@@ -188,14 +188,20 @@
         if (actions.onSelectSprint) {
           actions.onSelectSprint(idx, item);
         } else if (LayoutManager) {
+          // 優先觸發原生風琴夾展開，確保收合中的未開始衝刺即時載入原生 DOM 卡片
+          if (SprintDomParser) {
+            SprintDomParser.expandSprintHeaderOnUserSelect(item.branch, item.sprintEl, item.headerPartner);
+          }
           LayoutManager.setActiveSprintIndex(idx);
           LayoutManager.setActiveSprintKey(item.meta.key);
           LayoutManager.applyTwoColumnBacklogLayout();
           if (item.branch) {
             item.branch.scrollTop = 0;
           }
-          if (SprintDomParser) {
-            SprintDomParser.expandSprintHeaderOnUserSelect(item.branch, item.sprintEl, item.headerPartner);
+          // 同步發起 API 背景同步以確保資料完整 (特別是尚未開始之 Future Sprint)
+          const { ActiveSprintView } = BetterJira;
+          if (ActiveSprintView && typeof ActiveSprintView.syncActiveSprintIssuesFromApi === 'function') {
+            ActiveSprintView.syncActiveSprintIssuesFromApi(item);
           }
         }
       });

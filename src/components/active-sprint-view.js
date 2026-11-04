@@ -342,7 +342,9 @@
         <div class="bjwt-history-card-list">
           ${
             visibleIssues.length === 0
-              ? `<div class="bjwt-history-empty-cards">目前沒有符合搜尋與篩選條件的卡片。您可以點選左側其他衝刺查看結果，或點擊上方「清除篩選」。</div>`
+              ? (sprintData.apiSyncing
+                  ? `<div class="bjwt-history-empty-cards"><span class="bjwt-spinner-inline">⏳</span> 正在從 Jira 同步此衝刺卡片資料...</div>`
+                  : `<div class="bjwt-history-empty-cards">目前沒有符合搜尋與篩選條件的卡片。您可以點選左側其他衝刺查看結果，或點擊上方「清除篩選」。</div>`)
               : visibleIssues.map(renderIssueCardHtml).join('')
           }
         </div>
