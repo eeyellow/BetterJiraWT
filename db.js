@@ -18,11 +18,12 @@ const BetterJiraDB = (() => {
 
   /**
    * 預設擴充功能設定物件
-   * @type {{backlogUrl: string, defaultSprint: string, themeStyle: string, enabled: boolean}}
+   * @type {{backlogUrl: string, defaultSprint: string, customAssignees: Array<{name: string, email: string}>, themeStyle: string, enabled: boolean}}
    */
   const DEFAULT_SETTINGS = {
     backlogUrl: '',
     defaultSprint: '',
+    customAssignees: [],
     themeStyle: 'Default',
     enabled: true
   };
@@ -126,15 +127,16 @@ const BetterJiraDB = (() => {
 
   /**
    * 整合讀取 IndexedDB 與 chrome.storage.local 的目前設定
-   * @returns {Promise<{backlogUrl: string, defaultSprint: string, themeStyle: string, enabled: boolean}>}
+   * @returns {Promise<{backlogUrl: string, defaultSprint: string, customAssignees: Array<{name: string, email: string}>, themeStyle: string, enabled: boolean}>}
    */
   async function getSettings() {
-    const [idbBacklogUrl, idbDefaultSprint, idbThemeStyle, idbEnabled, extStorage] = await Promise.all([
+    const [idbBacklogUrl, idbDefaultSprint, idbCustomAssignees, idbThemeStyle, idbEnabled, extStorage] = await Promise.all([
       idbGet('backlogUrl'),
       idbGet('defaultSprint'),
+      idbGet('customAssignees'),
       idbGet('themeStyle'),
       idbGet('enabled'),
-      storageGet(['backlogUrl', 'defaultSprint', 'themeStyle', 'enabled'])
+      storageGet(['backlogUrl', 'defaultSprint', 'customAssignees', 'themeStyle', 'enabled'])
     ]);
 
     const backlogUrl =
@@ -150,6 +152,12 @@ const BetterJiraDB = (() => {
         : extStorage.defaultSprint !== undefined
         ? extStorage.defaultSprint
         : DEFAULT_SETTINGS.defaultSprint;
+
+    const customAssignees = Array.isArray(idbCustomAssignees)
+      ? idbCustomAssignees
+      : Array.isArray(extStorage.customAssignees)
+      ? extStorage.customAssignees
+      : DEFAULT_SETTINGS.customAssignees;
 
     const themeStyle =
       idbThemeStyle !== undefined
@@ -172,6 +180,9 @@ const BetterJiraDB = (() => {
     if (idbDefaultSprint === undefined && defaultSprint) {
       await idbSet('defaultSprint', defaultSprint);
     }
+    if (idbCustomAssignees === undefined && customAssignees.length > 0) {
+      await idbSet('customAssignees', customAssignees);
+    }
     if (idbThemeStyle === undefined && themeStyle) {
       await idbSet('themeStyle', themeStyle);
     }
@@ -179,14 +190,14 @@ const BetterJiraDB = (() => {
       await idbSet('enabled', enabled);
     }
 
-    return { backlogUrl, defaultSprint, themeStyle, enabled };
+    return { backlogUrl, defaultSprint, customAssignees, themeStyle, enabled };
   }
 
   /**
    * 儲存單一設定值並同步至 IndexedDB 與 chrome.storage.local
    * @param {string} key - 設定鍵名
    * @param {*} value - 設定數值
-   * @returns {Promise<{backlogUrl: string, defaultSprint: string, themeStyle: string, enabled: boolean}>} 更新後之全域設定
+   * @returns {Promise<{backlogUrl: string, defaultSprint: string, customAssignees: Array<{name: string, email: string}>, themeStyle: string, enabled: boolean}>} 更新後之全域設定
    */
   async function saveSetting(key, value) {
     await Promise.all([
@@ -208,6 +219,9 @@ const BetterJiraDB = (() => {
     }
     if (settingsObj.defaultSprint !== undefined) {
       tasks.push(idbSet('defaultSprint', settingsObj.defaultSprint));
+    }
+    if (settingsObj.customAssignees !== undefined) {
+      tasks.push(idbSet('customAssignees', settingsObj.customAssignees));
     }
     if (settingsObj.themeStyle !== undefined) {
       tasks.push(idbSet('themeStyle', settingsObj.themeStyle));

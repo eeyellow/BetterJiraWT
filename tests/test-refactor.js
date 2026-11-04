@@ -1762,6 +1762,109 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
 
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 
+  console.log('--- 測試 21: 自訂經辦人名單 (Email 與名稱) 設定、IndexedDB 儲存與純前端篩選檢查 ---');
+  // 1. 檢查 popup.html 是否包含經辦人名單設定相關元素
+  const latestPopupHtml = fs.readFileSync(path.resolve(__dirname, '..', 'popup.html'), 'utf8');
+  assert(latestPopupHtml.includes('id="openAssigneesModalBtn"'), 'popup.html 應包含開啟經辦人名單設定按鈕');
+  assert(latestPopupHtml.includes('id="assigneesPreview"'), 'popup.html 應包含經辦人預覽標籤');
+  assert(latestPopupHtml.includes('id="assigneesModal"'), 'popup.html 應包含經辦人設定彈窗');
+  assert(latestPopupHtml.includes('id="newAssigneeNameInput"'), 'popup.html 應包含新增人員名稱輸入框');
+  assert(latestPopupHtml.includes('id="newAssigneeEmailInput"'), 'popup.html 應包含新增人員 Email 輸入框');
+  assert(latestPopupHtml.includes('id="addAssigneeBtn"'), 'popup.html 應包含新增人員按鈕');
+  assert(latestPopupHtml.includes('id="assigneesList"'), 'popup.html 應包含已設定人員列表容器');
+  assert(latestPopupHtml.includes('id="saveAssigneesBtn"'), 'popup.html 應包含儲存經辦人名單按鈕');
+
+  // 2. 檢查 popup.js 是否包含經辦人設定互動邏輯
+  const latestPopupJs = fs.readFileSync(path.resolve(__dirname, '..', 'popup.js'), 'utf8');
+  assert(latestPopupJs.includes('openAssigneesModalBtn'), 'popup.js 應包含開啟經辦人名單彈窗邏輯');
+  assert(latestPopupJs.includes('saveAssigneesBtn'), 'popup.js 應包含儲存經辦人名單事件');
+  assert(latestPopupJs.includes('customAssignees'), 'popup.js 應包含 customAssignees 設定儲存與預覽');
+
+  // 3. 測試 Jira 異常原生字串「按 未指派 篩選受託人」防禦
+  assert(AssigneeUtils.isUnassignedText('按 未指派 篩選受託人'), '「按 未指派 篩選受託人」應精準判斷為未指派代表詞');
+  assert.strictEqual(AssigneeUtils.cleanAssigneeLabel('按 未指派 篩選受託人'), '', '「按 未指派 篩選受託人」清理後應為空字串，絕不能誤當人名');
+
+  // 4. 測試 BetterJiraDB customAssignees 儲存與讀取 (IndexedDB / Storage)
+  assert(Array.isArray(global.BetterJiraDB.DEFAULT_SETTINGS.customAssignees), 'DEFAULT_SETTINGS.customAssignees 應為陣列');
+  const sampleCustomAssignees = [
+    { name: 'Ray Huang', email: 'Ray_Huang@wistron.com' },
+    { name: 'Alice Wang', email: 'Alice_Wang@wistron.com' }
+  ];
+  await global.BetterJiraDB.saveSetting('customAssignees', sampleCustomAssignees);
+  const reloadedCustomSettings = await global.BetterJiraDB.getSettings();
+  assert.strictEqual(reloadedCustomSettings.customAssignees.length, 2, 'getSettings() 應正確讀出 2 位自訂成員');
+  assert.strictEqual(reloadedCustomSettings.customAssignees[0].name, 'Ray Huang', '第一位成員名稱應為 Ray Huang');
+  assert.strictEqual(reloadedCustomSettings.customAssignees[0].email, 'Ray_Huang@wistron.com', '第一位成員 Email 應為 Ray_Huang@wistron.com');
+
+  // 5. 測試 AssigneeUtils.setCustomAssignees 與 matchCustomAssignee
+  AssigneeUtils.setCustomAssignees(sampleCustomAssignees);
+  assert.strictEqual(AssigneeUtils.getCustomAssignees().length, 2, 'getCustomAssignees() 應回傳 2 位成員');
+
+  // 5-1. 姓名匹配
+  assert.strictEqual(
+    AssigneeUtils.matchCustomAssignee({ assigneeName: 'Ray Huang' }, sampleCustomAssignees[0]),
+    true,
+    '卡片姓名為 Ray Huang 應命中'
+  );
+  // 5-2. Email 前綴匹配 (Ray_Huang)
+  assert.strictEqual(
+    AssigneeUtils.matchCustomAssignee({ assigneeName: 'Ray_Huang' }, sampleCustomAssignees[0]),
+    true,
+    '卡片姓名帶有 Email 前綴 Ray_Huang 應命中'
+  );
+  // 5-3. 頭像縮寫匹配 (RH)
+  assert.strictEqual(
+    AssigneeUtils.matchCustomAssignee({ assigneeName: '已指派', assigneeInitials: 'RH' }, sampleCustomAssignees[0]),
+    true,
+    '卡片縮寫為 RH 應命中 Ray Huang'
+  );
+  // 5-4. 未指派卡片不應命中
+  assert.strictEqual(
+    AssigneeUtils.matchCustomAssignee({ assigneeName: '未指派' }, sampleCustomAssignees[0]),
+    false,
+    '未指派卡片不應命中'
+  );
+
+  // 6. 測試 FrontendFilterService 在自訂名單模式下的 extractFilterOptions 與篩選
+  const customSprintIssues = [
+    { key: 'C-1', summary: 'Task for Ray', assigneeName: 'Ray Huang' },
+    { key: 'C-2', summary: 'Another for Ray by initials', assigneeName: '已指派', assigneeInitials: 'RH' },
+    { key: 'C-3', summary: 'Task for Alice by email', assigneeName: 'Alice_Wang' },
+    { key: 'C-4', summary: 'Task unassigned', assigneeName: '未指派' },
+    { key: 'C-5', summary: 'Task other person', assigneeName: 'Unknown Person' }
+  ];
+
+  const customFilterOptions = FrontendFilterService.extractFilterOptions(customSprintIssues);
+  assert.strictEqual(customFilterOptions.unassignedCount, 1, '未指派數量應為 1');
+  assert.strictEqual(customFilterOptions.assignees.length, 2, '篩選經辦人應嚴格以自訂名單為準列出 2 位成員');
+
+  const optRay = customFilterOptions.assignees.find((a) => a.name === 'Ray Huang');
+  const optAlice = customFilterOptions.assignees.find((a) => a.name === 'Alice Wang');
+  assert(optRay && optRay.count === 2, 'Ray Huang 應統計到 2 張卡片 (包含縮寫 RH)');
+  assert(optAlice && optAlice.count === 1, 'Alice Wang 應統計到 1 張卡片 (包含 Email 帳號 Alice_Wang)');
+
+  // 7. 測試自訂成員篩選比對
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleAssignee('Ray Huang');
+  const filteredRayResult = FrontendFilterService.filterIssues(customSprintIssues);
+  assert.strictEqual(filteredRayResult.length, 2, '選取 Ray Huang 應過濾出 2 張卡片');
+  assert(filteredRayResult.every((i) => i.key === 'C-1' || i.key === 'C-2'), '應只命中 C-1 與 C-2');
+
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleAssignee('Alice Wang');
+  const filteredAliceResult = FrontendFilterService.filterIssues(customSprintIssues);
+  assert.strictEqual(filteredAliceResult.length, 1, '選取 Alice Wang 應過濾出 1 張卡片');
+  assert.strictEqual(filteredAliceResult[0].key, 'C-3', '應只命中 C-3');
+
+  FrontendFilterService.clearAll();
+  FrontendFilterService.toggleAssignee('__UNASSIGNED__');
+  const filteredUnassignedResult = FrontendFilterService.filterIssues(customSprintIssues);
+  assert.strictEqual(filteredUnassignedResult.length, 1, '選取未指派應過濾出 1 張卡片');
+  assert.strictEqual(filteredUnassignedResult[0].key, 'C-4', '應只命中 C-4');
+  FrontendFilterService.clearAll();
+
+  console.log('✓ 自訂經辦人名單 (Email 與名稱) 設定、IndexedDB 儲存與純前端篩選檢查通過！');
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');
