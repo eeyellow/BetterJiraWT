@@ -1878,6 +1878,67 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
 
   console.log('✓ 自訂經辦人名單 (Email 與名稱) 設定、IndexedDB 儲存與純前端篩選檢查通過！');
 
+  console.log('--- 測試 22: 尚未開始衝刺 (Future Sprint) 之 API 支援、Backlog 預熱與風琴夾展開檢查 ---');
+  const SDP = BetterJira.SprintDomParser;
+  const JAS = BetterJira.JiraApiService;
+  assert(JAS, 'JiraApiService 應存在');
+  assert.strictEqual(typeof JAS.prefetchBoardBacklogIssues, 'function', 'JiraApiService.prefetchBoardBacklogIssues 應為函式');
+  assert.strictEqual(typeof JAS.fetchSprintIssuesForActive, 'function', 'JiraApiService.fetchSprintIssuesForActive 應為函式');
+  assert.strictEqual(typeof SDP.expandSprintHeaderOnUserSelect, 'function', 'SprintDomParser.expandSprintHeaderOnUserSelect 應為函式');
+  assert.strictEqual(typeof SDP.isNativeSprintCollapsed, 'function', 'SprintDomParser.isNativeSprintCollapsed 應為函式');
+
+  // 1. 測試 isNativeSprintCollapsed 對各種 Jira Cloud 標記的支援
+  const collapsedSprintEl = new MockElement('div');
+  collapsedSprintEl.className = 'ghx-closed';
+  assert.strictEqual(SDP.isNativeSprintCollapsed(null, collapsedSprintEl, null), true, 'ghx-closed 應判定為收合');
+
+  const collapsedHeaderPartner = new MockElement('div');
+  collapsedHeaderPartner.setAttribute('aria-expanded', 'false');
+  assert.strictEqual(SDP.isNativeSprintCollapsed(null, new MockElement('div'), collapsedHeaderPartner), true, 'aria-expanded=false 應判定為收合');
+
+  const toggleBtnEl = new MockElement('button');
+  toggleBtnEl.setAttribute('data-testid', 'software-backlog.card-list.header.toggle-button');
+  const sprintWithToggle = new MockElement('div');
+  sprintWithToggle.appendChild(toggleBtnEl);
+  assert.strictEqual(SDP.isNativeSprintCollapsed(sprintWithToggle, sprintWithToggle, null), true, 'toggle-button 應判定為收合候選');
+
+  // 2. 測試 expandSprintHeaderOnUserSelect 能排除自定義檢視內的卡片，成功點擊展開按鈕
+  let clicked = false;
+  const mockExpandBtn = new MockElement('button');
+  mockExpandBtn.setAttribute('aria-expanded', 'false');
+  mockExpandBtn.click = () => { clicked = true; };
+  const mockHeaderPartner = new MockElement('div');
+  mockHeaderPartner.appendChild(mockExpandBtn);
+
+  const mockBranch = new MockElement('div');
+  const customViewEl = new MockElement('div');
+  customViewEl.setAttribute('data-bjwt-custom-view', 'true');
+  const cardInsideCustom = new MockElement('div');
+  cardInsideCustom.className = 'sprint-card';
+  customViewEl.appendChild(cardInsideCustom);
+  mockBranch.appendChild(customViewEl);
+
+  SDP.expandSprintHeaderOnUserSelect(mockBranch, mockBranch, mockHeaderPartner);
+  assert.strictEqual(clicked, true, '自定義檢視內卡片不應阻止原生風琴夾展開點擊');
+
+  // 3. 測試 fetchSprintIssuesForActive 包含數字 sprintId JQL 查詢
+  const checkJiraApiCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/services/jira-api.js'), 'utf8');
+  assert(checkJiraApiCode.includes('sprint = ${sprintId}'), 'jira-api.js 應包含針對數值 sprintId 的 JQL 備援查詢');
+  assert(checkJiraApiCode.includes('prefetchBoardBacklogIssues'), 'jira-api.js 應匯出 prefetchBoardBacklogIssues');
+  assert(!checkJiraApiCode.includes('/rest/api/3/search/jql?'), 'jira-api.js 不應包含無效的 /rest/api/3/search/jql 路徑');
+
+  // 4. 測試 layout-manager.js 包含全域預熱與自動展開
+  const checkLayoutManagerCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/layout/layout-manager.js'), 'utf8');
+  assert(checkLayoutManagerCode.includes('prefetchBoardBacklogIssues'), 'layout-manager.js 應在背景預熱看板 Backlog 卡片');
+  assert(checkLayoutManagerCode.includes('expandSprintHeaderOnUserSelect'), 'layout-manager.js 應於選中收合衝刺時自動觸發展開');
+
+  // 5. 測試 sidebar.js 在切換衝刺時優先展開並同步 API
+  const checkSidebarCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/sidebar.js'), 'utf8');
+  assert(checkSidebarCode.includes('expandSprintHeaderOnUserSelect'), 'sidebar.js 應於切換時調用 expandSprintHeaderOnUserSelect');
+  assert(checkSidebarCode.includes('syncActiveSprintIssuesFromApi'), 'sidebar.js 應於切換時同步觸發 syncActiveSprintIssuesFromApi');
+
+  console.log('✓ 尚未開始衝刺 (Future Sprint) 之 API 支援、Backlog 預熱與風琴夾展開檢查通過！');
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');

@@ -13,6 +13,8 @@
   const sprintActiveApiCache = new Map(); // cacheKey -> { data: Array, timestamp: number }
   const inFlightActiveSprintRequests = new Map(); // cacheKey -> Promise
   const sprintFailedCooldownMap = new Map(); // cacheKey -> timestamp
+  const boardBacklogPrefetchCache = new Map(); // boardId -> { data: Array, timestamp: number }
+  const inFlightBoardBacklogRequests = new Map(); // boardId -> Promise
 
   /**
    * 從目前網址或頁面偵測 Jira Board ID 與 Project Key
@@ -122,6 +124,187 @@
       // ignore
     }
     return [];
+  }
+
+  /**
+   * 預先抓取看板 Backlog 頁面全部未結束問題 (包含 Future Sprints 與待辦池卡片)，
+   * 並依據卡片內所屬之 Sprint 自動分類注入快取，徹底防範收合衝刺或未開始衝刺為空的問題。
+   *
+   * @param {string|number} boardId - Jira 看板 ID
+   * @param {boolean} [forceRefresh=false] - 是否強制重新抓取
+   * @returns {Promise<Array<Object>>} 正規化後的看板 Backlog 卡片清單
+   */
+  async function prefetchBoardBacklogIssues(boardId, forceRefresh = false) {
+    if (!boardId) return [];
+    const { IssueStore } = BetterJira;
+    const now = Date.now();
+    const cacheKey = String(boardId);
+
+    if (!forceRefresh) {
+      const cached = boardBacklogPrefetchCache.get(cacheKey);
+      if (cached && (now - cached.timestamp < SPRINT_API_CACHE_TTL_MS)) {
+        return cached.data;
+      }
+    }
+
+    if (inFlightBoardBacklogRequests.has(cacheKey)) {
+      return await inFlightBoardBacklogRequests.get(cacheKey);
+    }
+
+    const prefetchPromise = (async () => {
+      try {
+        await detectStoryPointsCustomField();
+        const cachedFieldId = IssueStore.getStoryPointsFieldId();
+        const baseFields = [
+          'summary', 'status', 'issuetype', 'priority', 'assignee', 'parent', 'duedate',
+          'sprint', 'customfield_10020', 'customfield_10016', 'customfield_10026',
+          cachedFieldId
+        ].filter(Boolean);
+
+        const endpoints = [
+          `${window.location.origin}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/backlog?maxResults=500&fields=${baseFields.join(',')}`,
+          `${window.location.origin}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/issue?maxResults=500&fields=${baseFields.join(',')}`
+        ];
+
+        let rawIssues = [];
+        for (const ep of endpoints) {
+          try {
+            const res = await fetch(ep, {
+              credentials: 'include',
+              headers: { Accept: 'application/json' }
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.issues)) {
+                rawIssues = data.issues;
+                break;
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        // 若直接端點未取得，使用 JQL 搜尋看板中所有未完成或 Future 的卡片
+        if (rawIssues.length === 0) {
+          const { projectKey } = await detectJiraContext();
+          const jql = projectKey
+            ? `project = "${projectKey}" AND (sprint in openSprints() OR sprint in futureSprints() OR sprint is EMPTY) AND statusCategory != Done ORDER BY rank ASC, key ASC`
+            : `(sprint in openSprints() OR sprint in futureSprints() OR sprint is EMPTY) AND statusCategory != Done ORDER BY rank ASC, key ASC`;
+
+          const jqlEndpoints = [
+            `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=500&fields=${baseFields.join(',')}`,
+            `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=500&fields=${baseFields.join(',')}`
+          ];
+
+          for (const ep of jqlEndpoints) {
+            try {
+              const res = await fetch(ep, {
+                credentials: 'include',
+                headers: { Accept: 'application/json' }
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (data && Array.isArray(data.issues)) {
+                  rawIssues = data.issues;
+                  break;
+                }
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+
+        if (rawIssues.length === 0) {
+          return [];
+        }
+
+        const normalizedIssues = rawIssues.map(IssueStore.normalizeJiraIssue);
+        boardBacklogPrefetchCache.set(cacheKey, { data: normalizedIssues, timestamp: Date.now() });
+
+        // 依據每張卡片的 sprint 資訊（id 或 name）分組並注入快取
+        const sprintBuckets = new Map();
+        normalizedIssues.forEach((iss, index) => {
+          const rawItem = rawIssues[index];
+          IssueStore.mergeAndCacheIssue(iss);
+
+          const sprintObj = (rawItem && rawItem.fields && rawItem.fields.sprint) || null;
+          const sprintsArr = (rawItem && rawItem.fields && Array.isArray(rawItem.fields.customfield_10020))
+            ? rawItem.fields.customfield_10020
+            : null;
+
+          const matchedSprints = [];
+          if (sprintObj) matchedSprints.push(sprintObj);
+          if (sprintsArr) {
+            sprintsArr.forEach((s) => {
+              if (s && !matchedSprints.some((m) => String(m.id) === String(s.id))) {
+                matchedSprints.push(s);
+              }
+            });
+          }
+
+          if (matchedSprints.length === 0) {
+            let bList = sprintBuckets.get('backlog');
+            if (!bList) {
+              bList = [];
+              sprintBuckets.set('backlog', bList);
+            }
+            bList.push(iss);
+          } else {
+            matchedSprints.forEach((sp) => {
+              if (sp.id) {
+                const idKey = `sprint_${sp.id}`;
+                let listById = sprintBuckets.get(idKey);
+                if (!listById) {
+                  listById = [];
+                  sprintBuckets.set(idKey, listById);
+                }
+                listById.push(iss);
+              }
+              if (sp.name) {
+                const cleanSpName = (BetterJira.TextUtils && typeof BetterJira.TextUtils.cleanSprintTitle === 'function')
+                  ? BetterJira.TextUtils.cleanSprintTitle(sp.name).toLowerCase()
+                  : String(sp.name).toLowerCase();
+                const nameKey = `title_${cleanSpName}`;
+                let listByName = sprintBuckets.get(nameKey);
+                if (!listByName) {
+                  listByName = [];
+                  sprintBuckets.set(nameKey, listByName);
+                }
+                listByName.push(iss);
+              }
+            });
+          }
+        });
+
+        // 將分組好的卡片寫入對應的 ActiveSprintCache
+        sprintBuckets.forEach((issuesList, bucketKey) => {
+          sprintActiveApiCache.set(bucketKey, { data: issuesList, timestamp: Date.now() });
+          sprintFailedCooldownMap.delete(bucketKey);
+
+          let cached = IssueStore.getActiveSprintCache(bucketKey);
+          if (cached) {
+            cached.allApiIssues = issuesList;
+            if (!cached.masterIssuesMap) cached.masterIssuesMap = new Map();
+            issuesList.forEach((i) => cached.masterIssuesMap.set(i.key, i));
+            cached.rawIssues = Array.from(cached.masterIssuesMap.values());
+            cached.fromApi = true;
+            cached.apiSyncing = false;
+            cached.lastSyncTime = Date.now();
+          }
+        });
+
+        return normalizedIssues;
+      } catch {
+        return [];
+      } finally {
+        inFlightBoardBacklogRequests.delete(cacheKey);
+      }
+    })();
+
+    inFlightBoardBacklogRequests.set(cacheKey, prefetchPromise);
+    return await prefetchPromise;
   }
 
   /**
@@ -274,10 +457,6 @@
       }
       endpoints.push(
         {
-          url: `${window.location.origin}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`,
-          method: 'GET'
-        },
-        {
           url: `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fieldsParam}`,
           method: 'GET'
         },
@@ -428,62 +607,59 @@
           }
         }
 
-        // c. JQL 搜尋備援
+        // c. JQL 搜尋備援 (支援以數值 sprintId 與文字名稱檢索，全面支援未開始之 Future Sprint)
+        const jqlCandidates = [];
+        if (sprintId) {
+          if (projectKey) {
+            jqlCandidates.push(`project = "${projectKey}" AND sprint = ${sprintId} ORDER BY key ASC`);
+          }
+          jqlCandidates.push(`sprint = ${sprintId} ORDER BY key ASC`);
+        }
         if (cleanTitle) {
           const escaped = cleanTitle.replace(/"/g, '\\"');
-          const jqlCandidates = [];
           if (projectKey) {
             jqlCandidates.push(`project = "${projectKey}" AND sprint = "${escaped}" ORDER BY key ASC`);
           }
           jqlCandidates.push(`sprint = "${escaped}" ORDER BY key ASC`);
+        }
 
-          for (const jql of jqlCandidates) {
-            const searchEndpoints = [
-              `${window.location.origin}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`,
-              `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`,
-              `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`
-            ];
+        for (const jql of jqlCandidates) {
+          const searchEndpoints = [
+            `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`,
+            `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`
+          ];
 
-            for (const ep of searchEndpoints) {
-              try {
-                const res = await fetch(ep, {
-                  credentials: 'include',
-                  headers: { Accept: 'application/json' }
-                });
-                if (res.ok) {
-                  const data = await res.json();
-                  if (data && Array.isArray(data.issues)) {
-                    const issues = data.issues.map(IssueStore.normalizeJiraIssue);
-                    sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
-                    sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
-                    sprintFailedCooldownMap.delete(effectiveKey);
-                    sprintFailedCooldownMap.delete(itemKey);
-                    return issues;
-                  }
+          for (const ep of searchEndpoints) {
+            try {
+              const res = await fetch(ep, {
+                credentials: 'include',
+                headers: { Accept: 'application/json' }
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (data && Array.isArray(data.issues)) {
+                  const issues = data.issues.map(IssueStore.normalizeJiraIssue);
+                  sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
+                  sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
+                  sprintFailedCooldownMap.delete(effectiveKey);
+                  sprintFailedCooldownMap.delete(itemKey);
+                  return issues;
                 }
-              } catch {
-                // ignore
               }
+            } catch {
+              // ignore
             }
           }
         }
 
-        // d. Backlog 待辦池備援
-        if (/backlog/i.test(cleanTitle) && boardId) {
+        // d. 看板 Backlog / 待辦池備援 (從 board backlog 提取)
+        if (boardId) {
           try {
-            const res = await fetch(
-              `${window.location.origin}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/backlog?maxResults=200&fields=${baseFields.join(',')}`,
-              { credentials: 'include', headers: { Accept: 'application/json' } }
-            );
-            if (res.ok) {
-              const data = await res.json();
-              if (data && Array.isArray(data.issues)) {
-                const issues = data.issues.map(IssueStore.normalizeJiraIssue);
-                sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
-                sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
-                sprintFailedCooldownMap.delete(effectiveKey);
-                sprintFailedCooldownMap.delete(itemKey);
-                return issues;
+            const backlogIssues = await prefetchBoardBacklogIssues(boardId);
+            if (Array.isArray(backlogIssues) && backlogIssues.length > 0) {
+              const fromBucket = sprintActiveApiCache.get(effectiveKey) || sprintActiveApiCache.get(itemKey);
+              if (fromBucket && Array.isArray(fromBucket.data) && fromBucket.data.length > 0) {
+                return fromBucket.data;
               }
             }
           } catch {
@@ -851,6 +1027,7 @@
     fetchClosedSprintsForBoard,
     fetchHistoricalSprintData,
     fetchSprintIssuesForActive,
+    prefetchBoardBacklogIssues,
     fetchIssueDetails,
     fetchIssueEditMeta,
     updateIssueEstimation,
