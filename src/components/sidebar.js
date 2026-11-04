@@ -198,10 +198,16 @@
           if (item.branch) {
             item.branch.scrollTop = 0;
           }
-          // 同步發起 API 背景同步以確保資料完整 (特別是尚未開始之 Future Sprint)
-          const { ActiveSprintView } = BetterJira;
+          // 同步發起 API 背景同步以確保資料完整 (特別是尚未開始之 Future Sprint，主動切換時強制同步秒出卡片)
+          const { ActiveSprintView, IssueStore } = BetterJira;
           if (ActiveSprintView && typeof ActiveSprintView.syncActiveSprintIssuesFromApi === 'function') {
-            ActiveSprintView.syncActiveSprintIssuesFromApi(item);
+            const sprintId = item.meta && item.meta.sprintId;
+            const cacheKey = sprintId ? `sprint_${sprintId}` : (item.meta && item.meta.key);
+            const cached = (IssueStore && typeof IssueStore.getActiveSprintCache === 'function')
+              ? (IssueStore.getActiveSprintCache(cacheKey) || (item.meta && IssueStore.getActiveSprintCache(item.meta.key)))
+              : null;
+            const needsForceSync = !cached || !cached.fromApi || !Array.isArray(cached.issues) || cached.issues.length === 0;
+            ActiveSprintView.syncActiveSprintIssuesFromApi(item, needsForceSync);
           }
         }
       });

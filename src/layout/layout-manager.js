@@ -84,7 +84,6 @@
 
     // 若尚未向 Jira API 同步完整欄位，且不在冷卻退避期內，在背景發起一次 API 同步
     if (triggerApiSync && !cached.fromApi && !cached.apiSyncing && !isCoolingDown) {
-      cached.apiSyncing = true;
       cached.lastSyncTime = now;
       ActiveSprintView.syncActiveSprintIssuesFromApi(item);
     }

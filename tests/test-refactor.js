@@ -1937,6 +1937,13 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(checkSidebarCode.includes('expandSprintHeaderOnUserSelect'), 'sidebar.js 應於切換時調用 expandSprintHeaderOnUserSelect');
   assert(checkSidebarCode.includes('syncActiveSprintIssuesFromApi'), 'sidebar.js 應於切換時同步觸發 syncActiveSprintIssuesFromApi');
 
+  // 6. 測試 ActiveSprintView 包含健全之 finally 解鎖與 sig 簽名包含 apiSyncing
+  const checkActiveSprintViewCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/active-sprint-view.js'), 'utf8');
+  assert(checkActiveSprintViewCode.includes('finally {') && checkActiveSprintViewCode.includes('cached.apiSyncing = false'),
+    'active-sprint-view.js 應於 finally 區塊中保證解鎖 cached.apiSyncing');
+  assert(checkActiveSprintViewCode.includes('apiSyncing: Boolean(sprintData.apiSyncing)'),
+    'active-sprint-view.js 之 render-sig 應包含 apiSyncing 狀態');
+
   console.log('✓ 尚未開始衝刺 (Future Sprint) 之 API 支援、Backlog 預熱與風琴夾展開檢查通過！');
 
   console.log('============================================');
