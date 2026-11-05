@@ -2179,7 +2179,15 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(checkStyles.includes('bjwt-quick-edit-popover'), 'styles.css 應包含 bjwt-quick-edit-popover');
   assert(checkStyles.includes('bjwt-quick-editable'), 'styles.css 應包含 bjwt-quick-editable');
 
-  console.log('✓ 卡片四欄位小型就地編輯視窗與點擊分流檢查通過！');
+  // 6. 測試 Story Points 快捷晶片 (1, 3, 5, 8, 13, 20, 40, 清空)
+  const checkPopoverCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/quick-edit-popover.js'), 'utf8');
+  ['1', '3', '5', '8', '13', '20', '40'].forEach((pt) => {
+    assert(checkPopoverCode.includes(`data-pt="${pt}"`), `快捷點數晶片應包含 ${pt}`);
+  });
+  assert(checkPopoverCode.includes('清空'), '快捷點數晶片應包含「清空」選項');
+  assert(!checkPopoverCode.includes('data-pt="0.5"'), '快捷點數晶片不應包含 0.5');
+
+  console.log('✓ 卡片五欄位小型就地編輯視窗與點擊分流檢查通過！');
   }
 
   console.log('============================================');
