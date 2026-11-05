@@ -1334,6 +1334,15 @@
       .bjwt-filter-stats-bar strong {
         color: var(--ds-text, #dee4ea) !important;
       }
+      .bjwt-card-issuetype-slot {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+        cursor: pointer !important;
+        padding: 2px !important;
+        border-radius: 4px !important;
+      }
       .bjwt-quick-editable {
         cursor: pointer !important;
         transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease !important;

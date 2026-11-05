@@ -1195,10 +1195,106 @@
     }
   }
 
+  /**
+   * 取得指定卡片可轉換的問題類型清單
+   * 優先從 issue editmeta 的 allowedValues 取得，若無則回退至專案問題類型清單或標準備用清單
+   *
+   * @param {string} [issueKey] - 卡片編號
+   * @returns {Promise<Array<Object>>} 問題類型清單
+   */
+  async function fetchIssueTypesForIssue(issueKey = null) {
+    if (issueKey) {
+      try {
+        const meta = await fetchIssueEditMeta(issueKey);
+        if (meta && meta.issuetype && Array.isArray(meta.issuetype.allowedValues) && meta.issuetype.allowedValues.length > 0) {
+          return meta.issuetype.allowedValues.map((t) => ({
+            id: String(t.id || ''),
+            name: String(t.name || '').trim(),
+            subtask: Boolean(t.subtask),
+            iconUrl: String(t.iconUrl || '')
+          }));
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const projectTypes = await fetchProjectIssueTypes();
+    if (Array.isArray(projectTypes) && projectTypes.length > 0) {
+      return projectTypes;
+    }
+
+    return [
+      { id: '10001', name: 'Story', subtask: false, iconUrl: '' },
+      { id: '10002', name: 'Task', subtask: false, iconUrl: '' },
+      { id: '10003', name: 'Bug', subtask: false, iconUrl: '' },
+      { id: '10004', name: 'Sub-task', subtask: true, iconUrl: '' },
+      { id: '10005', name: 'Epic', subtask: false, iconUrl: '' }
+    ];
+  }
+
+  /**
+   * 透過 Jira REST API 更新指定 Issue 的問題類型 (Issue Type)
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {Object|string} typeVal - 問題類型物件 ({ id, name }) 或類型名稱 / ID
+   * @returns {Promise<{success: boolean, error?: string}>} 更新結果
+   */
+  async function updateIssueType(issueKey, typeVal) {
+    if (!issueKey || !typeVal) return { success: false, error: '缺少 issueKey 或問題類型資訊' };
+
+    let payloadField = {};
+    if (typeof typeVal === 'object') {
+      if (typeVal.id) {
+        payloadField = { id: String(typeVal.id) };
+      } else if (typeVal.name) {
+        payloadField = { name: String(typeVal.name) };
+      }
+    } else {
+      const strVal = String(typeVal).trim();
+      if (/^\d+$/.test(strVal)) {
+        payloadField = { id: strVal };
+      } else {
+        payloadField = { name: strVal };
+      }
+    }
+
+    try {
+      const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Atlassian-Token': 'no-check'
+        },
+        body: JSON.stringify({ fields: { issuetype: payloadField } })
+      });
+
+      if (res.ok || res.status === 204) {
+        return { success: true };
+      }
+
+      const errJson = await res.json().catch(() => null);
+      let errMsg = '問題類型切換失敗';
+      if (errJson) {
+        if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
+          errMsg = errJson.errorMessages.join(', ');
+        } else if (errJson.errors && typeof errJson.errors === 'object') {
+          errMsg = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
+        }
+      }
+      return { success: false, error: errMsg };
+    } catch (e) {
+      return { success: false, error: e && e.message ? e.message : '更新問題類型網路錯誤' };
+    }
+  }
+
   BetterJira.JiraApiService = {
     detectJiraContext,
     detectStoryPointsCustomField,
     fetchProjectIssueTypes,
+    fetchIssueTypesForIssue,
     fetchActiveAndFutureSprintsForBoard,
     fetchClosedSprintsForBoard,
     fetchHistoricalSprintData,
@@ -1208,6 +1304,7 @@
     fetchIssueEditMeta,
     updateIssueEstimation,
     updateIssue,
+    updateIssueType,
     fetchIssueTransitions,
     transitionIssue,
     fetchPriorities,

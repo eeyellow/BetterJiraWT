@@ -85,13 +85,21 @@
         tabindex="0"
         title="點擊以置中 Modal 預覽 ${escapeHtml(cleanKey)} 詳細內容"
       >
-        <!-- 第一列：卡片類型Icon，卡片編號，卡片標題 -->
+        <!-- 第一列：卡片類型Icon (支援就地快速編輯)，卡片編號，卡片標題 -->
         <div class="bjwt-card-row-top bjwt-history-card-left">
-          ${
-            iss.issueTypeIcon
-              ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(iss.issueTypeIcon)}" alt="${escapeHtml(iss.issueTypeName)}" title="${escapeHtml(iss.issueTypeName)}" />`
-              : `<span class="bjwt-history-issuetype-dot"></span>`
-          }
+          <span
+            class="bjwt-card-issuetype-slot bjwt-quick-editable"
+            data-bjwt-quick-edit="type"
+            role="button"
+            tabindex="0"
+            title="點擊編輯問題類型 (目前：${escapeHtml(iss.issueTypeName || '未指定')})"
+          >
+            ${
+              iss.issueTypeIcon
+                ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(iss.issueTypeIcon)}" alt="${escapeHtml(iss.issueTypeName)}" />`
+                : `<span class="bjwt-history-issuetype-dot"></span>`
+            }
+          </span>
           <span class="bjwt-history-card-key ${isDone ? 'is-done' : ''}">${escapeHtml(cleanKey)}</span>
           <span class="bjwt-history-card-summary" title="${escapeHtml(cleanSummary)}">${escapeHtml(cleanSummary)}</span>
         </div>

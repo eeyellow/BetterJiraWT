@@ -2060,16 +2060,18 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
 
   console.log('✓ 尚未開始衝刺 (Future Sprint) 之 API 支援、Backlog 預熱與風琴夾展開檢查通過！');
 
-  console.log('--- 測試 23: 卡片四欄位 (狀態、StoryPoint、優先度、指派人員) 小型就地編輯視窗 (QuickEditPopoverComponent) 與點擊分流檢查 ---');
+  console.log('--- 測試 23: 卡片五欄位 (類型Icon、狀態、StoryPoint、優先度、指派人員) 小型就地編輯視窗 (QuickEditPopoverComponent) 與點擊分流檢查 ---');
   {
     const { QuickEditPopoverComponent, IssueCardComponent } = BetterJira;
     const ApiService = BetterJira.JiraApiService;
     assert(QuickEditPopoverComponent, 'BetterJira 應匯出 QuickEditPopoverComponent');
 
-  // 1. 測試 IssueCardComponent 渲染的卡片是否包含四個可就地編輯欄位
+  // 1. 測試 IssueCardComponent 渲染的卡片是否包含五個可就地編輯欄位
   const testIssue = {
     key: 'WMC-999',
     summary: '測試就地編輯卡片功能',
+    issueTypeName: 'Bug',
+    issueTypeIcon: 'https://swpc.atlassian.net/images/icons/issuetypes/bug.svg',
     statusName: 'In Progress',
     statusCategory: 'indeterminate',
     storyPoints: 5,
@@ -2080,6 +2082,7 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   };
 
   const cardHtml = IssueCardComponent.renderIssueCardHtml(testIssue);
+  assert(cardHtml.includes('data-bjwt-quick-edit="type"'), '卡片 HTML 應包含 data-bjwt-quick-edit="type"');
   assert(cardHtml.includes('data-bjwt-quick-edit="status"'), '卡片 HTML 應包含 data-bjwt-quick-edit="status"');
   assert(cardHtml.includes('data-bjwt-quick-edit="points"'), '卡片 HTML 應包含 data-bjwt-quick-edit="points"');
   assert(cardHtml.includes('data-bjwt-quick-edit="priority"'), '卡片 HTML 應包含 data-bjwt-quick-edit="priority"');
@@ -2097,6 +2100,7 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     const fakeTarget = {
       closest: (sel) => {
         if (sel.includes('[data-bjwt-quick-edit]')) {
+          if (targetSelector.includes('type') || targetSelector.includes('issuetype')) return { getAttribute: () => 'type' };
           if (targetSelector.includes('status')) return { getAttribute: () => 'status' };
           if (targetSelector.includes('points')) return { getAttribute: () => 'points' };
           if (targetSelector.includes('priority')) return { getAttribute: () => 'priority' };
@@ -2119,6 +2123,11 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     }
     modalOpened = true;
   }
+
+  // 點擊卡片類型 Icon -> 觸發 type 快速編輯，不開啟 Modal
+  simulateCardClick('.bjwt-card-issuetype-slot');
+  assert.strictEqual(quickEditTriggered, 'type', '點擊卡片類型Icon應觸發 type 快速編輯');
+  assert.strictEqual(modalOpened, false, '點擊卡片類型Icon不應彈出詳細 Modal');
 
   // 點擊狀態 -> 觸發狀態快速編輯，不開啟 Modal
   simulateCardClick('.bjwt-history-status-badge');
@@ -2145,10 +2154,16 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert.strictEqual(quickEditTriggered, null, '點擊卡片標題不應觸發快速編輯');
   assert.strictEqual(modalOpened, true, '點擊卡片標題應彈出詳細 Modal 觀看詳細內容');
 
-  // 3. 測試 JiraApiService 新增之優先度與經辦人方法
+  // 3. 測試 JiraApiService 新增之類型、優先度與經辦人方法
+  assert.strictEqual(typeof ApiService.fetchIssueTypesForIssue, 'function', 'JiraApiService 應提供 fetchIssueTypesForIssue');
+  assert.strictEqual(typeof ApiService.updateIssueType, 'function', 'JiraApiService 應提供 updateIssueType');
   assert.strictEqual(typeof ApiService.fetchPriorities, 'function', 'JiraApiService 應提供 fetchPriorities');
   assert.strictEqual(typeof ApiService.updateIssuePriority, 'function', 'JiraApiService 應提供 updateIssuePriority');
   assert.strictEqual(typeof ApiService.updateIssueAssignee, 'function', 'JiraApiService 應提供 updateIssueAssignee');
+
+  const issueTypes = await ApiService.fetchIssueTypesForIssue('WMC-999');
+  assert(Array.isArray(issueTypes) && issueTypes.length >= 4, 'fetchIssueTypesForIssue 應回傳可用問題類型清單');
+  assert(issueTypes.some((t) => t.name === 'Bug' || t.name === 'Story'), '問題類型清單應包含 Bug 或 Story');
 
   const priorities = await ApiService.fetchPriorities();
   assert(Array.isArray(priorities) && priorities.length >= 5, 'fetchPriorities 應回傳至少 5 項標準優先度');
