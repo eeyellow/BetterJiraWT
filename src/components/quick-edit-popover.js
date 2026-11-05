@@ -171,6 +171,7 @@
 
     // 標題資訊對照
     const titles = {
+      type: { icon: '📌', label: '切換問題類型' },
       status: { icon: '⚡', label: '切換狀態' },
       points: { icon: '🔢', label: '修改 Story Points' },
       priority: { icon: '🎯', label: '修改優先順序' },
@@ -234,7 +235,91 @@
 
     // 2. 針對不同欄位非同步載入介面並綁定互動事件
     try {
-      if (editType === 'status') {
+      if (editType === 'type') {
+        // --- 問題類型切換 ---
+        const types = await JiraApiService.fetchIssueTypesForIssue(issueKey);
+        if (!popoverEl.isConnected) return;
+
+        const currentTypeName = (currentIssue && currentIssue.issueTypeName) || '未知類型';
+        const typeLabelMap = {
+          'Story': 'Story (故事)',
+          'Bug': 'Bug (缺陷 / 錯誤)',
+          'Task': 'Task (任務)',
+          'Sub-task': 'Sub-task (子任務)',
+          'Epic': 'Epic (史詩)'
+        };
+        const fallbackIconMap = {
+          'Story': '📗',
+          'Bug': '🐞',
+          'Task': '📋',
+          'Sub-task': '🔹',
+          'Epic': '⚡'
+        };
+
+        if (!Array.isArray(types) || types.length === 0) {
+          bodyEl.innerHTML = `
+            <div class="bjwt-popover-empty">
+              目前卡片類型為 <strong>${escapeHtml(currentTypeName)}</strong>，無可切換之類型選項。
+            </div>
+          `;
+        } else {
+          bodyEl.innerHTML = `
+            <div class="bjwt-popover-current-hint">目前類型：<strong>${escapeHtml(typeLabelMap[currentTypeName] || currentTypeName)}</strong></div>
+            <div class="bjwt-popover-list">
+              ${types
+                .map((tp) => {
+                  const isSelected = currentTypeName && currentTypeName.toLowerCase() === tp.name.toLowerCase();
+                  const displayName = typeLabelMap[tp.name] || tp.name;
+                  const fallbackIcon = fallbackIconMap[tp.name] || '📄';
+                  return `
+                    <button type="button" class="bjwt-popover-item bjwt-popover-item-type ${isSelected ? 'is-selected' : ''}" data-type-id="${escapeHtml(tp.id)}" data-type-name="${escapeHtml(tp.name)}">
+                      ${
+                        tp.iconUrl
+                          ? `<img class="bjwt-popover-item-icon" src="${escapeHtml(tp.iconUrl)}" alt="${escapeHtml(tp.name)}" />`
+                          : `<span class="bjwt-popover-item-icon-fallback">${fallbackIcon}</span>`
+                      }
+                      <span class="bjwt-popover-item-text">${escapeHtml(displayName)}</span>
+                      ${isSelected ? `<span class="bjwt-popover-check">✓</span>` : ''}
+                    </button>
+                  `;
+                })
+                .join('')}
+            </div>
+          `;
+
+          bodyEl.querySelectorAll('.bjwt-popover-item-type').forEach((btn) => {
+            btn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const typeId = btn.getAttribute('data-type-id');
+              const typeName = btn.getAttribute('data-type-name');
+              const matchedT = types.find((t) => String(t.id) === String(typeId)) || { id: typeId, name: typeName, iconUrl: '' };
+
+              btn.disabled = true;
+              const textSpan = btn.querySelector('.bjwt-popover-item-text');
+              if (textSpan) textSpan.textContent = '切換中...';
+
+              const res = await JiraApiService.updateIssueType(issueKey, { id: typeId, name: typeName });
+              if (res.success) {
+                if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
+                  IssueStore.mergeAndCacheIssue({
+                    key: issueKey,
+                    issueTypeName: typeName,
+                    issueTypeIcon: matchedT.iconUrl || ''
+                  });
+                }
+                if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
+                  LayoutManager.scheduleLayoutRefresh();
+                }
+                close();
+              } else {
+                btn.disabled = false;
+                if (textSpan) textSpan.textContent = typeLabelMap[typeName] || typeName;
+                alert(`問題類型切換失敗：${res.error || '請重試'}`);
+              }
+            });
+          });
+        }
+      } else if (editType === 'status') {
         // --- 狀態切換 ---
         const transitions = await JiraApiService.fetchIssueTransitions(issueKey);
         if (!popoverEl.isConnected) return;

@@ -1191,6 +1191,16 @@ html[data-betterjira-layout="two-column"] [data-bjwt-sprint-branch="true"]:has(.
   margin: 0 !important;
 }
 
+.bjwt-card-issuetype-slot {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  cursor: pointer !important;
+  padding: 2px !important;
+  border-radius: 4px !important;
+}
+
 .bjwt-history-issuetype-icon {
   width: 16px !important;
   height: 16px !important;
