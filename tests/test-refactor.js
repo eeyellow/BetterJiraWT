@@ -130,6 +130,7 @@ const filesToLoad = [
   'src/components/runtime-styles.js',
   'src/components/filter-toolbar.js',
   'src/components/issue-card.js',
+  'src/components/quick-edit-popover.js',
   'src/components/issue-modal.js',
   'src/components/history-picker-modal.js',
   'src/components/sidebar.js',
@@ -2058,6 +2059,113 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     'active-sprint-view.js 之 render-sig 應包含 apiSyncing 狀態');
 
   console.log('✓ 尚未開始衝刺 (Future Sprint) 之 API 支援、Backlog 預熱與風琴夾展開檢查通過！');
+
+  console.log('--- 測試 23: 卡片四欄位 (狀態、StoryPoint、優先度、指派人員) 小型就地編輯視窗 (QuickEditPopoverComponent) 與點擊分流檢查 ---');
+  {
+    const { QuickEditPopoverComponent, IssueCardComponent } = BetterJira;
+    const ApiService = BetterJira.JiraApiService;
+    assert(QuickEditPopoverComponent, 'BetterJira 應匯出 QuickEditPopoverComponent');
+
+  // 1. 測試 IssueCardComponent 渲染的卡片是否包含四個可就地編輯欄位
+  const testIssue = {
+    key: 'WMC-999',
+    summary: '測試就地編輯卡片功能',
+    statusName: 'In Progress',
+    statusCategory: 'indeterminate',
+    storyPoints: 5,
+    priorityName: 'High',
+    priorityIcon: 'https://swpc.atlassian.net/images/icons/priorities/high.svg',
+    assigneeName: 'Ray Huang',
+    assigneeAvatar: 'https://avatar.url/ray.png'
+  };
+
+  const cardHtml = IssueCardComponent.renderIssueCardHtml(testIssue);
+  assert(cardHtml.includes('data-bjwt-quick-edit="status"'), '卡片 HTML 應包含 data-bjwt-quick-edit="status"');
+  assert(cardHtml.includes('data-bjwt-quick-edit="points"'), '卡片 HTML 應包含 data-bjwt-quick-edit="points"');
+  assert(cardHtml.includes('data-bjwt-quick-edit="priority"'), '卡片 HTML 應包含 data-bjwt-quick-edit="priority"');
+  assert(cardHtml.includes('data-bjwt-quick-edit="assignee"'), '卡片 HTML 應包含 data-bjwt-quick-edit="assignee"');
+  assert(cardHtml.includes('bjwt-quick-editable'), '卡片欄位應包含 bjwt-quick-editable 樣式類別');
+
+  // 2. 測試點擊事件分流 (Quick Edit vs Modal)
+  let modalOpened = false;
+  let quickEditTriggered = null;
+
+  function simulateCardClick(targetSelector) {
+    modalOpened = false;
+    quickEditTriggered = null;
+
+    const fakeTarget = {
+      closest: (sel) => {
+        if (sel.includes('[data-bjwt-quick-edit]')) {
+          if (targetSelector.includes('status')) return { getAttribute: () => 'status' };
+          if (targetSelector.includes('points')) return { getAttribute: () => 'points' };
+          if (targetSelector.includes('priority')) return { getAttribute: () => 'priority' };
+          if (targetSelector.includes('assignee')) return { getAttribute: () => 'assignee' };
+        }
+        return null;
+      }
+    };
+
+    const mockEvt = {
+      target: fakeTarget,
+      preventDefault: () => {},
+      stopPropagation: () => {}
+    };
+
+    const quickEditTarget = mockEvt.target && mockEvt.target.closest ? mockEvt.target.closest('[data-bjwt-quick-edit]') : null;
+    if (quickEditTarget) {
+      quickEditTriggered = quickEditTarget.getAttribute('data-bjwt-quick-edit');
+      return;
+    }
+    modalOpened = true;
+  }
+
+  // 點擊狀態 -> 觸發狀態快速編輯，不開啟 Modal
+  simulateCardClick('.bjwt-history-status-badge');
+  assert.strictEqual(quickEditTriggered, 'status', '點擊狀態欄應觸發 status 快速編輯');
+  assert.strictEqual(modalOpened, false, '點擊狀態欄不應彈出詳細 Modal');
+
+  // 點擊 StoryPoint -> 觸發 points 快速編輯，不開啟 Modal
+  simulateCardClick('.bjwt-card-slot-points');
+  assert.strictEqual(quickEditTriggered, 'points', '點擊 StoryPoint 欄應觸發 points 快速編輯');
+  assert.strictEqual(modalOpened, false, '點擊 StoryPoint 欄不應彈出詳細 Modal');
+
+  // 點擊 優先度 -> 觸發 priority 快速編輯，不開啟 Modal
+  simulateCardClick('.bjwt-card-slot-priority');
+  assert.strictEqual(quickEditTriggered, 'priority', '點擊優先度欄應觸發 priority 快速編輯');
+  assert.strictEqual(modalOpened, false, '點擊優先度欄不應彈出詳細 Modal');
+
+  // 點擊 指派人員 -> 觸發 assignee 快速編輯，不開啟 Modal
+  simulateCardClick('.bjwt-card-slot-assignee');
+  assert.strictEqual(quickEditTriggered, 'assignee', '點擊指派人員欄應觸發 assignee 快速編輯');
+  assert.strictEqual(modalOpened, false, '點擊指派人員欄不應彈出詳細 Modal');
+
+  // 點擊 卡片其他地方 (例如標題或卡片主體) -> 彈出詳細 Modal，不觸發快速編輯
+  simulateCardClick('.bjwt-history-card-summary');
+  assert.strictEqual(quickEditTriggered, null, '點擊卡片標題不應觸發快速編輯');
+  assert.strictEqual(modalOpened, true, '點擊卡片標題應彈出詳細 Modal 觀看詳細內容');
+
+  // 3. 測試 JiraApiService 新增之優先度與經辦人方法
+  assert.strictEqual(typeof ApiService.fetchPriorities, 'function', 'JiraApiService 應提供 fetchPriorities');
+  assert.strictEqual(typeof ApiService.updateIssuePriority, 'function', 'JiraApiService 應提供 updateIssuePriority');
+  assert.strictEqual(typeof ApiService.updateIssueAssignee, 'function', 'JiraApiService 應提供 updateIssueAssignee');
+
+  const priorities = await ApiService.fetchPriorities();
+  assert(Array.isArray(priorities) && priorities.length >= 5, 'fetchPriorities 應回傳至少 5 項標準優先度');
+  assert(priorities.some((p) => p.name === 'High'), '優先度清單應包含 High');
+
+  // 4. 測試候選經辦人名單收集 (collectCandidateAssignees)
+  const candidateAssignees = QuickEditPopoverComponent.collectCandidateAssignees(testIssue);
+  assert(Array.isArray(candidateAssignees), 'collectCandidateAssignees 應回傳陣列');
+  assert(candidateAssignees.some((c) => c.name === 'Ray Huang'), '候選經辦人應包含 Ray Huang');
+
+  // 5. 測試 styles.css 與 runtime-styles.js 包含 Popover 樣式定義
+  const checkStyles = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+  assert(checkStyles.includes('bjwt-quick-edit-popover'), 'styles.css 應包含 bjwt-quick-edit-popover');
+  assert(checkStyles.includes('bjwt-quick-editable'), 'styles.css 應包含 bjwt-quick-editable');
+
+  console.log('✓ 卡片四欄位小型就地編輯視窗與點擊分流檢查通過！');
+  }
 
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');

@@ -1334,6 +1334,145 @@
       .bjwt-filter-stats-bar strong {
         color: var(--ds-text, #dee4ea) !important;
       }
+      .bjwt-quick-editable {
+        cursor: pointer !important;
+        transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease !important;
+      }
+      .bjwt-quick-editable:hover {
+        filter: brightness(1.15) !important;
+        transform: translateY(-1px) scale(1.05) !important;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+      }
+      .bjwt-quick-edit-popover {
+        position: fixed !important;
+        z-index: 99999 !important;
+        width: 270px !important;
+        max-width: 90vw !important;
+        max-height: 400px !important;
+        background: var(--ds-surface-overlay, #22272b) !important;
+        border: 1px solid var(--ds-border, #3b444c) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        color: var(--ds-text, #dee4ea) !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+      }
+      .bjwt-popover-header {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        padding: 8px 12px !important;
+        background: var(--ds-surface, #1d2125) !important;
+        border-bottom: 1px solid var(--ds-border, #3b444c) !important;
+      }
+      .bjwt-popover-title {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+      }
+      .bjwt-popover-key {
+        font-size: 11px !important;
+        color: #579dff !important;
+        background: rgba(87, 157, 255, 0.12) !important;
+        padding: 1px 5px !important;
+        border-radius: 4px !important;
+      }
+      .bjwt-popover-close-btn {
+        background: none !important;
+        border: none !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+        font-size: 13px !important;
+        cursor: pointer !important;
+        padding: 2px 6px !important;
+      }
+      .bjwt-popover-body {
+        padding: 10px 12px !important;
+        overflow-y: auto !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+        max-height: 320px !important;
+      }
+      .bjwt-popover-list {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 4px !important;
+        max-height: 220px !important;
+        overflow-y: auto !important;
+      }
+      .bjwt-popover-item {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        width: 100% !important;
+        padding: 6px 10px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid transparent !important;
+        border-radius: 5px !important;
+        color: var(--ds-text, #dee4ea) !important;
+        font-size: 12px !important;
+        cursor: pointer !important;
+        text-align: left !important;
+      }
+      .bjwt-popover-item:hover {
+        background: rgba(87, 157, 255, 0.12) !important;
+      }
+      .bjwt-popover-item.is-selected {
+        background: rgba(87, 157, 255, 0.18) !important;
+        border-color: #579dff !important;
+      }
+      .bjwt-popover-item-text {
+        flex: 1 1 auto !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+      }
+      .bjwt-popover-quick-chips {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 5px !important;
+      }
+      .bjwt-popover-chip {
+        padding: 2px 7px !important;
+        font-size: 11px !important;
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid var(--ds-border, #3b444c) !important;
+        border-radius: 4px !important;
+        color: var(--ds-text, #dee4ea) !important;
+        cursor: pointer !important;
+      }
+      .bjwt-popover-chip:hover {
+        background: #0c66e4 !important;
+        color: #ffffff !important;
+      }
+      .bjwt-popover-actions {
+        display: flex !important;
+        justify-content: flex-end !important;
+        gap: 8px !important;
+        margin-top: 4px !important;
+      }
+      .bjwt-popover-btn {
+        height: 28px !important;
+        padding: 0 12px !important;
+        border-radius: 4px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+      }
+      .bjwt-popover-cancel-btn {
+        background: none !important;
+        border: 1px solid var(--ds-border, #3b444c) !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+      }
+      .bjwt-popover-save-btn {
+        background: #0c66e4 !important;
+        border: 1px solid #0c66e4 !important;
+        color: #ffffff !important;
+      }
     `;
     (document.head || document.documentElement).appendChild(styleEl);
   }

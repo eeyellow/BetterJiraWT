@@ -124,29 +124,53 @@
             }
           </div>
 
-          <!-- 最後一欄：狀態（最前方等寬靠左）、StoryPoint、優先度、指派人員，靠右對齊 -->
+          <!-- 最後一欄：狀態（最前方等寬靠左）、StoryPoint、優先度、指派人員，靠右對齊 (支援就地快速編輯) -->
           <div class="bjwt-card-col bjwt-card-col-right bjwt-card-row-bottom-right bjwt-history-card-right">
-            <span class="bjwt-history-status-badge ${statusClass}" title="狀態：${escapeHtml(cleanStatusName)}">
+            <span
+              class="bjwt-history-status-badge ${statusClass} bjwt-quick-editable"
+              data-bjwt-quick-edit="status"
+              role="button"
+              tabindex="0"
+              title="點擊編輯狀態 (目前：${escapeHtml(cleanStatusName)})"
+            >
               <span class="bjwt-badge-text">${escapeHtml(cleanStatusName)}</span>
             </span>
             <!-- 欄位 1: StoryPoint (等寬 28px slot) -->
-            <span class="bjwt-card-action-slot bjwt-card-slot-points">
-              <span class="bjwt-history-points-badge" title="Story Points">${escapeHtml(pointsDisplay)}</span>
+            <span
+              class="bjwt-card-action-slot bjwt-card-slot-points bjwt-quick-editable"
+              data-bjwt-quick-edit="points"
+              role="button"
+              tabindex="0"
+              title="點擊編輯 Story Points (目前：${escapeHtml(pointsDisplay)})"
+            >
+              <span class="bjwt-history-points-badge">${escapeHtml(pointsDisplay)}</span>
             </span>
 
             <!-- 欄位 2: 優先度 (等寬 28px slot，無設定時仍占位) -->
-            <span class="bjwt-card-action-slot bjwt-card-slot-priority"${iss.priorityName ? ` title="優先順序：${escapeHtml(iss.priorityName)}"` : ''}>
+            <span
+              class="bjwt-card-action-slot bjwt-card-slot-priority bjwt-quick-editable"
+              data-bjwt-quick-edit="priority"
+              role="button"
+              tabindex="0"
+              title="點擊編輯優先順序 (目前：${escapeHtml(iss.priorityName || '未指定')})"
+            >
               ${
                 iss.priorityIcon
-                  ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" title="優先順序：${escapeHtml(iss.priorityName)}" />`
+                  ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" />`
                   : iss.prioritySvg
-                  ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap" title="優先順序：${escapeHtml(iss.priorityName)}">${iss.prioritySvg}</span>`
+                  ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap">${iss.prioritySvg}</span>`
                   : `<span class="bjwt-history-priority-placeholder" aria-hidden="true"></span>`
               }
             </span>
             <!-- 欄位 3: 指派人員 (等寬 28px slot) -->
-            <span class="bjwt-card-action-slot bjwt-card-slot-assignee">
-              <span class="bjwt-history-assignee" title="負責人：${escapeHtml(displayAssigneeName)}">
+            <span
+              class="bjwt-card-action-slot bjwt-card-slot-assignee bjwt-quick-editable"
+              data-bjwt-quick-edit="assignee"
+              role="button"
+              tabindex="0"
+              title="點擊編輯經辦人 (目前：${escapeHtml(displayAssigneeName)})"
+            >
+              <span class="bjwt-history-assignee">
                 ${
                   isUnassigned
                     ? `<span class="bjwt-history-avatar-unassigned" aria-label="未指派">

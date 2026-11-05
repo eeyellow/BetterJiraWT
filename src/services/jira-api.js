@@ -1019,6 +1019,182 @@
     return [];
   }
 
+  /**
+   * 取得 Jira 系統中定義的可用優先度清單
+   * 優先透過 GET /rest/api/2/priority 取得官方清單，若失敗則提供標準備用清單
+   *
+   * @returns {Promise<Array<{id: string, name: string, iconUrl: string, statusColor?: string}>>}
+   */
+  let cachedPrioritiesList = null;
+  async function fetchPriorities() {
+    if (cachedPrioritiesList && cachedPrioritiesList.length > 0) {
+      return cachedPrioritiesList;
+    }
+    try {
+      const res = await fetch(`${window.location.origin}/rest/api/2/priority`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          cachedPrioritiesList = data.map((p) => ({
+            id: String(p.id),
+            name: p.name,
+            iconUrl: p.iconUrl || '',
+            statusColor: p.statusColor || ''
+          }));
+          return cachedPrioritiesList;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [
+      { id: '1', name: 'Highest', iconUrl: '' },
+      { id: '2', name: 'High', iconUrl: '' },
+      { id: '3', name: 'Medium', iconUrl: '' },
+      { id: '4', name: 'Low', iconUrl: '' },
+      { id: '5', name: 'Lowest', iconUrl: '' }
+    ];
+  }
+
+  /**
+   * 透過 Jira REST API 更新指定 Issue 的優先度
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {Object|string} priorityVal - 優先度物件 ({ id, name }) 或優先度名稱 / ID
+   * @returns {Promise<{success: boolean, error?: string}>} 更新結果
+   */
+  async function updateIssuePriority(issueKey, priorityVal) {
+    if (!issueKey || !priorityVal) return { success: false, error: '缺少 issueKey 或優先度資訊' };
+
+    let payloadField = {};
+    if (typeof priorityVal === 'object') {
+      if (priorityVal.id) {
+        payloadField = { id: String(priorityVal.id) };
+      } else if (priorityVal.name) {
+        payloadField = { name: String(priorityVal.name) };
+      }
+    } else {
+      const strVal = String(priorityVal).trim();
+      if (/^\d+$/.test(strVal)) {
+        payloadField = { id: strVal };
+      } else {
+        payloadField = { name: strVal };
+      }
+    }
+
+    try {
+      const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Atlassian-Token': 'no-check'
+        },
+        body: JSON.stringify({ fields: { priority: payloadField } })
+      });
+
+      if (res.ok || res.status === 204) {
+        return { success: true };
+      }
+
+      const errJson = await res.json().catch(() => null);
+      let errMsg = '優先度更新失敗';
+      if (errJson) {
+        if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
+          errMsg = errJson.errorMessages.join(', ');
+        } else if (errJson.errors && typeof errJson.errors === 'object') {
+          errMsg = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
+        }
+      }
+      return { success: false, error: errMsg };
+    } catch (e) {
+      return { success: false, error: e && e.message ? e.message : '優先度更新網路錯誤' };
+    }
+  }
+
+  /**
+   * 透過 Jira REST API 更新指定 Issue 的經辦人
+   * 支援指派特定成員或設為未指派 (Unassigned)
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string|null} assigneeName - 經辦人名稱 (傳入 null, 空字串, '未指派' 或 '__UNASSIGNED__' 代表未指派)
+   * @param {string|null} [accountId=null] - Jira Cloud 帳號 ID (若有)
+   * @returns {Promise<{success: boolean, error?: string}>} 更新結果
+   */
+  async function updateIssueAssignee(issueKey, assigneeName, accountId = null) {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+
+    const { AssigneeUtils } = BetterJira;
+    const isUnassigned =
+      !assigneeName ||
+      assigneeName === '__UNASSIGNED__' ||
+      assigneeName === '未指派' ||
+      (AssigneeUtils && typeof AssigneeUtils.isUnassignedText === 'function' && AssigneeUtils.isUnassignedText(assigneeName));
+
+    const body = isUnassigned
+      ? { name: null }
+      : accountId
+      ? { accountId }
+      : { name: assigneeName };
+
+    try {
+      // 1. 優先呼叫 Jira 標準專用 /assignee 端點
+      const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}/assignee`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Atlassian-Token': 'no-check'
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (res.ok || res.status === 204) {
+        return { success: true };
+      }
+
+      // 2. 若專用端點受限，備用標準 issue 根端點 fields 更新
+      const fallbackPayload = {
+        fields: {
+          assignee: isUnassigned ? null : (accountId ? { accountId } : { name: assigneeName })
+        }
+      };
+
+      const fallbackRes = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Atlassian-Token': 'no-check'
+        },
+        body: JSON.stringify(fallbackPayload)
+      });
+
+      if (fallbackRes.ok || fallbackRes.status === 204) {
+        return { success: true };
+      }
+
+      const errJson = await fallbackRes.json().catch(() => null);
+      let errMsg = '經辦人更新失敗';
+      if (errJson) {
+        if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
+          errMsg = errJson.errorMessages.join(', ');
+        } else if (errJson.errors && typeof errJson.errors === 'object') {
+          errMsg = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
+        }
+      }
+      return { success: false, error: errMsg };
+    } catch (e) {
+      return { success: false, error: e && e.message ? e.message : '經辦人更新網路錯誤' };
+    }
+  }
+
   BetterJira.JiraApiService = {
     detectJiraContext,
     detectStoryPointsCustomField,
@@ -1034,6 +1210,9 @@
     updateIssue,
     fetchIssueTransitions,
     transitionIssue,
+    fetchPriorities,
+    updateIssuePriority,
+    updateIssueAssignee,
     syncExtensionIcon
   };
 })();
