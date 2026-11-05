@@ -161,7 +161,7 @@
    * @param {Object|null} [nativeFilter=null] - 原生篩選狀態物件
    */
   function renderActiveSprintBranch(item, nativeFilter = null) {
-    const { TextUtils, SprintStatsService, FilterService, FrontendFilterService, FilterToolbarComponent, IssueStore, IssueCardComponent, IssueModalComponent, QuickEditPopoverComponent, LayoutManager } = BetterJira;
+    const { TextUtils, SprintStatsService, FilterService, FrontendFilterService, FilterToolbarComponent, IssueStore, IssueCardComponent, IssueModalComponent, QuickEditPopoverComponent, CardContextMenuComponent, LayoutManager } = BetterJira;
     const { cleanSprintTitle, cleanSummaryText, escapeHtml } = TextUtils;
     const { calculateSprintStatistics } = SprintStatsService;
     const { getNativeBacklogFilterState } = FilterService;
@@ -426,6 +426,21 @@
       cardEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           handleActivate(e);
+        }
+      });
+      cardEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const summaryText =
+          (issueObj && (issueObj.summary || issueObj.cleanSummary)) ||
+          cardEl.getAttribute('data-bjwt-issue-summary') ||
+          (cardEl.querySelector('.bjwt-history-card-summary') && cardEl.querySelector('.bjwt-history-card-summary').textContent.trim()) ||
+          '';
+        if (CardContextMenuComponent && typeof CardContextMenuComponent.open === 'function') {
+          CardContextMenuComponent.open(e.clientX, e.clientY, {
+            key: issueKey,
+            summary: summaryText
+          });
         }
       });
     });

@@ -131,6 +131,7 @@ const filesToLoad = [
   'src/components/filter-toolbar.js',
   'src/components/issue-card.js',
   'src/components/quick-edit-popover.js',
+  'src/components/card-context-menu.js',
   'src/components/issue-modal.js',
   'src/components/history-picker-modal.js',
   'src/components/sidebar.js',
@@ -2188,6 +2189,67 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(!checkPopoverCode.includes('data-pt="0.5"'), '快捷點數晶片不應包含 0.5');
 
   console.log('✓ 卡片五欄位小型就地編輯視窗與點擊分流檢查通過！');
+  }
+
+  console.log('--- 測試 24: 卡片右鍵自訂選單 (CardContextMenuComponent) 與複製卡片編號、卡片標題檢查 ---');
+  {
+    const { CardContextMenuComponent, IssueCardComponent } = BetterJira;
+    assert(CardContextMenuComponent, 'BetterJira 應匯出 CardContextMenuComponent');
+    assert.strictEqual(typeof CardContextMenuComponent.open, 'function', 'CardContextMenuComponent 應提供 open 方法');
+    assert.strictEqual(typeof CardContextMenuComponent.close, 'function', 'CardContextMenuComponent 應提供 close 方法');
+    assert.strictEqual(typeof CardContextMenuComponent.copyTextToClipboard, 'function', 'CardContextMenuComponent 應提供 copyTextToClipboard 方法');
+
+    // 1. 測試 IssueCardComponent 產出的卡片是否包含 data-bjwt-issue-summary
+    const sampleCard = {
+      key: 'WMC-888',
+      summary: '修復右鍵選單複製功能',
+      issueTypeName: 'Task',
+      statusName: 'To Do',
+      storyPoints: 3
+    };
+    const cardHtml = IssueCardComponent.renderIssueCardHtml(sampleCard);
+    assert(cardHtml.includes('data-bjwt-history-issue-key="WMC-888"'), '卡片 HTML 應包含正確的卡片編號屬性');
+    assert(cardHtml.includes('data-bjwt-issue-summary="修復右鍵選單複製功能"'), '卡片 HTML 應包含 data-bjwt-issue-summary 屬性');
+
+    // 2. 測試複製文字至剪貼簿邏輯
+    let copiedText = '';
+    global.navigator.clipboard = {
+      writeText: async (txt) => {
+        copiedText = txt;
+        return true;
+      }
+    };
+    if (global.window) {
+      global.window.navigator = global.navigator;
+    }
+    const copyResult = await CardContextMenuComponent.copyTextToClipboard('WMC-888');
+    assert.strictEqual(copyResult, true, 'copyTextToClipboard 應回傳 true');
+    assert.strictEqual(copiedText, 'WMC-888', '剪貼簿文字應為 WMC-888');
+
+    const copySummaryResult = await CardContextMenuComponent.copyTextToClipboard('修復右鍵選單複製功能');
+    assert.strictEqual(copySummaryResult, true, 'copyTextToClipboard 複製標題應成功');
+    assert.strictEqual(copiedText, '修復右鍵選單複製功能', '剪貼簿文字應為修復右鍵選單複製功能');
+
+    // 3. 測試 active-sprint-view.js 與 history-sprint-view.js 包含 contextmenu 監聽
+    const checkActiveCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/active-sprint-view.js'), 'utf8');
+    assert(checkActiveCode.includes("cardEl.addEventListener('contextmenu'"), 'active-sprint-view.js 應監聽卡片 contextmenu 事件');
+    assert(checkActiveCode.includes('CardContextMenuComponent.open'), 'active-sprint-view.js 應於右鍵點擊時調用 CardContextMenuComponent.open');
+
+    const checkHistoryCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/history-sprint-view.js'), 'utf8');
+    assert(checkHistoryCode.includes("cardEl.addEventListener('contextmenu'"), 'history-sprint-view.js 應監聽卡片 contextmenu 事件');
+    assert(checkHistoryCode.includes('CardContextMenuComponent.open'), 'history-sprint-view.js 應於右鍵點擊時調用 CardContextMenuComponent.open');
+
+    // 4. 測試 card-context-menu.js 包含「複製卡片編號」與「複製卡片標題」動作
+    const checkMenuCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/card-context-menu.js'), 'utf8');
+    assert(checkMenuCode.includes('複製卡片編號'), 'card-context-menu.js 應包含「複製卡片編號」');
+    assert(checkMenuCode.includes('複製卡片標題'), 'card-context-menu.js 應包含「複製卡片標題」');
+
+    // 5. 測試 styles.css 與 runtime-styles.js 包含 Context Menu 與 Toast 樣式定義
+    const checkStyles = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+    assert(checkStyles.includes('bjwt-card-context-menu'), 'styles.css 應包含 bjwt-card-context-menu');
+    assert(checkStyles.includes('bjwt-copy-toast'), 'styles.css 應包含 bjwt-copy-toast');
+
+    console.log('✓ 卡片右鍵自訂選單與複製卡片編號、標題檢查通過！');
   }
 
   console.log('============================================');

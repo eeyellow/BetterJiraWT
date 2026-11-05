@@ -1482,6 +1482,88 @@
         border: 1px solid #0c66e4 !important;
         color: #ffffff !important;
       }
+      .bjwt-card-context-menu {
+        position: fixed !important;
+        z-index: 99999 !important;
+        width: 180px !important;
+        background: var(--ds-surface-overlay, #22272b) !important;
+        border: 1px solid var(--ds-border, #3b444c) !important;
+        border-radius: 6px !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+        padding: 4px !important;
+        user-select: none !important;
+        box-sizing: border-box !important;
+      }
+      .bjwt-context-menu-header {
+        padding: 4px 8px 6px 8px !important;
+        border-bottom: 1px solid var(--ds-border, #3b444c) !important;
+        margin-bottom: 4px !important;
+      }
+      .bjwt-context-menu-badge {
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        color: #579dff !important;
+        background: rgba(87, 157, 255, 0.12) !important;
+        padding: 2px 6px !important;
+        border-radius: 4px !important;
+        display: inline-block !important;
+      }
+      .bjwt-context-menu-list {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 2px !important;
+      }
+      .bjwt-context-menu-item {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        width: 100% !important;
+        height: 28px !important;
+        padding: 0 8px !important;
+        background: none !important;
+        border: none !important;
+        border-radius: 4px !important;
+        color: var(--ds-text, #dee4ea) !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        cursor: pointer !important;
+        text-align: left !important;
+      }
+      .bjwt-context-menu-item:hover {
+        background: rgba(87, 157, 255, 0.14) !important;
+        color: #579dff !important;
+      }
+      .bjwt-context-icon {
+        width: 14px !important;
+        height: 14px !important;
+        flex-shrink: 0 !important;
+      }
+      .bjwt-context-divider {
+        height: 1px !important;
+        background: var(--ds-border, #3b444c) !important;
+        margin: 3px 0 !important;
+      }
+      .bjwt-copy-toast {
+        position: fixed !important;
+        bottom: 24px !important;
+        left: 50% !important;
+        transform: translateX(-50%) translateY(20px) !important;
+        z-index: 100000 !important;
+        background: #1f883d !important;
+        color: #ffffff !important;
+        padding: 7px 16px !important;
+        border-radius: 20px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+      }
+      .bjwt-copy-toast.is-visible {
+        opacity: 1 !important;
+        transform: translateX(-50%) translateY(0) !important;
+      }
     `;
     (document.head || document.documentElement).appendChild(styleEl);
   }

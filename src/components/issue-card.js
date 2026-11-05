@@ -81,9 +81,10 @@
       <div
         class="bjwt-history-card sprint-card bjwt-two-row-card"
         data-bjwt-history-issue-key="${escapeHtml(cleanKey)}"
+        data-bjwt-issue-summary="${escapeHtml(cleanSummary)}"
         role="button"
         tabindex="0"
-        title="點擊以置中 Modal 預覽 ${escapeHtml(cleanKey)} 詳細內容"
+        title="點擊以置中 Modal 預覽 ${escapeHtml(cleanKey)} 詳細內容 (右鍵可複製編號或標題)"
       >
         <!-- 第一列：卡片類型Icon (支援就地快速編輯)，卡片編號，卡片標題 -->
         <div class="bjwt-card-row-top bjwt-history-card-left">
