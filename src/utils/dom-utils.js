@@ -87,6 +87,10 @@
         el.closest(`#${GLOBAL_FILTER_TOOLBAR_ID || 'bjwt-global-filter-toolbar'}`) ||
         el.closest('.bjwt-global-toolbar-container') ||
         el.closest('.bjwt-filter-toolbar') ||
+        el.closest('.bjwt-filter-dropdown') ||
+        el.closest('#bjwt-quick-edit-popover') ||
+        el.closest('#bjwt-card-context-menu') ||
+        el.closest('#bjwt-copy-toast') ||
         el.closest(`#${MODAL_BACKDROP_ID}`) ||
         el.closest(`#${HISTORY_PICKER_MODAL_ID}`) ||
         el.closest(`#${HISTORY_ISSUE_MODAL_ID}`) ||
