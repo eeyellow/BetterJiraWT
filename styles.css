@@ -2925,6 +2925,18 @@ html[data-betterjira-layout="two-column"] [data-bjwt-native-filter-hidden="true"
   white-space: nowrap !important;
 }
 
+.bjwt-context-sub-icon {
+  font-size: 11px !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+  margin-left: auto !important;
+  opacity: 0.8 !important;
+}
+
+.bjwt-context-menu-item:hover .bjwt-context-sub-icon {
+  color: #579dff !important;
+  opacity: 1 !important;
+}
+
 .bjwt-context-divider {
   height: 1px !important;
   background: var(--ds-border, #3b444c) !important;

@@ -1533,6 +1533,16 @@
         background: rgba(87, 157, 255, 0.14) !important;
         color: #579dff !important;
       }
+      .bjwt-context-sub-icon {
+        font-size: 11px !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+        margin-left: auto !important;
+        opacity: 0.8 !important;
+      }
+      .bjwt-context-menu-item:hover .bjwt-context-sub-icon {
+        color: #579dff !important;
+        opacity: 1 !important;
+      }
       .bjwt-context-icon {
         width: 14px !important;
         height: 14px !important;
