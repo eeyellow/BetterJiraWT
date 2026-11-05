@@ -2239,17 +2239,27 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     assert(checkHistoryCode.includes("cardEl.addEventListener('contextmenu'"), 'history-sprint-view.js 應監聽卡片 contextmenu 事件');
     assert(checkHistoryCode.includes('CardContextMenuComponent.open'), 'history-sprint-view.js 應於右鍵點擊時調用 CardContextMenuComponent.open');
 
-    // 4. 測試 card-context-menu.js 包含「複製卡片編號」與「複製卡片標題」動作
+    // 4. 測試 card-context-menu.js 包含「在新分頁開啟」、「複製卡片編號」與「複製卡片標題」動作
     const checkMenuCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/card-context-menu.js'), 'utf8');
+    assert(checkMenuCode.includes('在新分頁開啟'), 'card-context-menu.js 應包含「在新分頁開啟」');
+    assert(checkMenuCode.includes('data-action="open-tab"'), 'card-context-menu.js 應包含 open-tab 動作屬性');
     assert(checkMenuCode.includes('複製卡片編號'), 'card-context-menu.js 應包含「複製卡片編號」');
     assert(checkMenuCode.includes('複製卡片標題'), 'card-context-menu.js 應包含「複製卡片標題」');
+
+    // 4-1. 測試 openIssueInNewTab 方法
+    let openedUrl = '';
+    global.window.open = (u) => { openedUrl = u; };
+    const resUrl = CardContextMenuComponent.openIssueInNewTab('WMC-888');
+    assert.strictEqual(resUrl, `${global.window.location.origin}/browse/WMC-888`, 'openIssueInNewTab 應回傳完整 Jira browse URL');
+    assert.strictEqual(openedUrl, `${global.window.location.origin}/browse/WMC-888`, 'window.open 應被正確調用');
 
     // 5. 測試 styles.css 與 runtime-styles.js 包含 Context Menu 與 Toast 樣式定義
     const checkStyles = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
     assert(checkStyles.includes('bjwt-card-context-menu'), 'styles.css 應包含 bjwt-card-context-menu');
     assert(checkStyles.includes('bjwt-copy-toast'), 'styles.css 應包含 bjwt-copy-toast');
+    assert(checkStyles.includes('bjwt-context-sub-icon'), 'styles.css 應包含 bjwt-context-sub-icon');
 
-    console.log('✓ 卡片右鍵自訂選單與複製卡片編號、標題檢查通過！');
+    console.log('✓ 卡片右鍵自訂選單 (在新分頁開啟、複製編號/標題) 檢查通過！');
   }
 
   console.log('============================================');

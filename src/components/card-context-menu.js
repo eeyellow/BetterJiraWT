@@ -160,6 +160,19 @@
         <span class="bjwt-context-menu-badge">${escapeHtml(key)}</span>
       </div>
       <div class="bjwt-context-menu-list">
+        <!-- 0. 在新分頁開啟 -->
+        <button type="button" class="bjwt-context-menu-item" data-action="open-tab" role="menuitem">
+          <svg class="bjwt-context-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+          <span class="bjwt-context-text">在新分頁開啟</span>
+          <span class="bjwt-context-sub-icon">↗</span>
+        </button>
+
+        <div class="bjwt-context-divider"></div>
+
         <!-- 1. 複製卡片編號 -->
         <button type="button" class="bjwt-context-menu-item" data-action="copy-key" role="menuitem">
           <svg class="bjwt-context-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -198,6 +211,15 @@
     activeMenu = menuEl;
 
     // 綁定項目點擊事件
+    const openTabBtn = menuEl.querySelector('[data-action="open-tab"]');
+    if (openTabBtn) {
+      openTabBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openIssueInNewTab(key);
+        close();
+      });
+    }
+
     const copyKeyBtn = menuEl.querySelector('[data-action="copy-key"]');
     if (copyKeyBtn) {
       copyKeyBtn.addEventListener('click', async (e) => {
@@ -265,11 +287,28 @@
     positionMenu(menuEl, clientX, clientY);
   }
 
+  /**
+   * 在新分頁開啟指定卡片的 Jira 頁面
+   *
+   * @param {string} issueKey - 卡片編號
+   * @returns {string|null} 開啟之 URL
+   */
+  function openIssueInNewTab(issueKey) {
+    if (!issueKey) return null;
+    const origin = typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : '';
+    const url = `${origin}/browse/${encodeURIComponent(issueKey)}`;
+    if (typeof window !== 'undefined' && typeof window.open === 'function') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    return url;
+  }
+
   BetterJira.CardContextMenuComponent = {
     open,
     close,
     showToast,
     copyTextToClipboard,
+    openIssueInNewTab,
     positionMenu
   };
 })();
