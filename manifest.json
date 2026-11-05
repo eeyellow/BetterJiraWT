@@ -52,6 +52,7 @@
         "src/components/runtime-styles.js",
         "src/components/filter-toolbar.js",
         "src/components/issue-card.js",
+        "src/components/quick-edit-popover.js",
         "src/components/issue-modal.js",
         "src/components/history-picker-modal.js",
         "src/components/sidebar.js",

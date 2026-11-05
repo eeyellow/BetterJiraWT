@@ -2479,3 +2479,345 @@ html[data-betterjira-layout="two-column"] [data-bjwt-native-filter-hidden="true"
   color: var(--ds-text, #dee4ea) !important;
 }
 
+/* ==========================================================================
+   卡片四欄就地快速編輯 (Quick Edit Popover) 樣式
+   ========================================================================== */
+
+/* 卡片欄位可編輯視覺提示 */
+.bjwt-quick-editable {
+  cursor: pointer !important;
+  transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.bjwt-quick-editable:hover {
+  filter: brightness(1.15) !important;
+  transform: translateY(-1px) scale(1.05) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* 小型設定視窗本體 */
+.bjwt-quick-edit-popover {
+  position: fixed !important;
+  z-index: 99999 !important;
+  width: 270px !important;
+  max-width: 90vw !important;
+  max-height: 400px !important;
+  background: var(--ds-surface-overlay, #22272b) !important;
+  border: 1px solid var(--ds-border, #3b444c) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+  color: var(--ds-text, #dee4ea) !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  animation: bjwtPopoverFadeIn 0.15s ease-out !important;
+}
+
+@keyframes bjwtPopoverFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Popover 標題列 */
+.bjwt-popover-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 12px !important;
+  background: var(--ds-surface, #1d2125) !important;
+  border-bottom: 1px solid var(--ds-border, #3b444c) !important;
+}
+
+.bjwt-popover-title {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+}
+
+.bjwt-popover-icon {
+  font-size: 13px !important;
+}
+
+.bjwt-popover-label {
+  color: var(--ds-text, #dee4ea) !important;
+}
+
+.bjwt-popover-key {
+  font-size: 11px !important;
+  color: #579dff !important;
+  background: rgba(87, 157, 255, 0.12) !important;
+  padding: 1px 5px !important;
+  border-radius: 4px !important;
+}
+
+.bjwt-popover-close-btn {
+  background: none !important;
+  border: none !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+  font-size: 13px !important;
+  cursor: pointer !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  line-height: 1 !important;
+}
+
+.bjwt-popover-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--ds-text, #ffffff) !important;
+}
+
+/* Popover 內容區 */
+.bjwt-popover-body {
+  padding: 10px 12px !important;
+  overflow-y: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  max-height: 320px !important;
+}
+
+.bjwt-popover-loading,
+.bjwt-popover-empty,
+.bjwt-popover-error {
+  padding: 12px 6px !important;
+  text-align: center !important;
+  font-size: 12px !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+}
+
+.bjwt-popover-error {
+  color: #f87171 !important;
+}
+
+.bjwt-popover-current-hint {
+  font-size: 11px !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+  margin-bottom: 2px !important;
+}
+
+.bjwt-popover-current-hint strong {
+  color: var(--ds-text, #dee4ea) !important;
+}
+
+/* 列表與按鈕項目 */
+.bjwt-popover-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  max-height: 220px !important;
+  overflow-y: auto !important;
+}
+
+.bjwt-popover-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+  padding: 6px 10px !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid transparent !important;
+  border-radius: 5px !important;
+  color: var(--ds-text, #dee4ea) !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  transition: all 0.12s ease !important;
+  box-sizing: border-box !important;
+}
+
+.bjwt-popover-item:hover {
+  background: rgba(87, 157, 255, 0.12) !important;
+  border-color: rgba(87, 157, 255, 0.3) !important;
+}
+
+.bjwt-popover-item.is-selected {
+  background: rgba(87, 157, 255, 0.18) !important;
+  border-color: #579dff !important;
+}
+
+.bjwt-popover-item-text {
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.bjwt-popover-item-icon {
+  width: 14px !important;
+  height: 14px !important;
+  object-fit: contain !important;
+  flex-shrink: 0 !important;
+}
+
+.bjwt-popover-item-icon-fallback {
+  font-size: 13px !important;
+  flex-shrink: 0 !important;
+}
+
+.bjwt-popover-check {
+  color: #579dff !important;
+  font-size: 13px !important;
+  font-weight: bold !important;
+  flex-shrink: 0 !important;
+}
+
+/* Story Points 表單與晶片 */
+.bjwt-popover-form-points {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.bjwt-popover-input-group {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+}
+
+.bjwt-popover-input-label {
+  font-size: 11px !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+}
+
+.bjwt-popover-input {
+  width: 100% !important;
+  height: 32px !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--ds-border, #3b444c) !important;
+  border-radius: 4px !important;
+  background: var(--ds-surface, #1d2125) !important;
+  color: var(--ds-text, #dee4ea) !important;
+  font-size: 13px !important;
+  box-sizing: border-box !important;
+  outline: none !important;
+}
+
+.bjwt-popover-input:focus {
+  border-color: #579dff !important;
+  box-shadow: 0 0 0 2px rgba(87, 157, 255, 0.25) !important;
+}
+
+.bjwt-popover-quick-chips {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 5px !important;
+}
+
+.bjwt-popover-chip {
+  padding: 2px 7px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--ds-border, #3b444c) !important;
+  border-radius: 4px !important;
+  color: var(--ds-text, #dee4ea) !important;
+  cursor: pointer !important;
+  transition: all 0.1s ease !important;
+}
+
+.bjwt-popover-chip:hover {
+  background: #0c66e4 !important;
+  border-color: #0c66e4 !important;
+  color: #ffffff !important;
+}
+
+.bjwt-popover-chip.bjwt-chip-clear {
+  color: #f87171 !important;
+}
+
+.bjwt-popover-chip.bjwt-chip-clear:hover {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
+}
+
+.bjwt-popover-actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  margin-top: 4px !important;
+}
+
+.bjwt-popover-btn {
+  height: 28px !important;
+  padding: 0 12px !important;
+  border-radius: 4px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.12s ease !important;
+}
+
+.bjwt-popover-cancel-btn {
+  background: none !important;
+  border: 1px solid var(--ds-border, #3b444c) !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+}
+
+.bjwt-popover-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--ds-text, #dee4ea) !important;
+}
+
+.bjwt-popover-save-btn {
+  background: #0c66e4 !important;
+  border: 1px solid #0c66e4 !important;
+  color: #ffffff !important;
+}
+
+.bjwt-popover-save-btn:hover {
+  background: #0055cc !important;
+  border-color: #0055cc !important;
+}
+
+/* 經辦人搜尋與滾動 */
+.bjwt-popover-search-box {
+  margin-bottom: 4px !important;
+}
+
+.bjwt-popover-search-input {
+  width: 100% !important;
+  height: 28px !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--ds-border, #3b444c) !important;
+  border-radius: 4px !important;
+  background: var(--ds-surface, #1d2125) !important;
+  color: var(--ds-text, #dee4ea) !important;
+  font-size: 12px !important;
+  box-sizing: border-box !important;
+  outline: none !important;
+}
+
+.bjwt-popover-search-input:focus {
+  border-color: #579dff !important;
+  box-shadow: 0 0 0 2px rgba(87, 157, 255, 0.25) !important;
+}
+
+.bjwt-popover-assignee-info {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  flex: 1 1 auto !important;
+}
+
+.bjwt-popover-item-sub {
+  font-size: 10px !important;
+  color: var(--ds-text-subtle, #9fadbc) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+

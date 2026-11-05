@@ -161,7 +161,7 @@
    * @param {Object|null} [nativeFilter=null] - 原生篩選狀態物件
    */
   function renderActiveSprintBranch(item, nativeFilter = null) {
-    const { TextUtils, SprintStatsService, FilterService, FrontendFilterService, FilterToolbarComponent, IssueStore, IssueCardComponent, IssueModalComponent, LayoutManager } = BetterJira;
+    const { TextUtils, SprintStatsService, FilterService, FrontendFilterService, FilterToolbarComponent, IssueStore, IssueCardComponent, IssueModalComponent, QuickEditPopoverComponent, LayoutManager } = BetterJira;
     const { cleanSprintTitle, cleanSummaryText, escapeHtml } = TextUtils;
     const { calculateSprintStatistics } = SprintStatsService;
     const { getNativeBacklogFilterState } = FilterService;
@@ -404,6 +404,18 @@
         visibleIssues.find((i) => i.key === issueKey) ||
         sprintData.issues.find((i) => i.key === issueKey);
       const handleActivate = (e) => {
+        // 檢查是否點擊了四個快速編輯欄位 (狀態、StoryPoint、優先度、指派人員)
+        const quickEditTarget = e.target && e.target.closest ? e.target.closest('[data-bjwt-quick-edit]') : null;
+        if (quickEditTarget) {
+          e.preventDefault();
+          e.stopPropagation();
+          const editType = quickEditTarget.getAttribute('data-bjwt-quick-edit');
+          if (QuickEditPopoverComponent && typeof QuickEditPopoverComponent.open === 'function') {
+            QuickEditPopoverComponent.open(quickEditTarget, issueKey, editType, issueObj);
+          }
+          return;
+        }
+
         e.preventDefault();
         e.stopPropagation();
         if (issueKey) {
