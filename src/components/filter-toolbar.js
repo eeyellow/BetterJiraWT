@@ -24,6 +24,35 @@
     });
   }
 
+  /**
+   * 強制設定下拉選單 DOM 元素的顯示狀態
+   * 同時使用 style.setProperty(..., 'important') 與 style.display，
+   * 徹底解決瀏覽器 CSSOM 規範中普通 style.display 無法覆蓋 inline !important 的死鎖問題
+   *
+   * @param {HTMLElement} menu - 下拉選單元素
+   * @param {boolean} isVisible - 是否顯示
+   */
+  function setMenuDisplay(menu, isVisible) {
+    if (!menu) return;
+    if (isVisible) {
+      menu.classList.remove('hidden');
+      if (menu.style) {
+        menu.style.display = 'flex';
+        if (typeof menu.style.setProperty === 'function') {
+          menu.style.setProperty('display', 'flex', 'important');
+        }
+      }
+    } else {
+      menu.classList.add('hidden');
+      if (menu.style) {
+        menu.style.display = 'none';
+        if (typeof menu.style.setProperty === 'function') {
+          menu.style.setProperty('display', 'none', 'important');
+        }
+      }
+    }
+  }
+
   function closeAllDropdowns(scopeRoot) {
     activeDropdownName = null;
     const roots = [];
@@ -35,8 +64,7 @@
         dropdownEl.classList.remove('is-open');
       });
       root.querySelectorAll('.bjwt-filter-dropdown-menu').forEach((menu) => {
-        menu.classList.add('hidden');
-        menu.style.display = 'none';
+        setMenuDisplay(menu, false);
       });
       root.querySelectorAll('.bjwt-filter-dropdown-btn').forEach((btn) => {
         btn.classList.remove('is-open');
@@ -285,14 +313,23 @@
     if (!container || typeof container.addEventListener !== 'function') return;
     const { FrontendFilterService } = BetterJira;
 
-    // 1. 搜尋輸入框事件 (輸入即時過濾)
+    // 始終更新最新的回呼函式參考
+    container._bjwtOnFilterChanged = onFilterChanged;
+    const triggerFilterChanged = () => {
+      if (typeof container._bjwtOnFilterChanged === 'function') {
+        container._bjwtOnFilterChanged();
+      }
+    };
+
+    // 1. 搜尋輸入框事件 (每次重繪 innerHTML 後為新 input 節點，透過 _bjwtInputBound 避免重複綁定)
     const searchInput = container.querySelector('.bjwt-filter-search-input');
-    if (searchInput && typeof searchInput.addEventListener === 'function') {
+    if (searchInput && typeof searchInput.addEventListener === 'function' && !searchInput._bjwtInputBound) {
+      searchInput._bjwtInputBound = true;
       searchInput.addEventListener('input', (e) => {
         const val = e.target.value;
         const cursorPos = e.target.selectionStart;
         FrontendFilterService.setKeyword(val);
-        if (onFilterChanged) onFilterChanged();
+        triggerFilterChanged();
 
         // 重新渲染後恢復游標與焦點
         const nextInput = container.querySelector('.bjwt-filter-search-input');
@@ -310,19 +347,26 @@
         if (e.key === 'Escape') {
           e.preventDefault();
           FrontendFilterService.setKeyword('');
-          if (onFilterChanged) onFilterChanged();
+          triggerFilterChanged();
         }
       });
     }
 
-    // 2. 容器層級事件委派 (Click Event Delegation)
+    // 2. 容器層級事件委派 (Click / Change Event Delegation)
+    // 嚴格確保同一個持久容器 (例如 globalToolbar) 終生只註冊唯一一次監聽器，
+    // 徹底杜絕多次重繪後累積偶數個 click 監聽器導致「點一下觸發兩次 Toggle 而瞬間關閉」的根因！
+    if (container._bjwtDelegatedEventsBound) {
+      return;
+    }
+    container._bjwtDelegatedEventsBound = true;
+
     container.addEventListener('click', (e) => {
       // (a) 清除關鍵字按鈕
       const clearKwBtn = e.target.closest('.bjwt-filter-clear-kw-btn');
       if (clearKwBtn) {
         e.stopPropagation();
         FrontendFilterService.setKeyword('');
-        if (onFilterChanged) onFilterChanged();
+        triggerFilterChanged();
         return;
       }
 
@@ -332,7 +376,7 @@
         e.stopPropagation();
         closeAllDropdowns();
         FrontendFilterService.clearAll();
-        if (onFilterChanged) onFilterChanged();
+        triggerFilterChanged();
         return;
       }
 
@@ -352,13 +396,11 @@
           activeDropdownName = dropdownType;
           if (dropdownEl) dropdownEl.classList.add('is-open');
           btn.classList.add('is-open');
-          menu.classList.remove('hidden');
-          menu.style.display = 'flex';
+          setMenuDisplay(menu, true);
         } else if (isCurrentlyOpen && menu) {
           if (dropdownEl) dropdownEl.classList.remove('is-open');
           btn.classList.remove('is-open');
-          menu.classList.add('hidden');
-          menu.style.display = 'none';
+          setMenuDisplay(menu, false);
         }
         return;
       }
@@ -384,7 +426,7 @@
             FrontendFilterService.toggleType(val);
           }
 
-          if (onFilterChanged) onFilterChanged();
+          triggerFilterChanged();
         }
         return;
       }
@@ -418,7 +460,7 @@
         } else if (filterType === 'type') {
           FrontendFilterService.toggleType(val);
         }
-        if (onFilterChanged) onFilterChanged();
+        triggerFilterChanged();
       }
     });
   }

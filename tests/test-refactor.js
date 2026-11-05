@@ -1875,6 +1875,29 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(mockDropdownMenu.classList.contains('hidden'), '選單應加上 hidden class');
   assert.strictEqual(mockDropdownMenu.style.display, 'none', '選單 style.display 應設為 none');
 
+  // (4) 測試防重複綁定與 CSSOM !important 覆蓋：
+  // 模擬 globalToolbar 多次重繪並重複呼叫 bindToolbarEvents (偶數次)，驗證點擊按鈕仍能正常開啟而不被偶數次 Toggle 抵消關閉
+  let lastImportantProp = null;
+  mockDropdownMenu.style.setProperty = (prop, val, priority) => {
+    lastImportantProp = { prop, val, priority };
+  };
+  FilterToolbarComponent.bindToolbarEvents(mockToolbarContainer, () => { filterChangedCallCount++; });
+  FilterToolbarComponent.bindToolbarEvents(mockToolbarContainer, () => { filterChangedCallCount++; });
+  FilterToolbarComponent.bindToolbarEvents(mockToolbarContainer, () => { filterChangedCallCount++; });
+
+  mockToolbarContainer.dispatchEvent(createEvent('click', mockDropdownBtn));
+  assert.strictEqual(
+    FilterToolbarComponent.getActiveDropdownName(),
+    'assignee',
+    '多次呼叫 bindToolbarEvents 後，點擊按鈕仍應只觸發一次並正常開啟選單 (不可被重複 listener 抵消關閉)'
+  );
+  assert.deepStrictEqual(
+    lastImportantProp,
+    { prop: 'display', val: 'flex', priority: 'important' },
+    '開啟選單時應呼叫 style.setProperty("display", "flex", "important") 以覆蓋初始 inline !important'
+  );
+  FilterToolbarComponent.closeAllDropdowns(mockToolbarContainer);
+
   console.log('✓ 純前端搜尋篩選服務與工具列檢查通過！');
 
   console.log('--- 測試 21: 自訂經辦人名單 (Email 與名稱) 設定、IndexedDB 儲存與純前端篩選檢查 ---');

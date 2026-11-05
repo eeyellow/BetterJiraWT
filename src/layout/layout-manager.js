@@ -208,16 +208,22 @@
     globalToolbar.setAttribute('data-bjwt-non-sprint-child', 'true');
 
     // 檢查工具列渲染簽名 (Signature)，若資料與篩選條件未改變，絕不銷毀並重建 DOM，杜絕點擊被重繪打斷
-    const activeDropdown = (FilterToolbarComponent && typeof FilterToolbarComponent.getActiveDropdownName === 'function')
-      ? FilterToolbarComponent.getActiveDropdownName()
-      : null;
     const filterState = (BetterJira.FrontendFilterService && typeof BetterJira.FrontendFilterService.getState === 'function')
       ? BetterJira.FrontendFilterService.getState()
       : {};
+    const customAssigneesCount =
+      (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.getCustomAssignees === 'function')
+        ? (BetterJira.AssigneeUtils.getCustomAssignees() || []).length
+        : 0;
+    const projectTypesCount =
+      (BetterJira.IssueStore && typeof BetterJira.IssueStore.getProjectIssueTypes === 'function')
+        ? (BetterJira.IssueStore.getProjectIssueTypes() || []).length
+        : 0;
     const toolbarSig = JSON.stringify({
       total: allBoardIssues.length,
       filtered: filteredBoardIssues.length,
-      activeDropdown,
+      customAssigneesCount,
+      projectTypesCount,
       kw: filterState.keyword || '',
       ass: filterState.selectedAssignees || [],
       st: filterState.selectedStatuses || [],
