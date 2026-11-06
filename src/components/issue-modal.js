@@ -630,15 +630,18 @@
 
           const cacheUpdate = {
             key: issueKey,
-            summary: newSummary
+            summary: newSummary,
+            isUserEdit: true
           };
           if (pointsChanged) {
             cacheUpdate.storyPoints = newPoints;
           }
           IssueStore.mergeAndCacheIssue(cacheUpdate);
 
-          const { LayoutManager } = BetterJira;
-          if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
+          const { LayoutManager, QuickEditPopoverComponent } = BetterJira;
+          if (QuickEditPopoverComponent && typeof QuickEditPopoverComponent.triggerImmediateUiRefresh === 'function') {
+            QuickEditPopoverComponent.triggerImmediateUiRefresh();
+          } else if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
             LayoutManager.scheduleLayoutRefresh();
           }
 

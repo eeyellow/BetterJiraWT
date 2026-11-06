@@ -160,8 +160,36 @@
    * 全域人員目錄與頭像反查快取映射
    */
   const registeredAssigneesMap = new Map(); // key: cleanName.toLowerCase()
+  const emailToUserMap = new Map();         // key: email.toLowerCase()
   const avatarToUserMap = new Map();        // key: normalizedAvatarUrl
   const initialsToUserMap = new Map();      // key: initials.toUpperCase()
+
+  /**
+   * 嘗試從 Atlassian / Jira 頭像 URL 中提取 Account ID (若存在)
+   *
+   * @param {string} url - 頭像網址
+   * @returns {string} 提取出的 accountId 或空字串
+   */
+  function extractAccountIdFromAvatarUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    if (/issuetype|\/type\/|priority|status/i.test(url)) return '';
+    try {
+      const baseOrigin = typeof window !== 'undefined' && window.location ? window.location.origin : 'https://swpc.atlassian.net';
+      const u = new URL(url, baseOrigin);
+      const qId = u.searchParams.get('accountId') || u.searchParams.get('ownerId');
+      if (qId && qId.trim()) return qId.trim();
+      // Atlassian Cloud: https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/<accountId>/...
+      if (/atl-paas\.net/i.test(u.hostname)) {
+        const segs = u.pathname.split('/').filter(Boolean);
+        if (segs.length > 0 && segs[0].toLowerCase() !== 'initials' && segs[0].length >= 6) {
+          return decodeURIComponent(segs[0]);
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return '';
+  }
 
   /**
    * 註冊人員資料至人員目錄與頭像反查表
@@ -170,9 +198,12 @@
    * @param {string} userObj.name - 經辦人完整姓名
    * @param {string} [userObj.avatar=''] - 頭像圖片網址
    * @param {string} [userObj.initials=''] - 頭像縮寫
+   * @param {string} [userObj.accountId=''] - Jira Cloud Account ID
+   * @param {string} [userObj.username=''] - Jira Server/DC 登入帳號名稱
+   * @param {string} [userObj.email=''] - 電子郵件
    * @returns {Object|null} 註冊後的使用者物件
    */
-  function registerAssignee({ name, avatar = '', initials = '' }) {
+  function registerAssignee({ name, avatar = '', initials = '', accountId = '', username = '', email = '' }) {
     if (!name || typeof name !== 'string') return null;
     const cleanName = cleanAssigneeLabel(name);
     if (!cleanName || isUnassignedText(cleanName) || cleanName === '已指派') {
@@ -182,20 +213,33 @@
     const normName = cleanName.toLowerCase();
     const normAvatar = avatar ? normalizeAvatarUrl(avatar) : '';
     const cleanInitials = initials ? initials.trim().toUpperCase() : getDisplayInitialsForIssue({ assigneeName: cleanName });
+    const resolvedAccId = (accountId && String(accountId).trim()) || extractAccountIdFromAvatarUrl(avatar) || '';
+    const cleanUsername = username ? String(username).trim() : '';
+    const cleanEmail = email ? String(email).trim() : '';
 
-    let existing = registeredAssigneesMap.get(normName);
+    let existing = registeredAssigneesMap.get(normName) || (cleanEmail ? emailToUserMap.get(cleanEmail.toLowerCase()) : null);
     if (!existing) {
       existing = {
         name: cleanName,
         avatar: avatar || '',
-        initials: cleanInitials
+        initials: cleanInitials,
+        accountId: resolvedAccId,
+        username: cleanUsername,
+        email: cleanEmail
       };
       registeredAssigneesMap.set(normName, existing);
     } else {
-      if (!existing.avatar && avatar) existing.avatar = avatar;
+      if (avatar && !/issuetype|\/type\//i.test(avatar)) existing.avatar = avatar;
       if (!existing.initials && cleanInitials) existing.initials = cleanInitials;
+      if (resolvedAccId) existing.accountId = resolvedAccId;
+      if (cleanUsername) existing.username = cleanUsername;
+      if (cleanEmail) existing.email = cleanEmail;
+      registeredAssigneesMap.set(normName, existing);
     }
 
+    if (existing.email) {
+      emailToUserMap.set(existing.email.toLowerCase(), existing);
+    }
     if (normAvatar) {
       avatarToUserMap.set(normAvatar, existing);
     }
@@ -211,6 +255,52 @@
     });
 
     return existing;
+  }
+
+  /**
+   * 依名稱、Email 或 AccountId 從已註冊目錄中查找最匹配的使用者資訊
+   *
+   * @param {Object|string} hint - 名稱字串或 { name, email, accountId, username }
+   * @returns {Object|null}
+   */
+  function findRegisteredUser(hint) {
+    if (!hint) return null;
+    const name = typeof hint === 'string' ? hint.trim() : String(hint.name || '').trim();
+    const email = typeof hint === 'object' && hint.email ? String(hint.email).trim().toLowerCase() : '';
+    const accountId = typeof hint === 'object' && hint.accountId ? String(hint.accountId).trim() : '';
+
+    if (accountId) {
+      for (const u of registeredAssigneesMap.values()) {
+        if (u.accountId === accountId) return u;
+      }
+    }
+    if (email && emailToUserMap.has(email)) {
+      return emailToUserMap.get(email);
+    }
+    const cleanName = cleanAssigneeLabel(name).toLowerCase();
+    if (cleanName && registeredAssigneesMap.has(cleanName)) {
+      return registeredAssigneesMap.get(cleanName);
+    }
+    // 透過 matchCustomAssignee 模糊比對姓名、Email 前綴或縮寫
+    const memberObj = { name: name || email.split('@')[0], email };
+    if (memberObj.name) {
+      for (const u of registeredAssigneesMap.values()) {
+        if (
+          matchCustomAssignee(
+            {
+              assigneeName: u.name,
+              assigneeEmail: u.email,
+              assigneeInitials: u.initials,
+              assigneeAvatar: u.avatar
+            },
+            memberObj
+          )
+        ) {
+          return u;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -376,16 +466,16 @@
           }))
       : [];
 
-    // 自動為每位自訂成員註冊縮寫與名稱
+    // 自動為每位自訂成員註冊縮寫、Email 與名稱
     customAssigneesList.forEach((m) => {
       const initials = deriveInitialsVariants(m.name)[0] || '';
-      registerAssignee({ name: m.name, initials, avatar: '' });
+      const regUser = registerAssignee({ name: m.name, initials, avatar: '', email: m.email || '' });
       if (m.email) {
         const emailPrefix = m.email.split('@')[0];
         const cleanEmailPrefix = emailPrefix.replace(/[._-]+/g, ' ');
         deriveInitialsVariants(cleanEmailPrefix).forEach((variant) => {
           if (variant && !initialsToUserMap.has(variant)) {
-            initialsToUserMap.set(variant, { name: m.name, initials, avatar: '' });
+            initialsToUserMap.set(variant, regUser || { name: m.name, initials, avatar: '', email: m.email });
           }
         });
       }
@@ -477,7 +567,9 @@
     deriveInitialsVariants,
     getDisplayInitialsForIssue,
     normalizeAvatarUrl,
+    extractAccountIdFromAvatarUrl,
     registerAssignee,
+    findRegisteredUser,
     resolveUserByAvatar,
     resolveUserByInitials,
     getAllRegisteredAssignees,

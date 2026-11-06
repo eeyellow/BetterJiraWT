@@ -46,6 +46,66 @@
   let cachedProjectIssueTypes = [];
 
   /**
+   * 記錄使用者透過 UI (QuickEditPopover / IssueModal) 主動修改過的欄位覆寫值 (key -> overrides)
+   * 確保修改後在背景原生 DOM 尚未刷新前，不會被 CardDomParser 的舊 DOM 快照逆向覆蓋。
+   * @type {Map<string, Object>}
+   */
+  const userOverridesMap = new Map();
+
+  /**
+   * 將更新後的完整卡片物件同步至所有衝刺快取池 (activeSprintCache 與 loadedHistoricalSprints)
+   *
+   * @param {string} key - 大寫卡片編號
+   * @param {Object} merged - 最新融合後的卡片物件
+   */
+  function syncMergedIssueToSprintCaches(key, merged) {
+    if (!key || !merged) return;
+
+    // 1. 同步至未結束衝刺快取 (activeSprintCache)
+    activeSprintCache.forEach((cached) => {
+      if (!cached) return;
+      if (cached.masterIssuesMap instanceof Map && cached.masterIssuesMap.has(key)) {
+        cached.masterIssuesMap.set(key, merged);
+      }
+      const replaceInArray = (arr) => {
+        if (!Array.isArray(arr)) return;
+        for (let i = 0; i < arr.length; i++) {
+          if (arr[i] && String(arr[i].key || '').toUpperCase() === key) {
+            arr[i] = merged;
+          }
+        }
+      };
+      replaceInArray(cached.allApiIssues);
+      replaceInArray(cached.rawIssues);
+      replaceInArray(cached.issues);
+    });
+
+    // 2. 同步至已載入之歷史衝刺快取 (loadedHistoricalSprints)
+    loadedHistoricalSprints.forEach((hist) => {
+      if (hist && Array.isArray(hist.issues)) {
+        for (let i = 0; i < hist.issues.length; i++) {
+          if (hist.issues[i] && String(hist.issues[i].key || '').toUpperCase() === key) {
+            hist.issues[i] = merged;
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * 清除指定卡片或全部卡片的使用者手動覆寫鎖定 (例如點擊「重新整理」強制從伺服器同步時呼叫)
+   *
+   * @param {string} [issueKey] - 若指定則僅清除該張卡片，未指定則清除全部
+   */
+  function clearUserOverrides(issueKey = null) {
+    if (issueKey) {
+      userOverridesMap.delete(String(issueKey).toUpperCase());
+    } else {
+      userOverridesMap.clear();
+    }
+  }
+
+  /**
    * 將原生 DOM 卡片與 API 卡片資料融合並存入 issueMetadataMap
    *
    * @param {Object} primaryIss - 主要卡片物件 (最新解析或傳入者)
@@ -55,29 +115,105 @@
   function mergeAndCacheIssue(primaryIss, secondaryIss = null) {
     if (!primaryIss || !primaryIss.key) return primaryIss;
     const { cleanSummaryText, isTruncatedDuplicateOf } = BetterJira.TextUtils;
-    const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants } = BetterJira.AssigneeUtils;
+    const { cleanAssigneeLabel, isUnassignedText, deriveInitialsVariants, getDisplayInitialsForIssue } = BetterJira.AssigneeUtils;
 
     const key = primaryIss.key.toUpperCase();
     const existing = secondaryIss || issueMetadataMap.get(key) || null;
+
+    // 判斷是否為使用者主動編輯或顯式局部欄位更新 (非原生 DOM 掃描亦非批次 API 初始化)
+    const isExplicitUserUpdate = Boolean(
+      primaryIss.isUserEdit ||
+      (!primaryIss.fromDom && !primaryIss._isFromDom && !primaryIss._isFromApi && existing && !primaryIss.id)
+    );
+
+    if (isExplicitUserUpdate) {
+      const prevOverrides = userOverridesMap.get(key) || {};
+      const nextOverrides = { ...prevOverrides };
+
+      if ('statusName' in primaryIss && primaryIss.statusName !== undefined) {
+        nextOverrides.statusName = primaryIss.statusName;
+      }
+      if ('statusCategory' in primaryIss && primaryIss.statusCategory !== undefined && primaryIss.statusCategory !== '') {
+        nextOverrides.statusCategory = primaryIss.statusCategory;
+      }
+      if ('storyPoints' in primaryIss && primaryIss.storyPoints !== undefined) {
+        nextOverrides.storyPoints = primaryIss.storyPoints;
+      }
+      if ('priorityName' in primaryIss && primaryIss.priorityName !== undefined) {
+        nextOverrides.priorityName = primaryIss.priorityName;
+        nextOverrides.priorityIcon = primaryIss.priorityIcon !== undefined ? primaryIss.priorityIcon : '';
+        nextOverrides.prioritySvg = primaryIss.prioritySvg !== undefined ? primaryIss.prioritySvg : '';
+      }
+      if ('issueTypeName' in primaryIss && primaryIss.issueTypeName !== undefined) {
+        nextOverrides.issueTypeName = primaryIss.issueTypeName;
+        if ('issueTypeIcon' in primaryIss && primaryIss.issueTypeIcon !== undefined) {
+          nextOverrides.issueTypeIcon = primaryIss.issueTypeIcon;
+        }
+      }
+      if ('assigneeName' in primaryIss || 'isUnassigned' in primaryIss) {
+        const unass =
+          primaryIss.isUnassigned !== undefined
+            ? Boolean(primaryIss.isUnassigned)
+            : isUnassignedText(primaryIss.assigneeName);
+        nextOverrides.isUnassigned = unass;
+        nextOverrides.assigneeName = unass ? '未指派' : (primaryIss.assigneeName || '未指派');
+        nextOverrides.assigneeAvatar = unass ? '' : (primaryIss.assigneeAvatar || '');
+        nextOverrides.assigneeInitials = unass
+          ? ''
+          : (primaryIss.assigneeInitials || getDisplayInitialsForIssue({ assigneeName: nextOverrides.assigneeName, isUnassigned: false }));
+        nextOverrides.assigneeBgColor = unass
+          ? ''
+          : (primaryIss.assigneeBgColor !== undefined ? primaryIss.assigneeBgColor : '');
+        if ('assigneeEmail' in primaryIss) {
+          nextOverrides.assigneeEmail = unass ? '' : (primaryIss.assigneeEmail || '');
+        }
+        if ('assigneeAccountId' in primaryIss) {
+          nextOverrides.assigneeAccountId = unass ? '' : (primaryIss.assigneeAccountId || '');
+        }
+        if ('assigneeUsername' in primaryIss) {
+          nextOverrides.assigneeUsername = unass ? '' : (primaryIss.assigneeUsername || '');
+        }
+      }
+      if ('summary' in primaryIss && primaryIss.summary !== undefined) {
+        nextOverrides.summary = primaryIss.summary;
+      }
+      if ('dueDate' in primaryIss && primaryIss.dueDate !== undefined) {
+        nextOverrides.dueDate = primaryIss.dueDate;
+      }
+
+      userOverridesMap.set(key, nextOverrides);
+    }
+
     if (!existing) {
       const copy = {
         ...primaryIss,
         key,
         assigneeTokens: Array.from(new Set(primaryIss.assigneeTokens || []))
       };
+      delete copy.isUserEdit;
       issueMetadataMap.set(key, copy);
+      syncMergedIssueToSprintCaches(key, copy);
       return copy;
     }
 
     const domSide = primaryIss.fromDom ? primaryIss : existing.fromDom ? existing : primaryIss;
     const apiSide = !primaryIss.fromDom ? primaryIss : !existing.fromDom ? existing : null;
 
-    const isUnassigned =
-      domSide.isUnassigned !== undefined
-        ? domSide.isUnassigned
-        : apiSide && apiSide.isUnassigned !== undefined
-        ? apiSide.isUnassigned
-        : isUnassignedText(primaryIss.assigneeName);
+    // 若 primaryIss 是非 DOM 的更新 (API 或使用者編輯) 且明確帶有 isUnassigned 或 assigneeName，優先以 primaryIss 為準
+    let isUnassigned;
+    if (!primaryIss.fromDom && (primaryIss.isUnassigned !== undefined || primaryIss.assigneeName !== undefined)) {
+      isUnassigned =
+        primaryIss.isUnassigned !== undefined
+          ? Boolean(primaryIss.isUnassigned)
+          : isUnassignedText(primaryIss.assigneeName);
+    } else {
+      isUnassigned =
+        domSide.isUnassigned !== undefined
+          ? domSide.isUnassigned
+          : apiSide && apiSide.isUnassigned !== undefined
+          ? apiSide.isUnassigned
+          : isUnassignedText(primaryIss.assigneeName);
+    }
 
     let assigneeName = '未指派';
     if (!isUnassigned) {
@@ -89,10 +225,14 @@
         domSide && !isUnassignedText(domSide.assigneeName) && domSide.assigneeName !== '已指派'
           ? domSide.assigneeName
           : '';
-      assigneeName =
-        apiName && apiName.length >= domName.length
-          ? apiName
-          : domName || apiName;
+      if (!primaryIss.fromDom && apiName) {
+        assigneeName = apiName;
+      } else {
+        assigneeName =
+          apiName && apiName.length >= domName.length
+            ? apiName
+            : domName || apiName;
+      }
 
       if (!assigneeName) {
         const av =
@@ -109,8 +249,16 @@
       }
     }
 
+    const isAssigneeChangedByPrimary =
+      !primaryIss.fromDom &&
+      primaryIss.assigneeName &&
+      existing.assigneeName &&
+      primaryIss.assigneeName.toLowerCase() !== existing.assigneeName.toLowerCase();
+
     const assigneeInitials = isUnassigned
       ? ''
+      : isAssigneeChangedByPrimary
+      ? primaryIss.assigneeInitials || deriveInitialsVariants(assigneeName)[0] || ''
       : (domSide && domSide.assigneeInitials) ||
         (existing && existing.assigneeInitials) ||
         (primaryIss && primaryIss.assigneeInitials) ||
@@ -119,6 +267,8 @@
 
     const assigneeBgColor = isUnassigned
       ? ''
+      : isAssigneeChangedByPrimary
+      ? primaryIss.assigneeBgColor || ''
       : (domSide && domSide.assigneeBgColor) ||
         (existing && existing.assigneeBgColor) ||
         (primaryIss && primaryIss.assigneeBgColor) ||
@@ -126,12 +276,32 @@
 
     const assigneeAvatar = isUnassigned
       ? ''
+      : isAssigneeChangedByPrimary
+      ? (primaryIss.assigneeAvatar && !/issuetype|\/type\//i.test(primaryIss.assigneeAvatar) ? primaryIss.assigneeAvatar : '')
       : (primaryIss.assigneeAvatar && !/issuetype|\/type\//i.test(primaryIss.assigneeAvatar)
           ? primaryIss.assigneeAvatar
           : '') ||
         (existing.assigneeAvatar && !/issuetype|\/type\//i.test(existing.assigneeAvatar)
           ? existing.assigneeAvatar
           : '');
+
+    const assigneeAccountId = isUnassigned
+      ? ''
+      : isAssigneeChangedByPrimary
+      ? primaryIss.assigneeAccountId || ''
+      : primaryIss.assigneeAccountId || existing.assigneeAccountId || '';
+
+    const assigneeUsername = isUnassigned
+      ? ''
+      : isAssigneeChangedByPrimary
+      ? primaryIss.assigneeUsername || ''
+      : primaryIss.assigneeUsername || existing.assigneeUsername || '';
+
+    const assigneeEmail = isUnassigned
+      ? ''
+      : isAssigneeChangedByPrimary
+      ? primaryIss.assigneeEmail || ''
+      : primaryIss.assigneeEmail || existing.assigneeEmail || '';
 
     if (
       assigneeName &&
@@ -143,13 +313,16 @@
       BetterJira.AssigneeUtils.registerAssignee({
         name: assigneeName,
         avatar: assigneeAvatar,
-        initials: assigneeInitials
+        initials: assigneeInitials,
+        accountId: assigneeAccountId,
+        username: assigneeUsername,
+        email: assigneeEmail
       });
     }
 
     const tokenSet = new Set([
-      ...(primaryIss.assigneeTokens || []),
-      ...(existing.assigneeTokens || [])
+      ...(isAssigneeChangedByPrimary ? [] : (existing.assigneeTokens || [])),
+      ...(primaryIss.assigneeTokens || [])
     ]);
     if (!isUnassigned) {
       if (assigneeName) tokenSet.add(assigneeName.toLowerCase());
@@ -157,6 +330,43 @@
       deriveInitialsVariants(assigneeName, assigneeInitials).forEach((v) =>
         tokenSet.add(v.toLowerCase())
       );
+    }
+
+    // 狀態欄位：若 primaryIss 為非 DOM 之明確更新，優先採用 primaryIss 的最新狀態
+    const resolvedStatusName =
+      (!primaryIss.fromDom && primaryIss.statusName && primaryIss.statusName !== '未知狀態')
+        ? primaryIss.statusName
+        : (domSide && domSide.statusName) || primaryIss.statusName || existing.statusName;
+
+    const resolvedStatusCategory =
+      (!primaryIss.fromDom && primaryIss.statusCategory)
+        ? primaryIss.statusCategory
+        : (domSide && domSide.statusCategory) || primaryIss.statusCategory || existing.statusCategory;
+
+    // 優先度欄位：若優先度名稱已變更，避免殘留舊優先度的 SVG
+    const isPriorityChanged =
+      primaryIss.priorityName &&
+      existing.priorityName &&
+      primaryIss.priorityName.toLowerCase() !== existing.priorityName.toLowerCase();
+
+    const resolvedPriorityName = primaryIss.priorityName || existing.priorityName;
+    const resolvedPriorityIcon = isPriorityChanged
+      ? (primaryIss.priorityIcon || '')
+      : (primaryIss.priorityIcon || existing.priorityIcon);
+    const resolvedPrioritySvg = isPriorityChanged
+      ? (primaryIss.prioritySvg || '')
+      : (primaryIss.prioritySvg !== undefined ? primaryIss.prioritySvg : existing.prioritySvg);
+
+    // Story Points 欄位：支援非 DOM 明確傳入 null 清空點數
+    let resolvedStoryPoints;
+    if (!primaryIss.fromDom && 'storyPoints' in primaryIss && primaryIss.storyPoints !== undefined) {
+      resolvedStoryPoints = primaryIss.storyPoints;
+    } else if (primaryIss.storyPoints !== null && primaryIss.storyPoints !== undefined) {
+      resolvedStoryPoints = primaryIss.storyPoints;
+    } else if (existing.storyPoints !== null && existing.storyPoints !== undefined) {
+      resolvedStoryPoints = existing.storyPoints;
+    } else {
+      resolvedStoryPoints = null;
     }
 
     const merged = {
@@ -167,40 +377,58 @@
         apiSide && apiSide.summary && isTruncatedDuplicateOf(primaryIss.summary, apiSide.summary)
           ? apiSide.summary
           : primaryIss.summary || existing.summary,
-      statusName: (domSide && domSide.statusName) || primaryIss.statusName || existing.statusName,
-      statusCategory:
-        (domSide && domSide.statusCategory) || primaryIss.statusCategory || existing.statusCategory,
+      statusName: resolvedStatusName,
+      statusCategory: resolvedStatusCategory,
       issueTypeIcon: primaryIss.issueTypeIcon || existing.issueTypeIcon,
       issueTypeName:
         (apiSide && apiSide.issueTypeName) ||
         primaryIss.issueTypeName ||
         existing.issueTypeName ||
         '',
-      priorityIcon: primaryIss.priorityIcon || existing.priorityIcon,
-      prioritySvg: primaryIss.prioritySvg || existing.prioritySvg,
-      priorityName: primaryIss.priorityName || existing.priorityName,
+      priorityIcon: resolvedPriorityIcon,
+      prioritySvg: resolvedPrioritySvg,
+      priorityName: resolvedPriorityName,
       parentKey: primaryIss.parentKey || existing.parentKey,
       parentSummary: primaryIss.parentSummary || existing.parentSummary,
       dueDate: primaryIss.dueDate || existing.dueDate,
-      storyPoints:
-        primaryIss.storyPoints !== null && primaryIss.storyPoints !== undefined
-          ? primaryIss.storyPoints
-          : existing.storyPoints !== null && existing.storyPoints !== undefined
-          ? existing.storyPoints
-          : null,
+      storyPoints: resolvedStoryPoints,
       isUnassigned,
       assigneeName,
       assigneeInitials,
       assigneeBgColor,
       assigneeAvatar,
+      assigneeAccountId,
+      assigneeUsername,
+      assigneeEmail,
       assigneeTokens: Array.from(tokenSet),
       fromDom: Boolean(primaryIss.fromDom || existing.fromDom),
       _isFromDom: Boolean(primaryIss._isFromDom || existing._isFromDom),
       issueId: primaryIss.issueId || existing.issueId || '',
       id: primaryIss.id || existing.id || primaryIss.key
     };
+    delete merged.isUserEdit;
+
+    // 若使用者曾透過 UI 明確編輯過此卡片的欄位，套用 userOverridesMap 防止被背景未刷新的原生 DOM 覆蓋
+    const userOverrides = userOverridesMap.get(key);
+    if (userOverrides) {
+      Object.assign(merged, userOverrides);
+      if (userOverrides.isUnassigned) {
+        merged.assigneeTokens = [];
+      } else if (userOverrides.assigneeName && userOverrides.assigneeName !== '未指派') {
+        const overrideTokens = new Set(merged.assigneeTokens || []);
+        overrideTokens.add(userOverrides.assigneeName.toLowerCase());
+        if (userOverrides.assigneeInitials) {
+          overrideTokens.add(userOverrides.assigneeInitials.toLowerCase());
+        }
+        deriveInitialsVariants(userOverrides.assigneeName, userOverrides.assigneeInitials).forEach((v) =>
+          overrideTokens.add(v.toLowerCase())
+        );
+        merged.assigneeTokens = Array.from(overrideTokens);
+      }
+    }
 
     issueMetadataMap.set(key, merged);
+    syncMergedIssueToSprintCaches(key, merged);
     return merged;
   }
 
@@ -271,6 +499,8 @@
     const isUnassigned = !assigneeObj || !rawAssigneeName || isUnassignedText(rawAssigneeName);
     const assigneeName = isUnassigned ? '未指派' : rawAssigneeName;
     const assigneeAccountId = assigneeObj ? String(assigneeObj.accountId || '').trim() : '';
+    const assigneeUsername = assigneeObj ? String(assigneeObj.name || '').trim() : '';
+    const assigneeEmail = assigneeObj ? String(assigneeObj.emailAddress || '').trim() : '';
 
     const tokenList = [];
     if (!isUnassigned) {
@@ -296,6 +526,8 @@
       priorityIcon: priorityObj.iconUrl || '',
       assigneeName,
       assigneeAccountId,
+      assigneeUsername,
+      assigneeEmail,
       isUnassigned,
       assigneeInitials: isUnassigned ? '' : getDisplayInitialsForIssue({ assigneeName, isUnassigned }),
       assigneeTokens: Array.from(new Set(tokenList)),
@@ -307,7 +539,8 @@
       parentSummary:
         parentObj && parentObj.fields ? parentObj.fields.summary || '' : '',
       dueDate: cleanDueDateText(fields.duedate || ''),
-      storyPoints
+      storyPoints,
+      _isFromApi: true
     };
 
     return mergeAndCacheIssue(issueObj);
@@ -349,7 +582,10 @@
     issueMetadataMap,
     activeSprintCache,
     loadedHistoricalSprints,
-    getCachedIssue: (key) => issueMetadataMap.get(key),
+    userOverridesMap,
+    getCachedIssue: (key) => issueMetadataMap.get(String(key || '').toUpperCase()),
+    getAllIssues: () => Array.from(issueMetadataMap.values()),
+    clearUserOverrides,
     mergeAndCacheIssue,
     normalizeJiraIssue,
     appendHistoricalSprintToState,

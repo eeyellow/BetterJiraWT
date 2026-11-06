@@ -252,7 +252,7 @@
     const issuesSig = visibleIssues
       .map(
         (i) =>
-          `${i.key}:${i.summary}:${i.statusName}:${i.storyPoints ?? ''}:${i.assigneeName || ''}:${i.assigneeInitials || ''}`
+          `${i.key}:${i.summary}:${i.statusName}:${i.statusCategory || ''}:${i.storyPoints ?? ''}:${i.priorityName || ''}:${i.priorityIcon || ''}:${i.issueTypeName || ''}:${i.issueTypeIcon || ''}:${i.isUnassigned ? 'U' : 'A'}:${i.assigneeName || ''}:${i.assigneeInitials || ''}:${i.assigneeAvatar || ''}`
       )
       .join('|');
 
@@ -358,6 +358,9 @@
       refreshBtn.addEventListener('click', async () => {
         refreshBtn.disabled = true;
         refreshBtn.textContent = '同步中...';
+        if (IssueStore && typeof IssueStore.clearUserOverrides === 'function') {
+          IssueStore.clearUserOverrides();
+        }
         customView.removeAttribute('data-bjwt-render-sig');
         await syncActiveSprintIssuesFromApi(item, true);
         if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
@@ -404,14 +407,17 @@
         visibleIssues.find((i) => i.key === issueKey) ||
         sprintData.issues.find((i) => i.key === issueKey);
       const handleActivate = (e) => {
-        // 檢查是否點擊了四個快速編輯欄位 (狀態、StoryPoint、優先度、指派人員)
+        const latestIssue =
+          (IssueStore && typeof IssueStore.getCachedIssue === 'function' && IssueStore.getCachedIssue(issueKey)) ||
+          issueObj;
+        // 檢查是否點擊了快速編輯欄位 (類型、狀態、StoryPoint、優先度、指派人員)
         const quickEditTarget = e.target && e.target.closest ? e.target.closest('[data-bjwt-quick-edit]') : null;
         if (quickEditTarget) {
           e.preventDefault();
           e.stopPropagation();
           const editType = quickEditTarget.getAttribute('data-bjwt-quick-edit');
           if (QuickEditPopoverComponent && typeof QuickEditPopoverComponent.open === 'function') {
-            QuickEditPopoverComponent.open(quickEditTarget, issueKey, editType, issueObj);
+            QuickEditPopoverComponent.open(quickEditTarget, issueKey, editType, latestIssue);
           }
           return;
         }
@@ -419,7 +425,7 @@
         e.preventDefault();
         e.stopPropagation();
         if (issueKey) {
-          openHistoricalIssueDetailModal(issueKey, issueObj);
+          openHistoricalIssueDetailModal(issueKey, latestIssue);
         }
       };
       cardEl.addEventListener('click', handleActivate);

@@ -66,7 +66,45 @@
   }
 
   /**
-   * 收集看板中所有曾出現的經辦人名單 (去除重複)
+   * 立即清除各區塊渲染簽名並同步執行雙欄排版刷新 (0ms 零延遲更新 UI)
+   */
+  function triggerImmediateUiRefresh() {
+    const { LayoutManager, Constants } = BetterJira;
+    const doc = typeof document !== 'undefined' ? document : null;
+    if (doc && typeof doc.querySelectorAll === 'function') {
+      doc.querySelectorAll('.bjwt-active-sprint-custom-view, [data-bjwt-history-branch="true"]').forEach((el) => {
+        if (el && typeof el.removeAttribute === 'function') {
+          el.removeAttribute('data-bjwt-render-sig');
+        }
+      });
+      const sidebarId = (Constants && Constants.SIDEBAR_ID) || 'bjwt-sprint-sidebar';
+      const sidebar = typeof doc.getElementById === 'function' ? doc.getElementById(sidebarId) : null;
+      if (sidebar && typeof sidebar.removeAttribute === 'function') {
+        sidebar.removeAttribute('data-bjwt-sig');
+      }
+      const toolbarId = (Constants && Constants.GLOBAL_FILTER_TOOLBAR_ID) || 'bjwt-global-filter-toolbar';
+      const toolbar = typeof doc.getElementById === 'function' ? doc.getElementById(toolbarId) : null;
+      if (toolbar && typeof toolbar.removeAttribute === 'function') {
+        toolbar.removeAttribute('data-bjwt-toolbar-sig');
+      }
+    }
+
+    if (LayoutManager) {
+      if (typeof LayoutManager.applyTwoColumnBacklogLayout === 'function') {
+        try {
+          LayoutManager.applyTwoColumnBacklogLayout();
+        } catch {
+          // ignore
+        }
+      }
+      if (typeof LayoutManager.scheduleLayoutRefresh === 'function') {
+        LayoutManager.scheduleLayoutRefresh();
+      }
+    }
+  }
+
+  /**
+   * 收集看板中所有曾出現的經辦人名單 (去除重複，並融合 Account ID、Email 與頭像資訊)
    *
    * @param {Object} currentIssue - 當前卡片資料
    * @returns {Array<Object>} 成員列表
@@ -76,19 +114,33 @@
     const candidates = [];
     const seenNames = new Set();
 
-    // 1. 自訂設定經辦人名單 (最高優先)
+    const deriveInitials = (name, explicit) => {
+      if (explicit) return explicit;
+      if (AssigneeUtils && typeof AssigneeUtils.getDisplayInitialsForIssue === 'function') {
+        return AssigneeUtils.getDisplayInitialsForIssue({ assigneeName: name, isUnassigned: false });
+      }
+      return String(name || '').slice(0, 2).toUpperCase();
+    };
+
+    // 1. 自訂設定經辦人名單 (最高優先，並自動融合已註冊目錄中的 accountId 與頭像)
     const customList = AssigneeUtils && typeof AssigneeUtils.getCustomAssignees === 'function'
       ? AssigneeUtils.getCustomAssignees()
       : [];
 
     customList.forEach((m) => {
-      if (m && m.name && !seenNames.has(m.name)) {
-        seenNames.add(m.name);
+      if (m && m.name && !seenNames.has(m.name.toLowerCase())) {
+        seenNames.add(m.name.toLowerCase());
+        const reg =
+          AssigneeUtils && typeof AssigneeUtils.findRegisteredUser === 'function'
+            ? AssigneeUtils.findRegisteredUser(m)
+            : null;
         candidates.push({
           name: m.name,
-          email: m.email || '',
-          initials: m.initials || m.name.slice(0, 2).toUpperCase(),
-          avatar: m.avatar || '',
+          email: m.email || (reg && reg.email) || '',
+          accountId: (m && m.accountId) || (reg && reg.accountId) || '',
+          username: (m && m.username) || (reg && reg.username) || '',
+          initials: deriveInitials(m.name, m.initials || (reg && reg.initials) || ''),
+          avatar: m.avatar || (reg && reg.avatar) || '',
           isCustom: true
         });
       }
@@ -103,35 +155,94 @@
           name &&
           name !== '未指派' &&
           name !== '已指派' &&
-          !(AssigneeUtils && AssigneeUtils.isUnassignedText(name)) &&
-          !seenNames.has(name)
+          !(AssigneeUtils && AssigneeUtils.isUnassignedText(name))
         ) {
-          seenNames.add(name);
+          const lowerName = name.toLowerCase();
+          // 若已在自訂名單中，補充其缺少的 accountId / avatar / email
+          const existingCandidate = candidates.find(
+            (c) =>
+              c.name.toLowerCase() === lowerName ||
+              (AssigneeUtils &&
+                typeof AssigneeUtils.matchCustomAssignee === 'function' &&
+                AssigneeUtils.matchCustomAssignee(iss, c))
+          );
+          if (existingCandidate) {
+            if (!existingCandidate.accountId && iss.assigneeAccountId) {
+              existingCandidate.accountId = iss.assigneeAccountId;
+            }
+            if (!existingCandidate.username && iss.assigneeUsername) {
+              existingCandidate.username = iss.assigneeUsername;
+            }
+            if (!existingCandidate.avatar && iss.assigneeAvatar) {
+              existingCandidate.avatar = iss.assigneeAvatar;
+            }
+            if (!existingCandidate.email && iss.assigneeEmail) {
+              existingCandidate.email = iss.assigneeEmail;
+            }
+          } else if (!seenNames.has(lowerName)) {
+            seenNames.add(lowerName);
+            candidates.push({
+              name,
+              email: iss.assigneeEmail || '',
+              accountId: iss.assigneeAccountId || '',
+              username: iss.assigneeUsername || '',
+              initials: deriveInitials(name, iss.assigneeInitials),
+              avatar: iss.assigneeAvatar || '',
+              isCustom: false
+            });
+          }
+        }
+      });
+    }
+
+    // 3. 從 AssigneeUtils 全域已註冊人員目錄補充
+    if (AssigneeUtils && typeof AssigneeUtils.getAllRegisteredAssignees === 'function') {
+      const regList = AssigneeUtils.getAllRegisteredAssignees() || [];
+      regList.forEach((reg) => {
+        if (!reg || !reg.name) return;
+        const lowerName = reg.name.toLowerCase();
+        const existingCandidate = candidates.find(
+          (c) =>
+            c.name.toLowerCase() === lowerName ||
+            (c.email && reg.email && c.email.toLowerCase() === reg.email.toLowerCase())
+        );
+        if (existingCandidate) {
+          if (!existingCandidate.accountId && reg.accountId) existingCandidate.accountId = reg.accountId;
+          if (!existingCandidate.username && reg.username) existingCandidate.username = reg.username;
+          if (!existingCandidate.avatar && reg.avatar) existingCandidate.avatar = reg.avatar;
+          if (!existingCandidate.email && reg.email) existingCandidate.email = reg.email;
+        } else if (!seenNames.has(lowerName)) {
+          seenNames.add(lowerName);
           candidates.push({
-            name,
-            email: iss.assigneeEmail || '',
-            initials: iss.assigneeInitials || name.slice(0, 2).toUpperCase(),
-            avatar: iss.assigneeAvatar || '',
+            name: reg.name,
+            email: reg.email || '',
+            accountId: reg.accountId || '',
+            username: reg.username || '',
+            initials: deriveInitials(reg.name, reg.initials),
+            avatar: reg.avatar || '',
             isCustom: false
           });
         }
       });
     }
 
-    // 3. 當前卡片的經辦人若不在名單中也納入
+    // 4. 當前卡片的經辦人若不在名單中也納入
     if (currentIssue && currentIssue.assigneeName) {
       const cName = currentIssue.assigneeName.trim();
       if (
         cName &&
         cName !== '未指派' &&
+        cName !== '已指派' &&
         !(AssigneeUtils && AssigneeUtils.isUnassignedText(cName)) &&
-        !seenNames.has(cName)
+        !seenNames.has(cName.toLowerCase())
       ) {
-        seenNames.add(cName);
+        seenNames.add(cName.toLowerCase());
         candidates.push({
           name: cName,
           email: currentIssue.assigneeEmail || '',
-          initials: currentIssue.assigneeInitials || cName.slice(0, 2).toUpperCase(),
+          accountId: currentIssue.assigneeAccountId || '',
+          username: currentIssue.assigneeUsername || '',
+          initials: deriveInitials(cName, currentIssue.assigneeInitials),
           avatar: currentIssue.assigneeAvatar || '',
           isCustom: false
         });
@@ -304,12 +415,11 @@
                   IssueStore.mergeAndCacheIssue({
                     key: issueKey,
                     issueTypeName: typeName,
-                    issueTypeIcon: matchedT.iconUrl || ''
+                    issueTypeIcon: matchedT.iconUrl || '',
+                    isUserEdit: true
                   });
                 }
-                if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
-                  LayoutManager.scheduleLayoutRefresh();
-                }
+                triggerImmediateUiRefresh();
                 close();
               } else {
                 btn.disabled = false;
@@ -356,7 +466,16 @@
               const transitionId = btn.getAttribute('data-transition-id');
               const matchedT = transitions.find((t) => String(t.id) === String(transitionId));
               const targetName = matchedT ? (matchedT.to && matchedT.to.name) || matchedT.name : '';
-              const targetCategory = matchedT ? (matchedT.to && matchedT.to.statusCategory && matchedT.to.statusCategory.key) || '' : '';
+              let targetCategory = matchedT ? (matchedT.to && matchedT.to.statusCategory && matchedT.to.statusCategory.key) || '' : '';
+              if (!targetCategory && targetName) {
+                if (/完成|done|closed|resolved/i.test(targetName)) {
+                  targetCategory = 'done';
+                } else if (/進行中|in progress|testing|verify|wait|開發|進行/i.test(targetName)) {
+                  targetCategory = 'indeterminate';
+                } else {
+                  targetCategory = 'new';
+                }
+              }
 
               btn.disabled = true;
               btn.textContent = '切換中...';
@@ -367,12 +486,11 @@
                   IssueStore.mergeAndCacheIssue({
                     key: issueKey,
                     statusName: targetName,
-                    statusCategory: targetCategory
+                    statusCategory: targetCategory,
+                    isUserEdit: true
                   });
                 }
-                if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
-                  LayoutManager.scheduleLayoutRefresh();
-                }
+                triggerImmediateUiRefresh();
                 close();
               } else {
                 btn.disabled = false;
@@ -463,12 +581,11 @@
             if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
               IssueStore.mergeAndCacheIssue({
                 key: issueKey,
-                storyPoints: newPts !== null && !isNaN(newPts) ? newPts : null
+                storyPoints: newPts !== null && !isNaN(newPts) ? newPts : null,
+                isUserEdit: true
               });
             }
-            if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
-              LayoutManager.scheduleLayoutRefresh();
-            }
+            triggerImmediateUiRefresh();
             close();
           } else {
             if (saveBtn) {
@@ -523,12 +640,12 @@
                 IssueStore.mergeAndCacheIssue({
                   key: issueKey,
                   priorityName: pName,
-                  priorityIcon: matchedP.iconUrl || ''
+                  priorityIcon: matchedP.iconUrl || '',
+                  prioritySvg: '',
+                  isUserEdit: true
                 });
               }
-              if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
-                LayoutManager.scheduleLayoutRefresh();
-              }
+              triggerImmediateUiRefresh();
               close();
             } else {
               btn.disabled = false;
@@ -539,8 +656,18 @@
         });
       } else if (editType === 'assignee') {
         // --- 經辦人修改 ---
-        const candidates = collectCandidateAssignees(currentIssue);
+        let candidates = collectCandidateAssignees(currentIssue);
         const currentAssignee = currentIssue.isUnassigned ? '未指派' : (currentIssue.assigneeName || '未指派');
+
+        // 在背景預先查詢此卡片在 Jira 中的可指派成員，自動補齊自訂成員的 accountId 與頭像
+        if (JiraApiService && typeof JiraApiService.fetchAssignableUsers === 'function') {
+          JiraApiService.fetchAssignableUsers(issueKey)
+            .then((apiUsers) => {
+              if (!popoverEl.isConnected || !Array.isArray(apiUsers) || apiUsers.length === 0) return;
+              candidates = collectCandidateAssignees(currentIssue);
+            })
+            .catch(() => {});
+        }
 
         function renderAssigneeList(filterKw = '') {
           const kw = filterKw.trim().toLowerCase();
@@ -638,21 +765,48 @@
               const textSpan = btn.querySelector('.bjwt-popover-item-text');
               if (textSpan) textSpan.textContent = '指派中...';
 
-              const res = await JiraApiService.updateIssueAssignee(issueKey, isUnassign ? null : targetName);
+              const res = await JiraApiService.updateIssueAssignee(
+                issueKey,
+                isUnassign ? null : targetName,
+                matchedMember ? matchedMember.accountId : null,
+                matchedMember || { name: targetName }
+              );
               if (res.success) {
+                const resolved = res.resolvedUser || null;
+                const finalAvatar = isUnassign
+                  ? ''
+                  : (resolved && resolved.avatar) || (matchedMember ? matchedMember.avatar : '');
+                const finalEmail = isUnassign
+                  ? ''
+                  : (resolved && resolved.email) || (matchedMember ? matchedMember.email : '');
+                const finalAccountId = isUnassign
+                  ? ''
+                  : (resolved && resolved.accountId) || (matchedMember ? matchedMember.accountId : '');
+                const finalUsername = isUnassign
+                  ? ''
+                  : (resolved && resolved.username) || (matchedMember ? matchedMember.username : '');
+                const finalInitials = isUnassign
+                  ? ''
+                  : (matchedMember && matchedMember.initials) ||
+                    (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.getDisplayInitialsForIssue === 'function'
+                      ? BetterJira.AssigneeUtils.getDisplayInitialsForIssue({ assigneeName: targetName, isUnassigned: false })
+                      : targetName.slice(0, 2).toUpperCase());
+
                 if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
                   IssueStore.mergeAndCacheIssue({
                     key: issueKey,
                     assigneeName: isUnassign ? '未指派' : targetName,
                     isUnassigned: isUnassign,
-                    assigneeAvatar: matchedMember ? matchedMember.avatar : '',
-                    assigneeInitials: matchedMember ? matchedMember.initials : (isUnassign ? '' : targetName.slice(0, 2).toUpperCase()),
-                    assigneeEmail: matchedMember ? matchedMember.email : ''
+                    assigneeAvatar: finalAvatar,
+                    assigneeInitials: finalInitials,
+                    assigneeBgColor: '',
+                    assigneeEmail: finalEmail,
+                    assigneeAccountId: finalAccountId,
+                    assigneeUsername: finalUsername,
+                    isUserEdit: true
                   });
                 }
-                if (LayoutManager && typeof LayoutManager.scheduleLayoutRefresh === 'function') {
-                  LayoutManager.scheduleLayoutRefresh();
-                }
+                triggerImmediateUiRefresh();
                 close();
               } else {
                 btn.disabled = false;
@@ -679,6 +833,7 @@
     open,
     close,
     positionPopover,
-    collectCandidateAssignees
+    collectCandidateAssignees,
+    triggerImmediateUiRefresh
   };
 })();

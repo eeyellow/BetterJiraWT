@@ -1117,15 +1117,233 @@
   }
 
   /**
+   * 快取專案/卡片可指派使用者清單 (projectOrIssueKey -> Array<Object>)
+   */
+  const assignableUsersCache = new Map();
+
+  /**
+   * 透過 Jira REST API 查詢指定 Issue 或條件下的可指派人員清單 (Assignable Users / User Search)
+   * 自動將查詢到的 Account ID、Username、Email、頭像註冊至 AssigneeUtils
+   *
+   * @param {string} issueKey - 卡片編號 (例如 "WMC-123")
+   * @param {string} [query=''] - 選填之搜尋關鍵字 (姓名或 Email)
+   * @returns {Promise<Array<Object>>} 正規化後的使用者陣列
+   */
+  async function fetchAssignableUsers(issueKey, query = '') {
+    if (!issueKey || typeof window === 'undefined' || typeof fetch !== 'function') return [];
+    const { AssigneeUtils } = BetterJira;
+    const projectPrefix = String(issueKey).split('-')[0].toUpperCase() || issueKey;
+    const trimmedQuery = (query || '').trim();
+    const cacheKey = trimmedQuery ? `${projectPrefix}::q::${trimmedQuery.toLowerCase()}` : `${projectPrefix}::all`;
+
+    if (assignableUsersCache.has(cacheKey)) {
+      return assignableUsersCache.get(cacheKey);
+    }
+
+    const qParam = trimmedQuery ? `&query=${encodeURIComponent(trimmedQuery)}` : '&maxResults=200';
+    const uParam = trimmedQuery ? `&username=${encodeURIComponent(trimmedQuery)}` : '&maxResults=200';
+
+    const endpoints = [
+      `/rest/api/3/user/assignable/search?issueKey=${encodeURIComponent(issueKey)}${qParam}`,
+      `/rest/api/2/user/assignable/search?issueKey=${encodeURIComponent(issueKey)}${qParam}`
+    ];
+
+    if (trimmedQuery) {
+      endpoints.push(
+        `/rest/api/2/user/assignable/search?issueKey=${encodeURIComponent(issueKey)}${uParam}`,
+        `/rest/api/3/user/search?query=${encodeURIComponent(trimmedQuery)}&maxResults=50`,
+        `/rest/api/2/user/search?query=${encodeURIComponent(trimmedQuery)}&maxResults=50`,
+        `/rest/api/2/user/search?username=${encodeURIComponent(trimmedQuery)}&maxResults=50`
+      );
+    }
+
+    for (const ep of endpoints) {
+      try {
+        const res = await fetch(`${window.location.origin}${ep}`, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            const normalized = data
+              .map((u) => {
+                if (!u) return null;
+                const displayName = String(u.displayName || u.name || u.emailAddress || '').trim();
+                const accountId = String(u.accountId || '').trim();
+                const username = String(u.name || u.key || '').trim();
+                const email = String(u.emailAddress || '').trim();
+                const avatar =
+                  (u.avatarUrls && (u.avatarUrls['48x48'] || u.avatarUrls['32x32'] || u.avatarUrls['24x24'])) || '';
+                if (!displayName && !accountId && !username) return null;
+                const userItem = {
+                  name: displayName || username,
+                  accountId,
+                  username,
+                  email,
+                  avatar
+                };
+                if (AssigneeUtils && typeof AssigneeUtils.registerAssignee === 'function') {
+                  AssigneeUtils.registerAssignee(userItem);
+                }
+                return userItem;
+              })
+              .filter(Boolean);
+
+            if (normalized.length > 0) {
+              assignableUsersCache.set(cacheKey, normalized);
+              return normalized;
+            }
+          }
+        }
+      } catch {
+        // try next endpoint
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * 根據名稱、Email 或既有線索，解析目標成員在 Jira 中的 Account ID (Cloud) 或 Username (Server/DC)
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {Object|string} userHint - 使用者線索 ({ name, email, accountId, username } 或名稱字串)
+   * @returns {Promise<Object|null>} 解析後的使用者資訊 { name, accountId, username, email, avatar }
+   */
+  async function resolveJiraUser(issueKey, userHint) {
+    if (!userHint) return null;
+    const { AssigneeUtils, IssueStore } = BetterJira;
+
+    const hintObj =
+      typeof userHint === 'string'
+        ? { name: userHint.trim(), email: '', accountId: '', username: '' }
+        : {
+            name: String(userHint.name || '').trim(),
+            email: String(userHint.email || '').trim(),
+            accountId: String(userHint.accountId || '').trim(),
+            username: String(userHint.username || '').trim(),
+            avatar: String(userHint.avatar || '').trim()
+          };
+
+    if (hintObj.accountId) {
+      return hintObj;
+    }
+
+    // 1. 先從 AssigneeUtils 已註冊人員目錄查找是否已有 accountId 或 username
+    if (AssigneeUtils && typeof AssigneeUtils.findRegisteredUser === 'function') {
+      const reg = AssigneeUtils.findRegisteredUser(hintObj);
+      if (reg && (reg.accountId || reg.username)) {
+        return {
+          name: reg.name || hintObj.name,
+          accountId: reg.accountId || '',
+          username: reg.username || '',
+          email: reg.email || hintObj.email,
+          avatar: reg.avatar || hintObj.avatar
+        };
+      }
+    }
+
+    // 2. 從 IssueStore.getAllIssues() 中查找是否有相同人員已帶有 assigneeAccountId 或 assigneeUsername
+    if (IssueStore && typeof IssueStore.getAllIssues === 'function') {
+      const allIssues = IssueStore.getAllIssues() || [];
+      for (const iss of allIssues) {
+        if (!iss || iss.isUnassigned || (!iss.assigneeAccountId && !iss.assigneeUsername)) continue;
+        const matched =
+          (hintObj.email && iss.assigneeEmail && iss.assigneeEmail.toLowerCase() === hintObj.email.toLowerCase()) ||
+          (hintObj.name && iss.assigneeName && iss.assigneeName.toLowerCase() === hintObj.name.toLowerCase()) ||
+          (AssigneeUtils &&
+            typeof AssigneeUtils.matchCustomAssignee === 'function' &&
+            AssigneeUtils.matchCustomAssignee(iss, { name: hintObj.name || hintObj.email.split('@')[0], email: hintObj.email }));
+        if (matched) {
+          return {
+            name: iss.assigneeName || hintObj.name,
+            accountId: iss.assigneeAccountId || '',
+            username: iss.assigneeUsername || '',
+            email: iss.assigneeEmail || hintObj.email,
+            avatar: iss.assigneeAvatar || hintObj.avatar
+          };
+        }
+      }
+    }
+
+    // 3. 向 Jira API 查詢可指派人員清單並比對 Email / 姓名 / 帳號前綴
+    const matchFromList = (list) => {
+      if (!Array.isArray(list) || list.length === 0) return null;
+      const targetEmail = (hintObj.email || '').toLowerCase();
+      const targetName = (hintObj.name || '').toLowerCase();
+      const emailPrefix = targetEmail ? targetEmail.split('@')[0] : '';
+
+      // 3-1. Email 精確吻合
+      if (targetEmail) {
+        const byEmail = list.find((u) => u.email && u.email.toLowerCase() === targetEmail);
+        if (byEmail) return byEmail;
+      }
+      // 3-2. 姓名或 username 精確吻合
+      if (targetName) {
+        const byExactName = list.find(
+          (u) =>
+            (u.name && u.name.toLowerCase() === targetName) ||
+            (u.username && u.username.toLowerCase() === targetName)
+        );
+        if (byExactName) return byExactName;
+      }
+      // 3-3. 透過 matchCustomAssignee 比對姓名包含、Email 前綴或縮寫
+      if (AssigneeUtils && typeof AssigneeUtils.matchCustomAssignee === 'function') {
+        const memberTarget = { name: hintObj.name || emailPrefix, email: hintObj.email };
+        const byCustomMatch = list.find((u) =>
+          AssigneeUtils.matchCustomAssignee(
+            {
+              assigneeName: u.name,
+              assigneeEmail: u.email,
+              assigneeAvatar: u.avatar
+            },
+            memberTarget
+          )
+        );
+        if (byCustomMatch) return byCustomMatch;
+      }
+      // 3-4. 若為針對特定關鍵字查詢且僅回傳唯一 1 筆結果，直接採用
+      if (list.length === 1) {
+        return list[0];
+      }
+      return null;
+    };
+
+    // 優先以 Email 精準搜尋，其次查全專案可指派清單，最後以名稱搜尋
+    const searchQueries = [];
+    if (hintObj.email) {
+      searchQueries.push(hintObj.email);
+      const prefix = hintObj.email.split('@')[0];
+      if (prefix && prefix !== hintObj.email) searchQueries.push(prefix);
+    }
+    searchQueries.push(''); // 查此卡片全部可指派成員
+    if (hintObj.name && !searchQueries.includes(hintObj.name)) {
+      searchQueries.push(hintObj.name);
+    }
+
+    for (const q of searchQueries) {
+      const candidates = await fetchAssignableUsers(issueKey, q);
+      const found = matchFromList(candidates);
+      if (found && (found.accountId || found.username)) {
+        return found;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * 透過 Jira REST API 更新指定 Issue 的經辦人
-   * 支援指派特定成員或設為未指派 (Unassigned)
+   * 支援 Jira Cloud (accountId) 與 Jira Server/Data Center (name) 雙規格，並支援設為未指派 (Unassigned)
    *
    * @param {string} issueKey - 卡片編號
    * @param {string|null} assigneeName - 經辦人名稱 (傳入 null, 空字串, '未指派' 或 '__UNASSIGNED__' 代表未指派)
    * @param {string|null} [accountId=null] - Jira Cloud 帳號 ID (若有)
-   * @returns {Promise<{success: boolean, error?: string}>} 更新結果
+   * @param {Object|null} [memberHint=null] - 額外成員線索 ({ name, email, accountId, username, avatar })
+   * @returns {Promise<{success: boolean, resolvedUser?: Object|null, error?: string}>} 更新結果
    */
-  async function updateIssueAssignee(issueKey, assigneeName, accountId = null) {
+  async function updateIssueAssignee(issueKey, assigneeName, accountId = null, memberHint = null) {
     if (!issueKey) return { success: false, error: '缺少 issueKey' };
 
     const { AssigneeUtils } = BetterJira;
@@ -1135,61 +1353,105 @@
       assigneeName === '未指派' ||
       (AssigneeUtils && typeof AssigneeUtils.isUnassignedText === 'function' && AssigneeUtils.isUnassignedText(assigneeName));
 
-    const body = isUnassigned
-      ? { name: null }
-      : accountId
-      ? { accountId }
-      : { name: assigneeName };
+    let resolvedUser = null;
+    let finalAccountId = accountId ? String(accountId).trim() : '';
+    let finalUsername = assigneeName ? String(assigneeName).trim() : '';
+
+    if (!isUnassigned) {
+      resolvedUser = await resolveJiraUser(issueKey, {
+        ...(memberHint || {}),
+        name: assigneeName,
+        accountId: finalAccountId || (memberHint && memberHint.accountId) || ''
+      });
+      if (resolvedUser) {
+        if (resolvedUser.accountId) finalAccountId = resolvedUser.accountId;
+        if (resolvedUser.username) finalUsername = resolvedUser.username;
+      }
+    }
+
+    // 建構候選請求 Payload：
+    // 在 Jira Cloud (GDPR 模式) 中必須傳遞 { accountId } (未指派為 { accountId: null })；
+    // 在 Jira Server/DC 中則傳遞 { name } (未指派為 { name: null })。
+    const assigneePayloads = [];
+    if (isUnassigned) {
+      assigneePayloads.push({ accountId: null });
+      assigneePayloads.push({ name: null });
+    } else if (finalAccountId) {
+      assigneePayloads.push({ accountId: finalAccountId });
+      if (finalUsername) {
+        assigneePayloads.push({ name: finalUsername });
+      }
+    } else {
+      assigneePayloads.push({ name: finalUsername });
+      if (memberHint && memberHint.email && memberHint.email !== finalUsername) {
+        assigneePayloads.push({ name: memberHint.email });
+      }
+    }
+
+    let lastErrMsg = '經辦人更新失敗';
 
     try {
       // 1. 優先呼叫 Jira 標準專用 /assignee 端點
-      const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}/assignee`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-Atlassian-Token': 'no-check'
-        },
-        body: JSON.stringify(body)
-      });
+      for (const bodyPayload of assigneePayloads) {
+        const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}/assignee`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-Atlassian-Token': 'no-check'
+          },
+          body: JSON.stringify(bodyPayload)
+        });
 
-      if (res.ok || res.status === 204) {
-        return { success: true };
+        if (res.ok || res.status === 204) {
+          return { success: true, resolvedUser };
+        }
+
+        const errJson = await res.json().catch(() => null);
+        if (errJson) {
+          if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
+            lastErrMsg = errJson.errorMessages.join(', ');
+          } else if (errJson.errors && typeof errJson.errors === 'object') {
+            lastErrMsg = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
+          }
+        }
       }
 
       // 2. 若專用端點受限，備用標準 issue 根端點 fields 更新
-      const fallbackPayload = {
-        fields: {
-          assignee: isUnassigned ? null : (accountId ? { accountId } : { name: assigneeName })
+      for (const bodyPayload of assigneePayloads) {
+        const fallbackPayload = {
+          fields: {
+            assignee: isUnassigned ? null : bodyPayload
+          }
+        };
+
+        const fallbackRes = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-Atlassian-Token': 'no-check'
+          },
+          body: JSON.stringify(fallbackPayload)
+        });
+
+        if (fallbackRes.ok || fallbackRes.status === 204) {
+          return { success: true, resolvedUser };
         }
-      };
 
-      const fallbackRes = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-Atlassian-Token': 'no-check'
-        },
-        body: JSON.stringify(fallbackPayload)
-      });
-
-      if (fallbackRes.ok || fallbackRes.status === 204) {
-        return { success: true };
+        const errJson = await fallbackRes.json().catch(() => null);
+        if (errJson) {
+          if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
+            lastErrMsg = errJson.errorMessages.join(', ');
+          } else if (errJson.errors && typeof errJson.errors === 'object') {
+            lastErrMsg = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
+          }
+        }
       }
 
-      const errJson = await fallbackRes.json().catch(() => null);
-      let errMsg = '經辦人更新失敗';
-      if (errJson) {
-        if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
-          errMsg = errJson.errorMessages.join(', ');
-        } else if (errJson.errors && typeof errJson.errors === 'object') {
-          errMsg = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
-        }
-      }
-      return { success: false, error: errMsg };
+      return { success: false, error: lastErrMsg };
     } catch (e) {
       return { success: false, error: e && e.message ? e.message : '經辦人更新網路錯誤' };
     }
@@ -1309,6 +1571,8 @@
     transitionIssue,
     fetchPriorities,
     updateIssuePriority,
+    fetchAssignableUsers,
+    resolveJiraUser,
     updateIssueAssignee,
     syncExtensionIcon
   };

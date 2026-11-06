@@ -44,7 +44,10 @@
     const stats = calculateSprintStatistics(visibleIssues);
     const displayTitle = cleanSprintTitle(histItem.title);
     const histIssuesSig = visibleIssues
-      .map((i) => `${i.key}:${i.summary}:${i.statusName}:${i.storyPoints ?? ''}:${i.assigneeName || ''}`)
+      .map(
+        (i) =>
+          `${i.key}:${i.summary}:${i.statusName}:${i.statusCategory || ''}:${i.storyPoints ?? ''}:${i.priorityName || ''}:${i.priorityIcon || ''}:${i.issueTypeName || ''}:${i.issueTypeIcon || ''}:${i.isUnassigned ? 'U' : 'A'}:${i.assigneeName || ''}:${i.assigneeInitials || ''}:${i.assigneeAvatar || ''}`
+      )
       .join('|');
 
     const currentTheme = LayoutManager ? LayoutManager.getCurrentTheme() : 'Default';
@@ -124,6 +127,9 @@
         refreshBtn.disabled = true;
         refreshBtn.textContent = '同步中...';
         try {
+          if (IssueStore && typeof IssueStore.clearUserOverrides === 'function') {
+            IssueStore.clearUserOverrides();
+          }
           const updated = await fetchHistoricalSprintData(
             histItem.title,
             histItem.sprintId ? { id: histItem.sprintId, name: histItem.title } : null
@@ -160,14 +166,17 @@
         visibleIssues.find((i) => i.key === issueKey) ||
         histItem.issues.find((i) => i.key === issueKey);
       const handleActivate = (e) => {
-        // 檢查是否點擊了四個快速編輯欄位 (狀態、StoryPoint、優先度、指派人員)
+        const latestIssue =
+          (IssueStore && typeof IssueStore.getCachedIssue === 'function' && IssueStore.getCachedIssue(issueKey)) ||
+          issueObj;
+        // 檢查是否點擊了快速編輯欄位 (類型、狀態、StoryPoint、優先度、指派人員)
         const quickEditTarget = e.target && e.target.closest ? e.target.closest('[data-bjwt-quick-edit]') : null;
         if (quickEditTarget) {
           e.preventDefault();
           e.stopPropagation();
           const editType = quickEditTarget.getAttribute('data-bjwt-quick-edit');
           if (QuickEditPopoverComponent && typeof QuickEditPopoverComponent.open === 'function') {
-            QuickEditPopoverComponent.open(quickEditTarget, issueKey, editType, issueObj);
+            QuickEditPopoverComponent.open(quickEditTarget, issueKey, editType, latestIssue);
           }
           return;
         }
@@ -175,7 +184,7 @@
         e.preventDefault();
         e.stopPropagation();
         if (issueKey) {
-          openHistoricalIssueDetailModal(issueKey, issueObj);
+          openHistoricalIssueDetailModal(issueKey, latestIssue);
         }
       };
       cardEl.addEventListener('click', handleActivate);
