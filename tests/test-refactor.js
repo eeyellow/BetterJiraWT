@@ -2211,6 +2211,161 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
   assert(checkPopoverCode.includes('清空'), '快捷點數晶片應包含「清空」選項');
   assert(!checkPopoverCode.includes('data-pt="0.5"'), '快捷點數晶片不應包含 0.5');
 
+  // 7. 測試卡片四欄位 (狀態、StoryPoint、優先度、指派人員) 編輯後立即更新 UI，且不被未刷新的原生舊 DOM 逆向覆蓋
+  const { IssueStore } = BetterJira;
+  IssueStore.clearUserOverrides('WMC-777');
+
+  // (a) 模擬初始由原生 DOM 解析出的卡片 (fromDom: true, 狀態為「待辦事項」, 優先度為 Medium 帶 SVG, 點數 3, 未指派)
+  IssueStore.mergeAndCacheIssue({
+    key: 'WMC-777',
+    summary: '測試四欄位即時 UI 更新與防舊 DOM 覆蓋',
+    statusName: '待辦事項',
+    statusCategory: 'new',
+    storyPoints: 3,
+    priorityName: 'Medium',
+    priorityIcon: '',
+    prioritySvg: '<svg id="old-medium-svg"></svg>',
+    assigneeName: '未指派',
+    isUnassigned: true,
+    fromDom: true,
+    _isFromDom: true
+  });
+
+  // 同時模擬衝刺快取池內存有舊快照
+  IssueStore.setActiveSprintCache('sprint_test_777', {
+    key: 'sprint_test_777',
+    title: 'Test Sprint 777',
+    allApiIssues: [IssueStore.getCachedIssue('WMC-777')],
+    rawIssues: [IssueStore.getCachedIssue('WMC-777')],
+    issues: [IssueStore.getCachedIssue('WMC-777')],
+    masterIssuesMap: new Map([['WMC-777', IssueStore.getCachedIssue('WMC-777')]])
+  });
+
+  // (b) 使用者透過快速編輯修改「狀態」為「進行中」、修改「優先度」為「Highest」、修改「StoryPoint」為 8、修改「指派人員」為 Alice Wang
+  IssueStore.mergeAndCacheIssue({
+    key: 'WMC-777',
+    statusName: '進行中',
+    statusCategory: 'indeterminate',
+    isUserEdit: true
+  });
+  IssueStore.mergeAndCacheIssue({
+    key: 'WMC-777',
+    priorityName: 'Highest',
+    priorityIcon: '',
+    prioritySvg: '',
+    isUserEdit: true
+  });
+  IssueStore.mergeAndCacheIssue({
+    key: 'WMC-777',
+    storyPoints: 8,
+    isUserEdit: true
+  });
+  IssueStore.mergeAndCacheIssue({
+    key: 'WMC-777',
+    assigneeName: 'Alice Wang',
+    isUnassigned: false,
+    assigneeInitials: 'AW',
+    assigneeAvatar: '',
+    assigneeBgColor: '',
+    assigneeEmail: 'Alice_Wang@wistron.com',
+    assigneeAccountId: '5b10ac8d82e05b22cc7d4ef5',
+    isUserEdit: true
+  });
+
+  // (c) 模擬下一個畫面刷新時，CardDomParser 再次從尚未重整的原生 Jira DOM 讀取到舊資料 (fromDom: true)
+  const afterStaleDomReParse = IssueStore.mergeAndCacheIssue({
+    key: 'WMC-777',
+    summary: '測試四欄位即時 UI 更新與防舊 DOM 覆蓋',
+    statusName: '待辦事項',
+    statusCategory: 'new',
+    storyPoints: 3,
+    priorityName: 'Medium',
+    priorityIcon: '',
+    prioritySvg: '<svg id="old-medium-svg"></svg>',
+    assigneeName: '未指派',
+    isUnassigned: true,
+    fromDom: true,
+    _isFromDom: true
+  });
+
+  assert.strictEqual(afterStaleDomReParse.statusName, '進行中', '編輯狀態後，即使重掃舊 DOM，狀態仍應立即且持續顯示為「進行中」');
+  assert.strictEqual(afterStaleDomReParse.statusCategory, 'indeterminate', '狀態分類應維持為 indeterminate');
+  assert.strictEqual(afterStaleDomReParse.priorityName, 'Highest', '編輯優先順序後，即使重掃舊 DOM，優先順序仍應顯示為「Highest」');
+  assert.strictEqual(afterStaleDomReParse.prioritySvg, '', '編輯優先順序後應清除舊優先度的 SVG');
+  assert.strictEqual(afterStaleDomReParse.storyPoints, 8, '編輯 StoryPoint 後應維持為 8');
+  assert.strictEqual(afterStaleDomReParse.isUnassigned, false, '指派人員後 isUnassigned 應為 false (不可被舊 DOM 鎖死在未指派)');
+  assert.strictEqual(afterStaleDomReParse.assigneeName, 'Alice Wang', '指派人員後經辦人名稱應立即顯示為 Alice Wang');
+
+  // 驗證衝刺快取池 (activeSprintCache) 中的物件也已同步更新
+  const sprintCachedIss = IssueStore.getActiveSprintCache('sprint_test_777').allApiIssues[0];
+  assert.strictEqual(sprintCachedIss.statusName, '進行中', '衝刺快取池 allApiIssues 應同步更新為最新狀態「進行中」');
+  assert.strictEqual(sprintCachedIss.priorityName, 'Highest', '衝刺快取池 allApiIssues 應同步更新為最新優先度「Highest」');
+  assert.strictEqual(sprintCachedIss.assigneeName, 'Alice Wang', '衝刺快取池 allApiIssues 應同步更新為最新指派人員「Alice Wang」');
+
+  // 驗證卡片渲染 HTML 立即呈現最新狀態、點數、優先度圖示與經辦人
+  const updatedCardHtml = IssueCardComponent.renderIssueCardHtml(afterStaleDomReParse);
+  assert(updatedCardHtml.includes('進行中') && updatedCardHtml.includes('status-inprogress'), '卡片 HTML 應立即渲染「進行中」與 status-inprogress 樣式');
+  assert(updatedCardHtml.includes('目前：Highest') && !updatedCardHtml.includes('old-medium-svg'), '卡片 HTML 應立即渲染新優先度 Highest 且不含舊 SVG');
+  assert(updatedCardHtml.includes('目前：Alice Wang') && updatedCardHtml.includes('>AW<'), '卡片 HTML 應立即渲染新指派人員 Alice Wang 與縮寫 AW');
+
+  // (d) 測試清空 StoryPoint (8 -> null) 也能正確覆蓋舊值
+  IssueStore.mergeAndCacheIssue({
+    key: 'WMC-777',
+    storyPoints: null,
+    isUserEdit: true
+  });
+  assert.strictEqual(IssueStore.getCachedIssue('WMC-777').storyPoints, null, '清空 StoryPoint 後應為 null，不可殘留舊點數 8');
+  IssueStore.clearUserOverrides('WMC-777');
+
+  // 8. 測試 JiraApiService.updateIssueAssignee 自動向 Jira API 解析未知成員之 Jira Cloud accountId 並存入資料庫
+  let capturedAssigneeUrl = '';
+  let capturedAssigneeBody = null;
+  const prevFetch = global.fetch;
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (u.includes('/user/assignable/search') || u.includes('/user/search')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            accountId: '5b10ac8d82e05b22cc7d9999',
+            name: 'david_chen',
+            displayName: 'David Chen',
+            emailAddress: 'David_Chen@wistron.com',
+            avatarUrls: { '48x48': 'https://avatar.url/david48.png' }
+          }
+        ]
+      };
+    }
+    if (u.includes('/assignee') && opts.method === 'PUT') {
+      capturedAssigneeUrl = u;
+      capturedAssigneeBody = JSON.parse(opts.body);
+      return { ok: true, status: 204, json: async () => ({}) };
+    }
+    return prevFetch ? prevFetch(url, opts) : { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const assignRes = await ApiService.updateIssueAssignee(
+    'WMC-777',
+    'David Chen',
+    null,
+    { name: 'David Chen', email: 'David_Chen@wistron.com' }
+  );
+  global.fetch = prevFetch;
+
+  assert.strictEqual(assignRes.success, true, 'updateIssueAssignee 應回傳 success: true');
+  assert(capturedAssigneeUrl.includes('/rest/api/2/issue/WMC-777/assignee'), '應呼叫標準 /assignee API 端點');
+  assert.deepStrictEqual(
+    capturedAssigneeBody,
+    { accountId: '5b10ac8d82e05b22cc7d9999' },
+    '在 Jira Cloud 環境下，updateIssueAssignee 應自動解析並傳送 { accountId } 以確保真正寫入 Jira 資料庫'
+  );
+  assert(
+    assignRes.resolvedUser && assignRes.resolvedUser.avatar === 'https://avatar.url/david48.png',
+    'updateIssueAssignee 應一併回傳解析到的真實使用者頭像與資訊供 UI 即時顯示'
+  );
+
   console.log('✓ 卡片五欄位小型就地編輯視窗與點擊分流檢查通過！');
   }
 

@@ -9,6 +9,33 @@
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
   /**
+   * 當 Jira API 未回傳優先度圖示 URL 時，依據優先度名稱產生對應的標準彩色 SVG 圖示
+   *
+   * @param {string} priorityName - 優先度名稱 (如 Highest, High, Medium, Low, Lowest)
+   * @returns {string} SVG HTML 字串或空字串
+   */
+  function getDefaultPrioritySvg(priorityName) {
+    if (!priorityName || typeof priorityName !== 'string') return '';
+    const p = priorityName.trim().toLowerCase();
+    if (p.includes('highest') || p.includes('最高') || p === 'p0' || p === 'p1') {
+      return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="${priorityName}"><path d="M3.5 9.5L8 5L12.5 9.5" stroke="#FF5630" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 13L8 8.5L12.5 13" stroke="#FF5630" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    }
+    if (p.includes('high') || p.includes('高')) {
+      return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="${priorityName}"><path d="M3.5 10.5L8 6L12.5 10.5" stroke="#FF5630" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    }
+    if (p.includes('medium') || p.includes('中') || p.includes('normal')) {
+      return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="${priorityName}"><path d="M3 6H13" stroke="#FFAB00" stroke-width="2" stroke-linecap="round"/><path d="M3 10H13" stroke="#FFAB00" stroke-width="2" stroke-linecap="round"/></svg>`;
+    }
+    if (p.includes('lowest') || p.includes('最低')) {
+      return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="${priorityName}"><path d="M3.5 6.5L8 11L12.5 6.5" stroke="#0065FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 3L8 7.5L12.5 3" stroke="#0065FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    }
+    if (p.includes('low') || p.includes('低')) {
+      return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="${priorityName}"><path d="M3.5 5.5L8 10L12.5 5.5" stroke="#0065FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    }
+    return '';
+  }
+
+  /**
    * 產出加大高度的雙列卡片 HTML
    * 第一列：只放卡片類型Icon，卡片編號，卡片標題 (佔滿整列寬度)
    * 第二列：放其他的欄位 (靠右一欄一欄整齊對齊)
@@ -166,8 +193,8 @@
               ${
                 iss.priorityIcon
                   ? `<img class="bjwt-history-priority-icon" src="${escapeHtml(iss.priorityIcon)}" alt="${escapeHtml(iss.priorityName)}" />`
-                  : iss.prioritySvg
-                  ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap">${iss.prioritySvg}</span>`
+                  : (iss.prioritySvg || getDefaultPrioritySvg(iss.priorityName))
+                  ? `<span class="bjwt-history-priority-icon bjwt-svg-wrap">${iss.prioritySvg || getDefaultPrioritySvg(iss.priorityName)}</span>`
                   : `<span class="bjwt-history-priority-placeholder" aria-hidden="true"></span>`
               }
             </span>
