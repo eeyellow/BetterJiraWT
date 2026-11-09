@@ -221,13 +221,17 @@
         }
 
         const normalizedIssues = rawIssues.map(IssueStore.normalizeJiraIssue);
-        boardBacklogPrefetchCache.set(cacheKey, { data: normalizedIssues, timestamp: Date.now() });
+        const standardIssues = normalizedIssues.filter((iss) => !iss.isSubtask);
+        boardBacklogPrefetchCache.set(cacheKey, { data: standardIssues, timestamp: Date.now() });
 
         // 依據每張卡片的 sprint 資訊（id 或 name）分組並注入快取
         const sprintBuckets = new Map();
         normalizedIssues.forEach((iss, index) => {
           const rawItem = rawIssues[index];
           IssueStore.mergeAndCacheIssue(iss);
+
+          // 排除子任務，衝刺與 Backlog 卡片清單只納入標準頂層工作項目卡片
+          if (iss.isSubtask) return;
 
           const sprintObj = (rawItem && rawItem.fields && rawItem.fields.sprint) || null;
           const sprintsArr = (rawItem && rawItem.fields && Array.isArray(rawItem.fields.customfield_10020))
@@ -310,7 +314,7 @@
           }
         });
 
-        return normalizedIssues;
+        return standardIssues;
       } catch {
         return [];
       } finally {
@@ -434,7 +438,7 @@
         );
         if (res.ok) {
           const data = await res.json();
-          const issues = (data.issues || []).map(IssueStore.normalizeJiraIssue);
+          const issues = (data.issues || []).map(IssueStore.normalizeJiraIssue).filter((iss) => !iss.isSubtask);
           return {
             key: `history_sprint_${matchedSprint.id}`,
             sprintId: matchedSprint.id,
@@ -491,7 +495,7 @@
           if (!res.ok) continue;
           const data = await res.json();
           if (data && Array.isArray(data.issues)) {
-            const issues = data.issues.map(IssueStore.normalizeJiraIssue);
+            const issues = data.issues.map(IssueStore.normalizeJiraIssue).filter((iss) => !iss.isSubtask);
             const resolvedKey =
               matchedSprint && matchedSprint.id
                 ? `history_sprint_${matchedSprint.id}`
@@ -617,7 +621,7 @@
               );
               if (res.ok) {
                 const data = await res.json();
-                const issues = Array.isArray(data.issues) ? data.issues.map(IssueStore.normalizeJiraIssue) : [];
+                const issues = Array.isArray(data.issues) ? data.issues.map(IssueStore.normalizeJiraIssue).filter((iss) => !iss.isSubtask) : [];
                 sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
                 sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
                 sprintFailedCooldownMap.delete(effectiveKey);
@@ -665,7 +669,7 @@
               if (res.ok) {
                 const data = await res.json();
                 if (data && Array.isArray(data.issues)) {
-                  const issues = data.issues.map(IssueStore.normalizeJiraIssue);
+                  const issues = data.issues.map(IssueStore.normalizeJiraIssue).filter((iss) => !iss.isSubtask);
                   sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
                   sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
                   sprintFailedCooldownMap.delete(effectiveKey);
@@ -686,7 +690,7 @@
             if (Array.isArray(backlogIssues) && backlogIssues.length > 0) {
               const fromBucket = sprintActiveApiCache.get(effectiveKey) || sprintActiveApiCache.get(itemKey);
               if (fromBucket && Array.isArray(fromBucket.data) && fromBucket.data.length > 0) {
-                return fromBucket.data;
+                return fromBucket.data.filter((iss) => !iss.isSubtask);
               }
             }
           } catch {

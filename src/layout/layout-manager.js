@@ -57,7 +57,9 @@
 
     // 每次都從原生 DOM 讀取目前實際存在的卡片 (因為 CSS 保留了離屏尺寸，Jira 篩選後 DOM 卡片會即時增減)
     const rawDomIssues = CardDomParser.parseIssuesFromBranch(branch, sprintEl);
-    const domIssues = rawDomIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
+    const domIssues = rawDomIssues
+      .map((iss) => IssueStore.mergeAndCacheIssue(iss))
+      .filter((iss) => !iss.isSubtask);
 
     let cached = IssueStore.getActiveSprintCache(cacheKey) || IssueStore.getActiveSprintCache(key);
     // 若 IssueStore 尚未同步，但 JiraApiService 內部快取已有該衝刺卡片資料，自動取用
@@ -66,10 +68,11 @@
       BetterJira.JiraApiService &&
       typeof BetterJira.JiraApiService.getSprintActiveApiCache === 'function'
     ) {
-      const apiIssues =
+      const rawApiIssues =
         BetterJira.JiraApiService.getSprintActiveApiCache(cacheKey) ||
         BetterJira.JiraApiService.getSprintActiveApiCache(key) ||
         BetterJira.JiraApiService.getSprintActiveApiCache(`title_${(meta.title || '').toLowerCase()}`);
+      const apiIssues = Array.isArray(rawApiIssues) ? rawApiIssues.filter((iss) => !iss.isSubtask) : null;
       if (Array.isArray(apiIssues) && apiIssues.length > 0) {
         if (!cached) {
           cached = {
@@ -91,7 +94,7 @@
           cached.allApiIssues = apiIssues;
           if (!cached.masterIssuesMap) cached.masterIssuesMap = new Map();
           apiIssues.forEach((i) => cached.masterIssuesMap.set(i.key, i));
-          cached.rawIssues = Array.from(cached.masterIssuesMap.values());
+          cached.rawIssues = Array.from(cached.masterIssuesMap.values()).filter((i) => !i.isSubtask);
           cached.fromApi = true;
         }
       }
@@ -140,14 +143,14 @@
         Array.isArray(cached.allApiIssues) &&
         cached.allApiIssues.length > 0
       ) {
-        resolvedIssues = cached.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
+        resolvedIssues = cached.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss)).filter((iss) => !iss.isSubtask);
       } else {
         resolvedIssues = [];
       }
     } else {
       // 衝刺處於收合狀態
       if (Array.isArray(cached.allApiIssues) && cached.allApiIssues.length > 0) {
-        const apiMerged = cached.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
+        const apiMerged = cached.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss)).filter((iss) => !iss.isSubtask);
         resolvedIssues = FilterService.filterIssuesByNativeFilter(apiMerged, nativeFilter);
       } else {
         resolvedIssues = [];
@@ -161,7 +164,7 @@
     const incomingSources = [
       ...(Array.isArray(cached.allApiIssues) ? cached.allApiIssues : []),
       ...domIssues
-    ];
+    ].filter((iss) => iss && !iss.isSubtask);
     incomingSources.forEach((iss) => {
       if (iss && iss.key) {
         const existing = cached.masterIssuesMap.get(iss.key);
@@ -169,8 +172,8 @@
       }
     });
 
-    const masterIssues = Array.from(cached.masterIssuesMap.values());
-    const rawAllIssues = masterIssues.length > 0 ? masterIssues : resolvedIssues;
+    const masterIssues = Array.from(cached.masterIssuesMap.values()).filter((iss) => !iss.isSubtask);
+    const rawAllIssues = (masterIssues.length > 0 ? masterIssues : resolvedIssues).filter((iss) => !iss.isSubtask);
     cached.rawIssues = rawAllIssues;
 
     // 若自製純前端篩選器有任何條件生效，以純前端過濾結果為準
@@ -180,6 +183,7 @@
       resolvedIssues = FrontendFilterService.filterIssues(rawAllIssues);
     }
 
+    resolvedIssues = resolvedIssues.filter((iss) => !iss.isSubtask);
     cached.issues = resolvedIssues;
     cached.nativeFilterSig = nativeFilter ? nativeFilter.sig : '';
 
@@ -606,7 +610,7 @@
           : (cache && Array.isArray(cache.issues) ? cache.issues : []);
       }
       issues.forEach((iss) => {
-        if (iss && iss.key) {
+        if (iss && iss.key && !iss.isSubtask) {
           allBoardIssuesMap.set(iss.key, iss);
         }
       });
@@ -615,7 +619,7 @@
     // 額外匯總全域已快取卡片池 (確保收合衝刺或 API 快取中已知的卡片類型與成員全數納入)
     if (IssueStore && IssueStore.issueMetadataMap) {
       IssueStore.issueMetadataMap.forEach((iss, k) => {
-        if (iss && k && !allBoardIssuesMap.has(k)) {
+        if (iss && k && !allBoardIssuesMap.has(k) && !iss.isSubtask) {
           allBoardIssuesMap.set(k, iss);
         }
       });

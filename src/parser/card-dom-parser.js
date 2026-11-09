@@ -801,6 +801,15 @@
       }
     }
 
+    const isSubtask = Boolean(
+      (BetterJira.TextUtils && typeof BetterJira.TextUtils.isSubtaskTypeName === 'function' && BetterJira.TextUtils.isSubtaskTypeName(issueTypeName)) ||
+      (cardEl && (
+        (typeof cardEl.matches === 'function' && (cardEl.matches('[data-testid*="subtask"]') || cardEl.matches('[class*="subtask"]'))) ||
+        (typeof cardEl.closest === 'function' && (cardEl.closest('[data-testid*="subtask-list"]') || cardEl.closest('.ghx-subtask-group'))) ||
+        (typeof cardEl.querySelector === 'function' && cardEl.querySelector('[data-testid*="subtask-label"]'))
+      ))
+    );
+
     const parsedIssue = {
       id: numericId || key,
       issueId: numericId || '',
@@ -810,6 +819,7 @@
       statusCategory,
       issueTypeName,
       issueTypeIcon,
+      isSubtask,
       priorityName,
       priorityIcon,
       prioritySvg,
@@ -927,7 +937,7 @@
     foundCards.forEach((cardEl) => {
       try {
         const iss = parseIssueFromDomCard(cardEl);
-        if (iss && iss.key && !seenKeys.has(iss.key)) {
+        if (iss && iss.key && !seenKeys.has(iss.key) && !iss.isSubtask) {
           seenKeys.add(iss.key);
           issues.push(iss);
         }

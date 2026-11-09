@@ -241,19 +241,21 @@
       branchEl.appendChild(customView);
     }
 
-    // 取得衝刺完整未篩選卡片清單 (母體卡片池優先，確保選單中人員與類型 100% 完整列出)
-    const allIssues =
+    // 取得衝刺完整未篩選卡片清單 (母體卡片池優先，確保選單中人員與類型 100% 完整列出，嚴格排除子任務)
+    const rawCandidateIssues =
       Array.isArray(sprintData.rawIssues) && sprintData.rawIssues.length > 0
         ? sprintData.rawIssues
         : Array.isArray(sprintData.allApiIssues) && sprintData.allApiIssues.length > 0
         ? sprintData.allApiIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss))
         : sprintData.issues || [];
+    const allIssues = rawCandidateIssues.filter((iss) => !iss.isSubtask);
 
     // 透過純前端篩選服務多維度過濾卡片
-    const visibleIssues =
+    const visibleIssues = (
       FrontendFilterService && typeof FrontendFilterService.filterIssues === 'function'
         ? FrontendFilterService.filterIssues(allIssues)
-        : allIssues;
+        : allIssues
+    ).filter((iss) => !iss.isSubtask);
 
     // 點數與數量統計完全依據目前篩選後可見的卡片計算
     const stats = calculateSprintStatistics(visibleIssues);
