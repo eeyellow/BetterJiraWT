@@ -9,11 +9,12 @@
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
   const SECTION_STORAGE_KEY = 'bjwt_sidebar_sections_collapsed';
-  let memorySectionCollapseState = {
+  const DEFAULT_SECTION_COLLAPSE_STATE = {
     active: false,
-    future: false,
+    future: true, // 預設將「未開始衝刺」收合起來
     history: false
   };
+  let memorySectionCollapseState = { ...DEFAULT_SECTION_COLLAPSE_STATE };
 
   /**
    * 取得側邊欄各衝刺分區之風琴夾收合狀態
@@ -27,9 +28,9 @@
         if (raw) {
           const parsed = JSON.parse(raw);
           return {
-            active: Boolean(parsed.active),
-            future: Boolean(parsed.future),
-            history: Boolean(parsed.history)
+            active: parsed.active !== undefined ? Boolean(parsed.active) : DEFAULT_SECTION_COLLAPSE_STATE.active,
+            future: parsed.future !== undefined ? Boolean(parsed.future) : DEFAULT_SECTION_COLLAPSE_STATE.future,
+            history: parsed.history !== undefined ? Boolean(parsed.history) : DEFAULT_SECTION_COLLAPSE_STATE.history
           };
         }
       }
@@ -448,6 +449,7 @@
   BetterJira.SidebarComponent = {
     renderSidebarContents,
     getSectionCollapseState,
-    setSectionCollapseState
+    setSectionCollapseState,
+    DEFAULT_SECTION_COLLAPSE_STATE
   };
 })();
