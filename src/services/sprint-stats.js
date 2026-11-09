@@ -86,9 +86,12 @@
    * @param {number} count - 卡片總數量
    */
   function updateSidebarBadgeForSprint(key, points, count) {
-    const badge = document.querySelector(`.bjwt-sprint-tab-badge[data-bjwt-tab-key="${CSS.escape(key)}"]`);
+    const escapedKey = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+      ? CSS.escape(key)
+      : String(key).replace(/["\\]/g, '\\$&');
+    const badge = document.querySelector(`.bjwt-sprint-tab-badge[data-bjwt-tab-key="${escapedKey}"]`);
     if (badge) {
-      const badgeText = points > 0 ? `${points} 點` : `${count}`;
+      const badgeText = points > 0 ? `${points}` : `${count}`;
       badge.textContent = badgeText;
       badge.title = `共 ${points > 0 ? `${points} 點 Story Points · ` : ''}${count} 個工作項目`;
     }

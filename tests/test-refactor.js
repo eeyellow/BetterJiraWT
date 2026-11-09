@@ -2440,6 +2440,93 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     console.log('✓ 卡片右鍵自訂選單 (在新分頁開啟、複製編號/標題) 檢查通過！');
   }
 
+  console.log('--- 測試 25: 側邊欄點數顯示純數字、未開始衝刺點數統計與三分區 (進行中/未開始/已結束) 檢查 ---');
+  {
+    const { SidebarComponent, SprintStatsService, SprintDomParser, CardDomParser } = BetterJira;
+
+    // 1. 測試 SprintStatsService.updateSidebarBadgeForSprint 顯示純數字 (不帶 "點")
+    const mockBadgeEl = new MockElement('span');
+    mockBadgeEl.className = 'bjwt-sprint-tab-badge';
+    mockBadgeEl.setAttribute('data-bjwt-tab-key', 'sprint_test_pt');
+    const origQuerySelector = global.document.querySelector;
+    global.document.querySelector = (sel) => {
+      if (sel && sel.includes('sprint_test_pt')) return mockBadgeEl;
+      return typeof origQuerySelector === 'function' ? origQuerySelector(sel) : null;
+    };
+    SprintStatsService.updateSidebarBadgeForSprint('sprint_test_pt', 33, 10);
+    assert.strictEqual(mockBadgeEl.textContent, '33', '點數大於 0 時徽章文字應為純數字「33」，不應帶有「點」字');
+
+    // 2. 測試 CardDomParser.parseIssueFromDomCard 支援各類 Story Points 輸入與格式 (帶「點」、pt、input、aria-label)
+    const cardPt1 = new MockElement('div');
+    const a1 = new MockElement('a');
+    a1.setAttribute('href', '/browse/T-1');
+    a1.textContent = 'T-1 Card';
+    cardPt1.appendChild(a1);
+    const est1 = new MockElement('span');
+    est1.setAttribute('data-testid', 'platform.ui.badge.estimate');
+    est1.textContent = '13 點';
+    cardPt1.appendChild(est1);
+    const parsedPt1 = CardDomParser.parseIssueFromDomCard(cardPt1);
+    assert.strictEqual(parsedPt1.storyPoints, 13, '帶有「13 點」的估算應解析為數值 13');
+
+    const cardPt2 = new MockElement('div');
+    const a2 = new MockElement('a');
+    a2.setAttribute('href', '/browse/T-2');
+    a2.textContent = 'T-2 Card';
+    cardPt2.appendChild(a2);
+    const est2 = new MockElement('input');
+    est2.setAttribute('data-testid', 'software-backlog.card.estimate-input');
+    est2.value = '8';
+    cardPt2.appendChild(est2);
+    const parsedPt2 = CardDomParser.parseIssueFromDomCard(cardPt2);
+    assert.strictEqual(parsedPt2.storyPoints, 8, 'input value 為 8 的估算應解析為數值 8');
+
+    // 3. 測試 SprintDomParser.extractSprintMeta 對未開始衝刺 (帶「開始衝刺」按鈕與單一標頭點數) 的解析
+    const futureSprintEl = new MockElement('div');
+    futureSprintEl.setAttribute('data-sprint-id', '501');
+    const futureH2 = new MockElement('h2');
+    futureH2.textContent = 'WMC Sprint 25 (未來衝刺)';
+    futureSprintEl.appendChild(futureH2);
+    const startBtn = new MockElement('button');
+    startBtn.setAttribute('data-testid', 'software-backlog.card-list.header.actions.start-sprint-button');
+    startBtn.textContent = '開始衝刺';
+    futureSprintEl.appendChild(startBtn);
+    const badgePt = new MockElement('span');
+    badgePt.setAttribute('data-testid', 'software-backlog.card-list.header.estimate');
+    badgePt.textContent = '33 點';
+    futureSprintEl.appendChild(badgePt);
+
+    const futureMeta = SprintDomParser.extractSprintMeta(futureSprintEl, futureSprintEl, null, 1);
+    assert.strictEqual(futureMeta.sprintState, 'future', '帶有「開始衝刺」按鈕應判定為 future (未開始衝刺)');
+    assert.strictEqual(futureMeta.headerStoryPoints, 33, '未開始衝刺標頭「33 點」應成功萃取出 33 點');
+    assert.strictEqual(futureMeta.storyPoints, 33, '未開始衝刺 storyPoints 應為 33 點');
+
+    // 4. 測試 active-sprint-view.js 包含未開始狀態與開始衝刺按鈕
+    const checkActiveViewCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/active-sprint-view.js'), 'utf8');
+    assert(checkActiveViewCode.includes('bjwt-active-start-btn'), 'active-sprint-view.js 應包含 bjwt-active-start-btn 開始衝刺按鈕');
+    assert(checkActiveViewCode.includes('未開始'), 'active-sprint-view.js 應包含未開始標籤');
+
+    // 5. 測試 sidebar.js 包含三分區：「進行中衝刺」、「未開始衝刺」、「已結束，歷史衝刺」且純數字無「點」
+    const checkSidebarCode = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/sidebar.js'), 'utf8');
+    assert(checkSidebarCode.includes('進行中衝刺'), 'sidebar.js 應包含「進行中衝刺」分區標題');
+    assert(checkSidebarCode.includes('未開始衝刺'), 'sidebar.js 應包含「未開始衝刺」分區標題');
+    assert(checkSidebarCode.includes('已結束，歷史衝刺'), 'sidebar.js 應包含「已結束，歷史衝刺」分區標題');
+    assert(!checkSidebarCode.includes('<span>未結束衝刺'), 'sidebar.js 不應包含舊的「未結束衝刺」分區');
+    assert(!checkSidebarCode.includes('badgeText = pts > 0 ? `${pts} 點`'), 'sidebar.js 之 badgeText 不應帶有「點」字');
+
+    // 6. 測試 styles.css 與 runtime-styles.js 包含 future-section 與 bjwt-active-start-btn
+    const checkStylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+    assert(checkStylesCss.includes('future-section'), 'styles.css 應包含 future-section');
+    assert(checkStylesCss.includes('bjwt-active-start-btn'), 'styles.css 應包含 bjwt-active-start-btn');
+
+    const checkRuntimeStyles = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+    assert(checkRuntimeStyles.includes('future-section'), 'runtime-styles.js 應包含 future-section');
+    assert(checkRuntimeStyles.includes('bjwt-active-start-btn'), 'runtime-styles.js 應包含 bjwt-active-start-btn');
+
+    global.document.querySelector = origQuerySelector;
+    console.log('✓ 側邊欄點數純數字、未開始衝刺點數統計與三分區 (進行中/未開始/已結束) 檢查通過！');
+  }
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');

@@ -1,6 +1,6 @@
 /**
  * @fileoverview 左欄 20% 衝刺切換側邊欄 (Sprint Sidebar) 渲染元件
- * 區分未結束衝刺與已結束歷史衝刺、提供 Story Points 與工作項目徽章、即時收合/展開側邊欄。
+ * 區分進行中衝刺、未開始衝刺與已結束歷史衝刺、提供 Story Points 與工作項目徽章、即時收合/展開側邊欄。
  * @module components/sidebar
  */
 
@@ -9,7 +9,7 @@
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
   /**
-   * 渲染左欄 20% 的衝刺選單內容 (區分「未結束衝刺」與「已結束歷史衝刺」，並提供收合/展開 SVG 圖示按鈕與歷史衝刺按鈕)
+   * 渲染左欄 20% 的衝刺選單內容 (區分「進行中衝刺」、「未開始衝刺」與「已結束，歷史衝刺」，並提供收合/展開 SVG 圖示按鈕與歷史衝刺按鈕)
    *
    * @param {HTMLElement} sidebar - 側邊欄 <aside> 元素
    * @param {Array<Object>} sprintBranches - 衝刺 branch 結構陣列
@@ -31,7 +31,7 @@
     const currentTheme = LayoutManager ? LayoutManager.getCurrentTheme() : 'Default';
 
     const signature = JSON.stringify({
-      v: 5,
+      v: 6,
       selectedIndex,
       collapsed: isCollapsed,
       theme: currentTheme,
@@ -41,6 +41,7 @@
         title: b.meta.title,
         count: b.meta.cardCount,
         points: b.meta.storyPoints,
+        state: b.meta.sprintState || (b.meta.isHistorical ? 'closed' : 'active'),
         isHistorical: Boolean(b.meta.isHistorical)
       }))
     });
@@ -53,9 +54,12 @@
     const prevList = sidebar.querySelector('.bjwt-sprint-list');
     const prevScrollTop = prevList ? prevList.scrollTop : 0;
 
-    const liveItems = sprintBranches
+    const activeItems = sprintBranches
       .map((item, idx) => ({ item, idx }))
-      .filter((x) => !x.item.meta.isHistorical);
+      .filter((x) => !x.item.meta.isHistorical && x.item.meta.sprintState === 'active');
+    const futureItems = sprintBranches
+      .map((item, idx) => ({ item, idx }))
+      .filter((x) => !x.item.meta.isHistorical && x.item.meta.sprintState !== 'active');
     const historyItems = sprintBranches
       .map((item, idx) => ({ item, idx }))
       .filter((x) => Boolean(x.item.meta.isHistorical));
@@ -151,19 +155,10 @@
 
     const listEl = sidebar.querySelector('.bjwt-sprint-list');
 
-    // 分區 1：進行中 / 未結束的衝刺
-    const liveHeader = document.createElement('div');
-    liveHeader.className = 'bjwt-sprint-section-header live-section';
-    liveHeader.innerHTML = `
-      <span class="bjwt-status-dot live-dot" aria-hidden="true"></span>
-      <span>未結束衝刺 (${liveItems.length})</span>
-    `;
-    listEl.appendChild(liveHeader);
-
-    liveItems.forEach(({ item, idx }) => {
+    const renderSprintTabBtn = (item, idx, type) => {
       const pts = item.meta.storyPoints || 0;
       const count = item.meta.cardCount || 0;
-      const badgeText = pts > 0 ? `${pts} 點` : `${count}`;
+      const badgeText = pts > 0 ? `${pts}` : `${count}`;
       const badgeTitle =
         pts > 0
           ? `${item.meta.title}：共 ${pts} 點 Story Points (${count} 個工作項目)`
@@ -171,12 +166,14 @@
 
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = `bjwt-sprint-tab bjwt-sprint-tab-live ${idx === selectedIndex ? 'active' : ''}`;
+      const typeClass = type === 'active' ? 'bjwt-sprint-tab-active' : 'bjwt-sprint-tab-future';
+      btn.className = `bjwt-sprint-tab bjwt-sprint-tab-live ${typeClass} ${idx === selectedIndex ? 'active' : ''}`;
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-selected', idx === selectedIndex ? 'true' : 'false');
+      const dotClass = type === 'active' ? 'live-item-dot active-item-dot' : 'future-item-dot';
       btn.innerHTML = `
         <span class="bjwt-sprint-tab-left">
-          <span class="bjwt-status-dot live-item-dot" aria-hidden="true"></span>
+          <span class="bjwt-status-dot ${dotClass}" aria-hidden="true"></span>
           <span class="bjwt-sprint-tab-name" title="${escapeHtml(item.meta.title)}">
             ${escapeHtml(item.meta.title)}
           </span>
@@ -213,10 +210,40 @@
         }
       });
 
-      listEl.appendChild(btn);
-    });
+      return btn;
+    };
 
-    // 分區 2：已結束的歷史衝刺 (若已載入則顯示於專屬歷史區塊)
+    // 分區 1：進行中衝刺
+    if (activeItems.length > 0) {
+      const activeHeader = document.createElement('div');
+      activeHeader.className = 'bjwt-sprint-section-header live-section active-section';
+      activeHeader.innerHTML = `
+        <span class="bjwt-status-dot live-dot active-dot" aria-hidden="true"></span>
+        <span>進行中衝刺 (${activeItems.length})</span>
+      `;
+      listEl.appendChild(activeHeader);
+
+      activeItems.forEach(({ item, idx }) => {
+        listEl.appendChild(renderSprintTabBtn(item, idx, 'active'));
+      });
+    }
+
+    // 分區 2：未開始衝刺
+    if (futureItems.length > 0) {
+      const futureHeader = document.createElement('div');
+      futureHeader.className = 'bjwt-sprint-section-header future-section';
+      futureHeader.innerHTML = `
+        <span class="bjwt-status-dot future-dot" aria-hidden="true"></span>
+        <span>未開始衝刺 (${futureItems.length})</span>
+      `;
+      listEl.appendChild(futureHeader);
+
+      futureItems.forEach(({ item, idx }) => {
+        listEl.appendChild(renderSprintTabBtn(item, idx, 'future'));
+      });
+    }
+
+    // 分區 3：已結束的歷史衝刺 (若已載入則顯示於專屬歷史區塊)
     if (historyItems.length > 0) {
       const histHeader = document.createElement('div');
       histHeader.className = 'bjwt-sprint-section-header history-section';
@@ -225,14 +252,14 @@
           <circle cx="12" cy="12" r="9"></circle>
           <polyline points="12 7 12 12 15 15"></polyline>
         </svg>
-        <span>已結束・歷史衝刺 (${historyItems.length})</span>
+        <span>已結束，歷史衝刺 (${historyItems.length})</span>
       `;
       listEl.appendChild(histHeader);
 
       historyItems.forEach(({ item, idx }) => {
         const pts = item.meta.storyPoints || 0;
         const count = item.meta.cardCount || 0;
-        const badgeText = pts > 0 ? `${pts} 點` : `${count}`;
+        const badgeText = pts > 0 ? `${pts}` : `${count}`;
         const badgeTitle =
           pts > 0
             ? `${item.meta.title}：共 ${pts} 點 Story Points (${count} 個工作項目)`

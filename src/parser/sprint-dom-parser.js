@@ -378,26 +378,63 @@
       }
     }
 
-    // 擷取原生標頭上的 Story Points (例如三個數字徽章 [26] [38] [17])
+    // 擷取原生標頭上的 Story Points (例如三個數字徽章 [26] [38] [17]，或未開始衝刺單一徽章 [33 點])
     let headerStoryPoints = 0;
     for (const root of searchRoots) {
-      const headerEl =
-        root.querySelector('[data-testid*="header"], .ghx-backlog-header, header') || root;
-      const badges = Array.from(
-        headerEl.querySelectorAll(
-          '[data-testid*="badge"], [data-testid*="estimate"], [class*="badge"], [class*="estimate"]'
+      const headerContainer =
+        root.querySelector(
+          '[data-testid*="header.container"], [data-testid*="header-container"], [data-testid="software-backlog.card-list.header"], .ghx-backlog-header, header'
+        ) || root;
+      let allBadgeNodes = Array.from(
+        headerContainer.querySelectorAll(
+          '[data-testid*="badge"], [data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="storypoint"], [data-testid*="statistic"], [class*="badge"], [class*="estimate"], [class*="statistic"], [aria-label*="estimate" i], [aria-label*="point" i], [aria-label*="點" i], [title*="estimate" i], [title*="point" i], [title*="點" i]'
         )
       );
+      if (allBadgeNodes.length === 0 && headerContainer !== root) {
+        allBadgeNodes = Array.from(
+          root.querySelectorAll(
+            '[data-testid*="badge"], [data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="storypoint"], [data-testid*="statistic"], [class*="badge"], [class*="estimate"], [class*="statistic"], [aria-label*="estimate" i], [aria-label*="point" i], [aria-label*="點" i], [title*="estimate" i], [title*="point" i], [title*="點" i]'
+          )
+        );
+      }
+      // 避免重複計算父子嵌套節點 (若節點 A 包含節點 B，僅保留內層葉節點)
+      const leafBadges = allBadgeNodes.filter(
+        (b) => !isInsideCard(b) && !allBadgeNodes.some((other) => other !== b && b.contains(other))
+      );
+
       let sum = 0;
       let count = 0;
-      badges.forEach((b) => {
-        if (isInsideCard(b)) return;
-        const txt = (b.textContent || '').trim();
-        if (/^\d{1,3}(\.\d)?$/.test(txt)) {
-          sum += parseFloat(txt);
+      leafBadges.forEach((b) => {
+        const rawTxt = (b.textContent || '').trim();
+        const ariaTxt = (b.getAttribute('aria-label') || b.getAttribute('title') || '').trim();
+
+        // 排除純卡片數量標籤 (例如 "12 個問題" 或 "12 issues")
+        if (
+          /個問題|個工作項目|工作項目|issues?|cards?|items?/i.test(rawTxt) ||
+          /個問題|個工作項目|工作項目|issues?|cards?|items?/i.test(ariaTxt)
+        ) {
+          return;
+        }
+
+        let val = null;
+        const mTxt = rawTxt.match(/^(\d{1,4}(?:\.\d+)?)\s*(?:點|pts?|points?)?$/i);
+        if (mTxt) {
+          val = parseFloat(mTxt[1]);
+        } else if (ariaTxt) {
+          const mAria =
+            ariaTxt.match(/(?:預估|估算|story\s*points?|estimate|points?)\s*[:：]?\s*(\d{1,4}(?:\.\d+)?)/i) ||
+            ariaTxt.match(/^(\d{1,4}(?:\.\d+)?)\s*(?:點|pts?|points?)?$/i);
+          if (mAria) {
+            val = parseFloat(mAria[1]);
+          }
+        }
+
+        if (val !== null && !isNaN(val) && val > 0) {
+          sum += val;
           count++;
         }
       });
+
       if (count >= 1 && sum > 0) {
         headerStoryPoints = Math.round(sum * 10) / 10;
         break;
@@ -412,12 +449,97 @@
       sprintEl.getAttribute('id') ||
       `${index}__${cleanedTitle}`;
 
+    // 判斷此衝刺狀態 ('active' | 'future')
+    let sprintState = null;
+    for (const root of searchRoots) {
+      if (!root) continue;
+      const btns = Array.from(
+        root.querySelectorAll('button, [role="button"], a, input[type="button"], input[type="submit"]')
+      );
+      const hasComplete = btns.some((b) => {
+        const txt = (b.textContent || b.value || '').trim();
+        const testid = b.getAttribute('data-testid') || '';
+        const aria = b.getAttribute('aria-label') || '';
+        return (
+          /完成衝刺|complete sprint/i.test(txt) ||
+          /complete-sprint/i.test(testid) ||
+          /完成衝刺|complete sprint/i.test(aria)
+        );
+      });
+      if (hasComplete) {
+        sprintState = 'active';
+        break;
+      }
+      const hasStart = btns.some((b) => {
+        const txt = (b.textContent || b.value || '').trim();
+        const testid = b.getAttribute('data-testid') || '';
+        const aria = b.getAttribute('aria-label') || '';
+        return (
+          /開始衝刺|start sprint/i.test(txt) ||
+          /start-sprint/i.test(testid) ||
+          /開始衝刺|start sprint/i.test(aria)
+        );
+      });
+      if (hasStart) {
+        sprintState = 'future';
+        break;
+      }
+    }
+
+    if (!sprintState) {
+      for (const root of searchRoots) {
+        if (!root) continue;
+        if (
+          root.matches && (
+            root.matches('.ghx-sprint-active, [data-testid*="active-sprint"]') ||
+            root.querySelector('.ghx-sprint-active, [data-testid*="active-sprint"]')
+          )
+        ) {
+          sprintState = 'active';
+          break;
+        }
+        if (
+          root.matches && (
+            root.matches('.ghx-sprint-planned, .ghx-sprint-future, [data-testid*="future-sprint"], [data-testid*="planned-sprint"]') ||
+            root.querySelector('.ghx-sprint-planned, .ghx-sprint-future, [data-testid*="future-sprint"], [data-testid*="planned-sprint"]')
+          )
+        ) {
+          sprintState = 'future';
+          break;
+        }
+      }
+    }
+
+    if (!sprintState) {
+      const { IssueStore } = BetterJira;
+      const boardSprints = IssueStore && typeof IssueStore.getBoardSprints === 'function' ? IssueStore.getBoardSprints() : null;
+      if (Array.isArray(boardSprints) && boardSprints.length > 0) {
+        const found = boardSprints.find((s) => {
+          if (sprintId && String(s.id) === String(sprintId)) return true;
+          const sTitle = cleanSprintTitle(s.name || '');
+          return sTitle && sTitle.toLowerCase() === cleanedTitle.toLowerCase();
+        });
+        if (found && (found.state === 'active' || found.state === 'future')) {
+          sprintState = found.state;
+        }
+      }
+    }
+
+    if (!sprintState && /backlog|待辦池|待辦事項/i.test(cleanedTitle)) {
+      sprintState = 'future';
+    }
+
+    if (!sprintState) {
+      sprintState = index === 0 ? 'active' : 'future';
+    }
+
     return {
       key,
       sprintId,
       index,
       title: cleanedTitle,
       rawTitle: title,
+      sprintState,
       domCardCount: cardNodes.length,
       headerFilteredCount,
       headerTotalCount,
