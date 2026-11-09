@@ -24,14 +24,15 @@
     const { renderIssueCardHtml } = IssueCardComponent;
     const { openHistoricalIssueDetailModal } = IssueModalComponent;
 
-    const allIssues = histItem.issues || [];
+    const allIssues = (histItem.issues || []).filter((iss) => !iss.isSubtask);
     const activeNativeFilter = nativeFilter || getNativeBacklogFilterState();
 
-    // 透過純前端篩選服務過濾卡片
-    const visibleIssues =
+    // 透過純前端篩選服務過濾卡片 (嚴格排除子任務)
+    const visibleIssues = (
       FrontendFilterService && typeof FrontendFilterService.filterIssues === 'function'
         ? FrontendFilterService.filterIssues(allIssues)
-        : filterIssuesByNativeFilter(allIssues, activeNativeFilter);
+        : filterIssuesByNativeFilter(allIssues, activeNativeFilter)
+    ).filter((iss) => !iss.isSubtask);
 
     if (Array.isArray(histItem.issues)) {
       histItem.issues.forEach((iss) => {

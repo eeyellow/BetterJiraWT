@@ -48,7 +48,18 @@
     let inProgressPoints = 0;
     let todoPoints = 0;
 
-    issues.forEach((iss) => {
+    // 嚴格排除子任務，衝刺工作項目數與點數統計僅採計標準頂層卡片
+    const TextUtils = BetterJira.TextUtils;
+    const targetIssues = issues.filter((iss) => {
+      if (!iss) return false;
+      if (iss.isSubtask === true || iss.subtask === true) return false;
+      if (iss.issueTypeName && TextUtils && typeof TextUtils.isSubtaskTypeName === 'function') {
+        if (TextUtils.isSubtaskTypeName(iss.issueTypeName)) return false;
+      }
+      return true;
+    });
+
+    targetIssues.forEach((iss) => {
       const pt = parseFloat(iss.storyPoints);
       const points = !isNaN(pt) && pt > 0 ? pt : 0;
 
@@ -67,7 +78,7 @@
     const roundPt = (val) => Math.round(val * 10) / 10;
 
     return {
-      totalIssues: issues.length,
+      totalIssues: targetIssues.length,
       todoCount,
       inProgressCount,
       doneCount,

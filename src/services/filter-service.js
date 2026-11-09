@@ -968,6 +968,12 @@
     const quickFilters = (filterState.selectedQuickFilters || []).map((q) => q.toLowerCase().trim()).filter(Boolean);
 
     return issues.filter((iss) => {
+      if (!iss) return false;
+      // 嚴格排除子任務卡片
+      if (iss.isSubtask || (BetterJira.TextUtils && typeof BetterJira.TextUtils.isSubtaskTypeName === 'function' && BetterJira.TextUtils.isSubtaskTypeName(iss.issueTypeName))) {
+        return false;
+      }
+
       // 1. 經辦人篩選
       if (!doesIssueMatchAssigneeFilter(iss, filterState)) {
         return false;

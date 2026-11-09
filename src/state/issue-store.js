@@ -385,6 +385,13 @@
         primaryIss.issueTypeName ||
         existing.issueTypeName ||
         '',
+      isSubtask: Boolean(
+        primaryIss.isSubtask !== undefined
+          ? primaryIss.isSubtask
+          : existing.isSubtask !== undefined
+          ? existing.isSubtask
+          : (primaryIss.subtask ?? existing.subtask ?? (BetterJira.TextUtils && typeof BetterJira.TextUtils.isSubtaskTypeName === 'function' ? BetterJira.TextUtils.isSubtaskTypeName(primaryIss.issueTypeName || existing.issueTypeName) : false))
+      ),
       priorityIcon: resolvedPriorityIcon,
       prioritySvg: resolvedPrioritySvg,
       priorityName: resolvedPriorityName,
@@ -450,6 +457,12 @@
     const priorityObj = fields.priority || {};
     const assigneeObj = fields.assignee || null;
     const parentObj = fields.parent || null;
+
+    const { isSubtaskTypeName } = BetterJira.TextUtils || {};
+    const isSubtask = Boolean(
+      issueTypeObj.subtask === true ||
+      (issueTypeObj.name && (typeof isSubtaskTypeName === 'function' ? isSubtaskTypeName(issueTypeObj.name) : /sub[\s_-]?task|子任務|子工作/i.test(issueTypeObj.name)))
+    );
 
     // 常見 Story Points 欄位與動態探測之欄位
     let rawStoryPoints = null;
@@ -540,6 +553,7 @@
         parentObj && parentObj.fields ? parentObj.fields.summary || '' : '',
       dueDate: cleanDueDateText(fields.duedate || ''),
       storyPoints,
+      isSubtask,
       _isFromApi: true
     };
 
@@ -578,6 +592,23 @@
     return true;
   }
 
+  /**
+   * 檢查指定卡片物件是否為子任務 (SubTask)
+   *
+   * @param {Object} iss - 卡片資料物件
+   * @returns {boolean} 是否為子任務
+   */
+  function isSubtaskIssue(iss) {
+    if (!iss || typeof iss !== 'object') return false;
+    if (iss.isSubtask === true || iss.subtask === true) return true;
+    if (iss.isSubtask === false) return false;
+    const typeName = iss.issueTypeName || (iss.fields && iss.fields.issuetype && iss.fields.issuetype.name);
+    if (typeName && BetterJira.TextUtils && typeof BetterJira.TextUtils.isSubtaskTypeName === 'function') {
+      return BetterJira.TextUtils.isSubtaskTypeName(typeName);
+    }
+    return false;
+  }
+
   BetterJira.IssueStore = {
     issueMetadataMap,
     activeSprintCache,
@@ -588,6 +619,7 @@
     clearUserOverrides,
     mergeAndCacheIssue,
     normalizeJiraIssue,
+    isSubtaskIssue,
     appendHistoricalSprintToState,
     removeHistoricalSprint,
     getLoadedHistoricalSprints: () => loadedHistoricalSprints,

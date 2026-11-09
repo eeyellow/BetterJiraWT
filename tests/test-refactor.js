@@ -2587,6 +2587,133 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     console.log('✓ 側邊欄點數純數字、未開始衝刺點數統計與三分區 (進行中/未開始/已結束) 檢查通過！');
   }
 
+  console.log('--- 測試 26: 嚴格排除子卡片 (SubTask) 出現在右側欄卡片清單與衝刺統計檢查 ---');
+  {
+    const { TextUtils, IssueStore, CardDomParser, SprintStatsService } = BetterJira;
+
+    // 1. 測試 TextUtils.isSubtaskTypeName 判斷
+    assert.strictEqual(typeof TextUtils.isSubtaskTypeName, 'function', 'TextUtils.isSubtaskTypeName 應為函式');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('Sub-task'), true, 'Sub-task 應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('subtask'), true, 'subtask 應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('sub-task'), true, 'sub-task 應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('子任務'), true, '子任務 應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('子工作'), true, '子工作 應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('工作項目類型: Sub-task'), true, '帶前綴的 Sub-task 應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('Story'), false, 'Story 不應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('Task'), false, 'Task 不應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('Bug'), false, 'Bug 不應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName('Epic'), false, 'Epic 不應為子任務');
+    assert.strictEqual(TextUtils.isSubtaskTypeName(''), false, '空字串不應為子任務');
+
+    // 2. 測試 IssueStore.normalizeJiraIssue 正確標記 isSubtask 屬性
+    const rawSubtaskApi = {
+      id: '2001',
+      key: 'TEST-10',
+      fields: {
+        summary: '實作單元測試子任務',
+        status: { name: 'To Do', statusCategory: { key: 'new' } },
+        issuetype: { name: 'Sub-task', subtask: true },
+        story_points: 2
+      }
+    };
+    const normSubtask = IssueStore.normalizeJiraIssue(rawSubtaskApi);
+    assert.strictEqual(normSubtask.isSubtask, true, 'normalizeJiraIssue 應標記 isSubtask: true');
+
+    const rawStandardApi = {
+      id: '2002',
+      key: 'TEST-11',
+      fields: {
+        summary: '開發核心模組',
+        status: { name: 'In Progress', statusCategory: { key: 'indeterminate' } },
+        issuetype: { name: 'Story', subtask: false },
+        story_points: 8
+      }
+    };
+    const normStandard = IssueStore.normalizeJiraIssue(rawStandardApi);
+    assert.strictEqual(normStandard.isSubtask, false, 'Story 卡片 isSubtask 應為 false');
+
+    const rawChineseSubtaskApi = {
+      id: '2003',
+      key: 'TEST-12',
+      fields: {
+        summary: '前端子工作',
+        status: { name: 'Done', statusCategory: { key: 'done' } },
+        issuetype: { name: '子任務' },
+        story_points: 1
+      }
+    };
+    const normChineseSubtask = IssueStore.normalizeJiraIssue(rawChineseSubtaskApi);
+    assert.strictEqual(normChineseSubtask.isSubtask, true, '中文名稱「子任務」應自動標記 isSubtask: true');
+
+    // 3. 測試 IssueStore.isSubtaskIssue
+    assert.strictEqual(IssueStore.isSubtaskIssue(normSubtask), true);
+    assert.strictEqual(IssueStore.isSubtaskIssue(normStandard), false);
+    assert.strictEqual(IssueStore.isSubtaskIssue({ issueTypeName: 'Sub-task' }), true);
+    assert.strictEqual(IssueStore.isSubtaskIssue({ issueTypeName: 'Task' }), false);
+
+    // 4. 測試 CardDomParser.parseIssuesFromBranch 排除子任務
+    const mockContainer = new MockElement('div');
+    const mockCardStandard = new MockElement('div');
+    mockCardStandard.setAttribute('data-testid', 'software-backlog.card-list.card.card-contents.card-container');
+    const linkStd = new MockElement('a');
+    linkStd.textContent = 'PROJ-101';
+    mockCardStandard.appendChild(linkStd);
+    const sumStd = new MockElement('span');
+    sumStd.setAttribute('data-testid', 'software-backlog.card-list.card.card-contents.summary');
+    sumStd.textContent = '標準任務標題';
+    mockCardStandard.appendChild(sumStd);
+
+    const mockCardSubtask = new MockElement('div');
+    mockCardSubtask.setAttribute('data-testid', 'software-backlog.card-list.card.card-contents.card-container');
+    const linkSub = new MockElement('a');
+    linkSub.textContent = 'PROJ-102';
+    mockCardSubtask.appendChild(linkSub);
+    const sumSub = new MockElement('span');
+    sumSub.setAttribute('data-testid', 'software-backlog.card-list.card.card-contents.summary');
+    sumSub.textContent = '子任務標題';
+    mockCardSubtask.appendChild(sumSub);
+    const typeImgSub = new MockElement('img');
+    typeImgSub.setAttribute('data-testid', 'software-backlog.card-list.card.card-contents.type-icon');
+    typeImgSub.setAttribute('src', 'https://swpc.atlassian.net/images/icons/issuetypes/subtask.svg');
+    typeImgSub.setAttribute('alt', 'Sub-task');
+    mockCardSubtask.appendChild(typeImgSub);
+
+    mockContainer.appendChild(mockCardStandard);
+    mockContainer.appendChild(mockCardSubtask);
+
+    const parsedIssues = CardDomParser.parseIssuesFromBranch(mockContainer, mockContainer);
+    assert(parsedIssues.some((i) => i.key === 'PROJ-101'), '應包含標準任務 PROJ-101');
+    assert(!parsedIssues.some((i) => i.key === 'PROJ-102'), 'parseIssuesFromBranch 應排除 Sub-task PROJ-102');
+
+    // 5. 測試 SprintStatsService.calculateSprintStatistics 自動排除子任務
+    const mixedIssues = [
+      { key: 'W-1', statusCategory: 'new', storyPoints: 3, isSubtask: false, issueTypeName: 'Story' },
+      { key: 'W-2', statusCategory: 'done', storyPoints: 5, isSubtask: false, issueTypeName: 'Story' },
+      { key: 'W-3', statusCategory: 'new', storyPoints: 2, isSubtask: true, issueTypeName: 'Sub-task' },
+      { key: 'W-4', statusCategory: 'done', storyPoints: 1, isSubtask: true, issueTypeName: 'Sub-task' }
+    ];
+    const mixedStats = SprintStatsService.calculateSprintStatistics(mixedIssues);
+    assert.strictEqual(mixedStats.totalIssues, 2, '衝刺統計應排除子任務，僅計入 2 張標準卡片');
+    assert.strictEqual(mixedStats.totalPoints, 8, 'Story Points 總計應為 3 + 5 = 8，不計入子任務點數');
+    assert.strictEqual(mixedStats.todoCount, 1, '待辦卡片數應為 1');
+    assert.strictEqual(mixedStats.doneCount, 1, '完成卡片數應為 1');
+
+    // 6. 測試原始碼中各處排除子任務的防護邏輯
+    const checkActiveView = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/active-sprint-view.js'), 'utf8');
+    assert(checkActiveView.includes('!iss.isSubtask'), 'active-sprint-view.js 應包含 !iss.isSubtask 卡片過濾');
+
+    const checkHistoryView = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/history-sprint-view.js'), 'utf8');
+    assert(checkHistoryView.includes('!iss.isSubtask'), 'history-sprint-view.js 應包含 !iss.isSubtask 卡片過濾');
+
+    const checkLayoutMgr = fs.readFileSync(path.resolve(__dirname, '..', 'src/layout/layout-manager.js'), 'utf8');
+    assert(checkLayoutMgr.includes('!iss.isSubtask'), 'layout-manager.js 應包含 !iss.isSubtask 卡片過濾');
+
+    const checkJiraApi = fs.readFileSync(path.resolve(__dirname, '..', 'src/services/jira-api.js'), 'utf8');
+    assert(checkJiraApi.includes('!iss.isSubtask'), 'jira-api.js 應包含 !iss.isSubtask 卡片過濾');
+
+    console.log('✓ 嚴格排除子卡片 (SubTask) 出現在右側欄卡片清單與衝刺統計檢查通過！');
+  }
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');

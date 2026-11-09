@@ -352,6 +352,29 @@
     return str;
   }
 
+  /**
+   * 檢查給定的問題類型名稱是否為子任務 (SubTask / 子工作)
+   *
+   * @param {string} raw - 類型名稱字串
+   * @returns {boolean} 是否為子任務
+   */
+  function isSubtaskTypeName(raw) {
+    if (!raw || typeof raw !== 'string') return false;
+    const clean = raw.trim();
+    const lower = clean.toLowerCase();
+    const stripped = lower
+      .replace(/^(?:issue\s*type|工作項目類型|問題類型|類型)\s*[:：\-]\s*/i, '')
+      .replace(/\s*[-:：]\s*(?:issue\s*type|工作項目類型|問題類型|類型)$/i, '')
+      .trim();
+    return (
+      /^(?:sub[\s_-]?task|子任務|子工作)$/i.test(stripped) ||
+      stripped.includes('subtask') ||
+      stripped.includes('sub-task') ||
+      stripped.includes('子任務') ||
+      stripped.includes('子工作')
+    );
+  }
+
   BetterJira.TextUtils = {
     isTruncatedDuplicateOf,
     cleanSummaryText,
@@ -359,6 +382,7 @@
     cleanSprintTitle,
     cleanStatusText,
     cleanDueDateText,
+    isSubtaskTypeName,
     formatShortDate,
     formatShortDateTime,
     escapeHtml,
