@@ -2516,18 +2516,22 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     assert(!checkSidebarCode.includes('<span>未結束衝刺'), 'sidebar.js 不應包含舊的「未結束衝刺」分區');
     assert(!checkSidebarCode.includes('badgeText = pts > 0 ? `${pts} 點`'), 'sidebar.js 之 badgeText 不應帶有「點」字');
 
-    // 6. 測試 styles.css 與 runtime-styles.js 包含 future-section 與 bjwt-active-start-btn
+    // 6. 測試 styles.css 與 runtime-styles.js 包含 future-section 與 bjwt-active-start-btn，以及加大醒目的階層感樣式
     const checkStylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
     assert(checkStylesCss.includes('future-section'), 'styles.css 應包含 future-section');
     assert(checkStylesCss.includes('bjwt-active-start-btn'), 'styles.css 應包含 bjwt-active-start-btn');
     assert(checkStylesCss.includes('bjwt-section-toggle-icon'), 'styles.css 應包含 bjwt-section-toggle-icon 風琴夾圖示樣式');
     assert(checkStylesCss.includes('bjwt-sprint-section-body'), 'styles.css 應包含 bjwt-sprint-section-body 風琴夾區塊樣式');
+    assert(checkStylesCss.includes('bjwt-section-count-badge'), 'styles.css 應包含 bjwt-section-count-badge 醒目計數徽章樣式');
+    assert(checkStylesCss.includes('13.5px'), 'styles.css 分區標頭字體應加大為 13.5px 以表現階層感');
 
     const checkRuntimeStyles = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
     assert(checkRuntimeStyles.includes('future-section'), 'runtime-styles.js 應包含 future-section');
     assert(checkRuntimeStyles.includes('bjwt-active-start-btn'), 'runtime-styles.js 應包含 bjwt-active-start-btn');
     assert(checkRuntimeStyles.includes('bjwt-section-toggle-icon'), 'runtime-styles.js 應包含 bjwt-section-toggle-icon 風琴夾圖示樣式');
     assert(checkRuntimeStyles.includes('bjwt-sprint-section-body'), 'runtime-styles.js 應包含 bjwt-sprint-section-body 風琴夾區塊樣式');
+    assert(checkRuntimeStyles.includes('bjwt-section-count-badge'), 'runtime-styles.js 應包含 bjwt-section-count-badge 醒目計數徽章樣式');
+    assert(checkRuntimeStyles.includes('13.5px'), 'runtime-styles.js 分區標頭字體應加大為 13.5px 以表現階層感');
 
     // 7. 測試風琴夾狀態管理 (getSectionCollapseState / setSectionCollapseState)
     assert(typeof SidebarComponent.getSectionCollapseState === 'function', 'SidebarComponent 應提供 getSectionCollapseState 函式');
