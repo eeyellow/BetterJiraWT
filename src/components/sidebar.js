@@ -338,8 +338,6 @@
       count,
       items,
       headerClass,
-      dotClass,
-      iconSvg,
       renderItem
     }) => {
       if (!Array.isArray(items) || items.length === 0) return;
@@ -357,8 +355,6 @@
 
       header.innerHTML = `
         <div class="bjwt-section-header-left">
-          ${dotClass ? `<span class="bjwt-status-dot ${dotClass}" aria-hidden="true"></span>` : ''}
-          ${iconSvg || ''}
           <span class="bjwt-section-title-text">${escapeHtml(title)}</span>
           <span class="bjwt-section-count-badge">${count}</span>
         </div>
@@ -408,8 +404,6 @@
       count: activeItems.length,
       items: activeItems,
       headerClass: 'live-section active-section',
-      dotClass: 'live-dot active-dot',
-      iconSvg: '',
       renderItem: (item, idx) => renderSprintTabBtn(item, idx, 'active')
     });
 
@@ -420,8 +414,6 @@
       count: futureItems.length,
       items: futureItems,
       headerClass: 'future-section',
-      dotClass: 'future-dot',
-      iconSvg: '',
       renderItem: (item, idx) => renderSprintTabBtn(item, idx, 'future')
     });
 
@@ -432,13 +424,6 @@
       count: historyItems.length,
       items: historyItems,
       headerClass: 'history-section',
-      dotClass: '',
-      iconSvg: `
-        <svg class="bjwt-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9"></circle>
-          <polyline points="12 7 12 12 15 15"></polyline>
-        </svg>
-      `,
       renderItem: (item, idx) => renderHistorySprintTabBtn(item, idx)
     });
 
