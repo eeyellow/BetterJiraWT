@@ -2576,6 +2576,13 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     assert(checkSidebarCode.includes('aria-controls'), 'sidebar.js 應設定 aria-controls 屬性');
     assert(checkSidebarCode.includes('sectionCollapse'), 'sidebar.js signature 應包含 sectionCollapse 變更偵測');
 
+    // 9. 測試分區標頭前方圖示移除、但 Sprint 項目保留前置圖示
+    assert(!checkSidebarCode.includes('dotClass:'), 'sidebar.js 分區標頭呼叫處應已移除 dotClass');
+    assert(!checkSidebarCode.includes('iconSvg:'), 'sidebar.js 分區標頭呼叫處應已移除 iconSvg');
+    assert(checkSidebarCode.includes('bjwt-history-tab-icon'), 'Sprint 項目按鈕應保留歷史時鐘圖示');
+    assert(checkSidebarCode.includes('live-item-dot active-item-dot'), 'Sprint 項目按鈕應保留進行中衝刺圓點');
+    assert(checkSidebarCode.includes('future-item-dot'), 'Sprint 項目按鈕應保留未開始衝刺圓點');
+
     global.document.querySelector = origQuerySelector;
     console.log('✓ 側邊欄點數純數字、未開始衝刺點數統計與三分區 (進行中/未開始/已結束) 檢查通過！');
   }
