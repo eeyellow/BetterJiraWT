@@ -399,30 +399,40 @@
     let storyPoints = null;
     const pointEl =
       cardEl.querySelector(
-        '[data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="points"], [data-testid*="statistic"], .ghx-estimate'
+        '[data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="storypoint"], [data-testid*="points"], [data-testid*="statistic"], [aria-label*="story point" i], [aria-label*="estimate" i], [aria-label*="點數" i], [aria-label*="預估" i], [title*="story point" i], [title*="estimate" i], [title*="點數" i], .ghx-estimate'
       );
     if (pointEl) {
-      const pt = (pointEl.textContent || '').trim();
-      if (pt && pt !== '-' && !isNaN(parseFloat(pt))) {
-        storyPoints = parseFloat(pt);
+      const inp = pointEl.tagName === 'INPUT' ? pointEl : pointEl.querySelector('input');
+      const raw = inp
+        ? (inp.value || inp.getAttribute('value') || '')
+        : (pointEl.textContent || pointEl.getAttribute('value') || pointEl.getAttribute('aria-label') || pointEl.getAttribute('title') || '');
+      const trimmed = String(raw).trim();
+      const m = trimmed.match(/^(\d{1,4}(?:\.\d+)?)\s*(?:點|pts?|points?)?$/i) ||
+                (pointEl.getAttribute('aria-label') || '').match(/(?:預估|估算|story\s*points?|estimate|points?)\s*[:：]?\s*(\d{1,4}(?:\.\d+)?)/i);
+      if (m && !isNaN(parseFloat(m[1]))) {
+        storyPoints = parseFloat(m[1]);
+      } else if (trimmed && trimmed !== '-' && !isNaN(parseFloat(trimmed))) {
+        storyPoints = parseFloat(trimmed);
       }
     }
 
     if (storyPoints === null) {
-      const candidates = Array.from(cardEl.querySelectorAll('button, span, div'));
+      const candidates = Array.from(cardEl.querySelectorAll('button, span, div, input'));
       for (const el of candidates) {
-        if (el.children.length === 0) {
-          const txt = (el.textContent || '').trim();
-          if (/^\d{1,3}(\.\d)?$/.test(txt)) {
-            const isBadge = Boolean(
-              el.closest(
-                '[data-testid*="badge"], [data-testid*="estimate"], [class*="badge"], [class*="estimate"], [class*="statistic"]'
-              )
-            );
-            if (isBadge) {
-              storyPoints = parseFloat(txt);
-              break;
-            }
+        const inp = el.tagName === 'INPUT' ? el : null;
+        const txt = inp ? (inp.value || '').trim() : (el.children.length === 0 ? (el.textContent || '').trim() : '');
+        const aria = (el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+        const m = txt.match(/^(\d{1,4}(?:\.\d+)?)\s*(?:點|pts?|points?)?$/i) ||
+                  aria.match(/(?:預估|估算|story\s*points?|estimate|points?)\s*[:：]?\s*(\d{1,4}(?:\.\d+)?)/i);
+        if (m) {
+          const isBadge = Boolean(
+            el.closest(
+              '[data-testid*="badge"], [data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="points"], [class*="badge"], [class*="estimate"], [class*="statistic"], [aria-label*="estimate" i], [aria-label*="story point" i]'
+            )
+          );
+          if (isBadge) {
+            storyPoints = parseFloat(m[1]);
+            break;
           }
         }
       }

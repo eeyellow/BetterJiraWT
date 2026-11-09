@@ -60,6 +60,43 @@
     const domIssues = rawDomIssues.map((iss) => IssueStore.mergeAndCacheIssue(iss));
 
     let cached = IssueStore.getActiveSprintCache(cacheKey) || IssueStore.getActiveSprintCache(key);
+    // 若 IssueStore 尚未同步，但 JiraApiService 內部快取已有該衝刺卡片資料，自動取用
+    if (
+      (!cached || !Array.isArray(cached.allApiIssues) || cached.allApiIssues.length === 0) &&
+      BetterJira.JiraApiService &&
+      typeof BetterJira.JiraApiService.getSprintActiveApiCache === 'function'
+    ) {
+      const apiIssues =
+        BetterJira.JiraApiService.getSprintActiveApiCache(cacheKey) ||
+        BetterJira.JiraApiService.getSprintActiveApiCache(key) ||
+        BetterJira.JiraApiService.getSprintActiveApiCache(`title_${(meta.title || '').toLowerCase()}`);
+      if (Array.isArray(apiIssues) && apiIssues.length > 0) {
+        if (!cached) {
+          cached = {
+            key: cacheKey,
+            title: meta.title,
+            issues: apiIssues,
+            allApiIssues: apiIssues,
+            rawIssues: apiIssues,
+            masterIssuesMap: new Map(apiIssues.map((i) => [i.key, i])),
+            filterKeyword: '',
+            dateRange: '',
+            fromApi: true,
+            apiSyncing: false,
+            lastSyncTime: Date.now()
+          };
+          IssueStore.setActiveSprintCache(cacheKey, cached);
+          IssueStore.setActiveSprintCache(key, cached);
+        } else {
+          cached.allApiIssues = apiIssues;
+          if (!cached.masterIssuesMap) cached.masterIssuesMap = new Map();
+          apiIssues.forEach((i) => cached.masterIssuesMap.set(i.key, i));
+          cached.rawIssues = Array.from(cached.masterIssuesMap.values());
+          cached.fromApi = true;
+        }
+      }
+    }
+
     if (!cached) {
       cached = {
         key: cacheKey,
@@ -162,6 +199,13 @@
     } else {
       meta.cardCount = meta.headerTotalCount !== null ? meta.headerTotalCount : meta.cardCount;
       meta.storyPoints = meta.headerStoryPoints || 0;
+    }
+
+    // 若統計出的點數為 0 但標頭明確有 Story Points，則採標頭點數；反之若標頭為 0 但卡片有點數，則採卡片點數
+    if ((!meta.storyPoints || meta.storyPoints === 0) && meta.headerStoryPoints > 0) {
+      meta.storyPoints = meta.headerStoryPoints;
+    } else if (meta.storyPoints === 0 && stats.totalPoints > 0) {
+      meta.storyPoints = stats.totalPoints;
     }
   }
 
@@ -401,6 +445,7 @@
           cardCount: filteredHistIssues.length,
           storyPoints: histStats.totalPoints,
           isHistorical: true,
+          sprintState: 'closed',
           sprintId: histItem.sprintId,
           startDate: histItem.startDate,
           endDate: histItem.endDate,
@@ -408,6 +453,31 @@
         }
       });
     });
+
+    // 依據全局看板衝刺清單 (API 或 DOM 狀態) 精確校正各衝刺之 sprintState ('active' vs 'future')
+    const boardSprints = IssueStore && typeof IssueStore.getBoardSprints === 'function' ? IssueStore.getBoardSprints() : null;
+    sprintBranches.forEach((b) => {
+      if (b.meta && !b.meta.isHistorical) {
+        if (Array.isArray(boardSprints) && boardSprints.length > 0) {
+          const matched = boardSprints.find((s) => {
+            if (b.meta.sprintId && String(s.id) === String(b.meta.sprintId)) return true;
+            const sTitle = cleanSprintTitle(s.name || '');
+            return sTitle && sTitle.toLowerCase() === (b.meta.title || '').toLowerCase();
+          });
+          if (matched && (matched.state === 'active' || matched.state === 'future')) {
+            b.meta.sprintState = matched.state;
+          }
+        }
+      }
+    });
+
+    // 若依然沒有任何衝刺判定為進行中衝刺，且第一個衝刺無「開始衝刺」標記，則將第一個衝刺設為進行中
+    if (!sprintBranches.some((b) => b.meta && b.meta.sprintState === 'active')) {
+      const firstLive = sprintBranches.find((b) => b.meta && !b.meta.isHistorical);
+      if (firstLive && firstLive.meta) {
+        firstLive.meta.sprintState = 'active';
+      }
+    }
 
     // 標記 sprintsHost 下非衝刺、也非側邊欄的其他直接子元素
     Array.from(sprintsHost.children).forEach((child) => {
@@ -568,7 +638,15 @@
     // 在背景非同步預熱看板 Backlog 全部未結束卡片 (包含 Future Sprints 與待辦池)，秒開未開始衝刺並充實跨衝刺搜尋
     // 嚴格限制每個 Board ID 僅預熱一次，絕不在每次排版重繪時重複觸發造成無限刷新循環
     if (BetterJira.JiraApiService && typeof BetterJira.JiraApiService.prefetchBoardBacklogIssues === 'function') {
-      const currentBoardId = IssueStore.getBoardId && IssueStore.getBoardId();
+      let currentBoardId = IssueStore.getBoardId && IssueStore.getBoardId();
+      if (!currentBoardId && typeof window !== 'undefined' && window.location) {
+        const href = window.location.href || '';
+        const m = href.match(/\/boards\/(\d+)/i) || href.match(/[?&]rapidView=(\d+)/i);
+        if (m && m[1]) {
+          currentBoardId = m[1];
+          if (IssueStore.setBoardId) IssueStore.setBoardId(currentBoardId);
+        }
+      }
       if (currentBoardId && lastPrefetchedBoardId !== String(currentBoardId)) {
         lastPrefetchedBoardId = String(currentBoardId);
         BetterJira.JiraApiService.prefetchBoardBacklogIssues(currentBoardId)
@@ -578,6 +656,16 @@
             }
           })
           .catch(() => {});
+
+        if (typeof BetterJira.JiraApiService.fetchActiveAndFutureSprintsForBoard === 'function') {
+          BetterJira.JiraApiService.fetchActiveAndFutureSprintsForBoard(currentBoardId)
+            .then((list) => {
+              if (Array.isArray(list) && list.length > 0 && typeof scheduleLayoutRefresh === 'function') {
+                scheduleLayoutRefresh();
+              }
+            })
+            .catch(() => {});
+        }
       }
     }
 

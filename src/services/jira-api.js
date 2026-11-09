@@ -284,7 +284,22 @@
           sprintFailedCooldownMap.delete(bucketKey);
 
           let cached = IssueStore.getActiveSprintCache(bucketKey);
-          if (cached) {
+          if (!cached) {
+            cached = {
+              key: bucketKey,
+              title: '',
+              issues: issuesList,
+              allApiIssues: issuesList,
+              rawIssues: issuesList,
+              masterIssuesMap: new Map(issuesList.map((i) => [i.key, i])),
+              filterKeyword: '',
+              dateRange: '',
+              fromApi: true,
+              apiSyncing: false,
+              lastSyncTime: Date.now()
+            };
+            IssueStore.setActiveSprintCache(bucketKey, cached);
+          } else {
             cached.allApiIssues = issuesList;
             if (!cached.masterIssuesMap) cached.masterIssuesMap = new Map();
             issuesList.forEach((i) => cached.masterIssuesMap.set(i.key, i));
@@ -501,6 +516,18 @@
     }
 
     throw new Error(`找不到名稱為「${targetName}」的已結束 Sprint 或無權限存取`);
+  }
+
+  /**
+   * 取得指定快取鍵值內部暫存的 Agile API 卡片清單 (若已由 prefetchBoardBacklogIssues 快取)
+   *
+   * @param {string} cacheKey - 快取鍵值
+   * @returns {Array<Object>|null}
+   */
+  function getSprintActiveApiCache(cacheKey) {
+    if (!cacheKey) return null;
+    const entry = sprintActiveApiCache.get(cacheKey);
+    return entry && Array.isArray(entry.data) ? entry.data : null;
   }
 
   /**
@@ -1561,6 +1588,7 @@
     fetchClosedSprintsForBoard,
     fetchHistoricalSprintData,
     fetchSprintIssuesForActive,
+    getSprintActiveApiCache,
     prefetchBoardBacklogIssues,
     fetchIssueDetails,
     fetchIssueEditMeta,

@@ -141,6 +141,12 @@
         background: var(--ds-surface-sunken, rgba(9, 30, 66, 0.04)) !important;
         color: var(--ds-text-subtle, #64748b) !important;
       }
+      .bjwt-sprint-section-header.future-section {
+        background: rgba(37, 99, 235, 0.08) !important;
+        color: var(--ds-text-accent-blue, #2563eb) !important;
+        border-top: 1px solid rgba(37, 99, 235, 0.2) !important;
+        border-bottom: 1px solid rgba(37, 99, 235, 0.2) !important;
+      }
       .bjwt-sprint-section-header.history-section {
         background: rgba(245, 158, 11, 0.14) !important;
         color: #f59e0b !important;
@@ -155,9 +161,16 @@
         display: inline-block !important;
       }
       .bjwt-status-dot.live-dot,
-      .bjwt-status-dot.live-item-dot {
+      .bjwt-status-dot.live-item-dot,
+      .bjwt-status-dot.active-dot,
+      .bjwt-status-dot.active-item-dot {
         background: #22c55e !important;
         box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.22) !important;
+      }
+      .bjwt-status-dot.future-dot,
+      .bjwt-status-dot.future-item-dot {
+        background: #3b82f6 !important;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.22) !important;
       }
       .bjwt-sprint-tab-left {
         display: flex !important;
@@ -235,6 +248,26 @@
         background: #0052cc !important;
         border-color: #0052cc !important;
         box-shadow: 0 1px 3px rgba(12, 102, 228, 0.4) !important;
+      }
+      .bjwt-active-start-btn {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        height: 28px !important;
+        padding: 0 12px !important;
+        border: 1px solid #2563eb !important;
+        border-radius: 5px !important;
+        background: #2563eb !important;
+        color: #ffffff !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+        transition: all 0.15s ease !important;
+      }
+      .bjwt-active-start-btn:hover {
+        background: #1d4ed8 !important;
+        border-color: #1d4ed8 !important;
+        box-shadow: 0 1px 3px rgba(37, 99, 235, 0.4) !important;
       }
       .bjwt-active-create-card-row {
         margin-top: 10px !important;

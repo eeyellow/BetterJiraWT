@@ -211,14 +211,24 @@
       sprintData.dateRange = dateRange;
     }
 
-    // 尋找原生「完成衝刺」按鈕以利在自定義 Banner 中支援轉發點擊
+    // 尋找原生「完成衝刺」或「開始衝刺」按鈕以利在自定義 Banner 中支援轉發點擊
     let nativeCompleteBtn = null;
+    let nativeStartBtn = null;
     for (const hdr of headerNodes) {
-      const btns = Array.from(hdr.querySelectorAll('button'));
-      const found = btns.find((b) => /完成衝刺|complete sprint/i.test((b.textContent || '').trim()));
-      if (found) {
-        nativeCompleteBtn = found;
-        break;
+      const btns = Array.from(hdr.querySelectorAll('button, [role="button"], a, input[type="button"]'));
+      if (!nativeCompleteBtn) {
+        nativeCompleteBtn = btns.find(
+          (b) =>
+            /完成衝刺|complete sprint/i.test((b.textContent || b.value || '').trim()) ||
+            (b.getAttribute('data-testid') || '').includes('complete-sprint')
+        );
+      }
+      if (!nativeStartBtn) {
+        nativeStartBtn = btns.find(
+          (b) =>
+            /開始衝刺|start sprint/i.test((b.textContent || b.value || '').trim()) ||
+            (b.getAttribute('data-testid') || '').includes('start-sprint')
+        );
       }
     }
 
@@ -282,9 +292,10 @@
     }
     customView.setAttribute('data-bjwt-render-sig', sig);
 
-    const isBacklogPool = /backlog/i.test(sprintData.title);
-    const badgeText = isBacklogPool ? '待辦池' : '進行中';
-    const badgeClass = isBacklogPool ? 'badge-future' : 'badge-active';
+    const isBacklogPool = /backlog|待辦池|待辦事項/i.test(sprintData.title);
+    const isFuture = isBacklogPool || (item.meta && item.meta.sprintState === 'future');
+    const badgeText = isBacklogPool ? '待辦池' : (isFuture ? '未開始' : '進行中');
+    const badgeClass = isFuture ? 'badge-future' : 'badge-active';
 
     customView.innerHTML = `
       <div class="bjwt-history-sprint-container sprint-container">
@@ -322,7 +333,9 @@
             ${
               nativeCompleteBtn
                 ? `<button type="button" class="bjwt-active-complete-btn" title="完成此衝刺">完成衝刺</button>`
-                : ''
+                : (nativeStartBtn
+                    ? `<button type="button" class="bjwt-active-start-btn" title="開始此衝刺">開始衝刺</button>`
+                    : '')
             }
           </div>
         </div>
@@ -378,6 +391,16 @@
         e.preventDefault();
         e.stopPropagation();
         nativeCompleteBtn.click();
+      });
+    }
+
+    // 綁定開始衝刺按鈕
+    const startBtn = customView.querySelector('.bjwt-active-start-btn');
+    if (startBtn && nativeStartBtn) {
+      startBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        nativeStartBtn.click();
       });
     }
 
