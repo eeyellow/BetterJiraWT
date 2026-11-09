@@ -90,6 +90,7 @@ global.window.NodeFilter = global.NodeFilter;
 global.document = {
   head: { appendChild: () => {} },
   documentElement: { appendChild: () => {} },
+  getElementById: (id) => null,
   addEventListener: () => {},
   removeEventListener: () => {},
   querySelectorAll: () => [],
@@ -2519,10 +2520,54 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     const checkStylesCss = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
     assert(checkStylesCss.includes('future-section'), 'styles.css 應包含 future-section');
     assert(checkStylesCss.includes('bjwt-active-start-btn'), 'styles.css 應包含 bjwt-active-start-btn');
+    assert(checkStylesCss.includes('bjwt-section-toggle-icon'), 'styles.css 應包含 bjwt-section-toggle-icon 風琴夾圖示樣式');
+    assert(checkStylesCss.includes('bjwt-sprint-section-body'), 'styles.css 應包含 bjwt-sprint-section-body 風琴夾區塊樣式');
 
     const checkRuntimeStyles = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
     assert(checkRuntimeStyles.includes('future-section'), 'runtime-styles.js 應包含 future-section');
     assert(checkRuntimeStyles.includes('bjwt-active-start-btn'), 'runtime-styles.js 應包含 bjwt-active-start-btn');
+    assert(checkRuntimeStyles.includes('bjwt-section-toggle-icon'), 'runtime-styles.js 應包含 bjwt-section-toggle-icon 風琴夾圖示樣式');
+    assert(checkRuntimeStyles.includes('bjwt-sprint-section-body'), 'runtime-styles.js 應包含 bjwt-sprint-section-body 風琴夾區塊樣式');
+
+    // 7. 測試風琴夾狀態管理 (getSectionCollapseState / setSectionCollapseState)
+    assert(typeof SidebarComponent.getSectionCollapseState === 'function', 'SidebarComponent 應提供 getSectionCollapseState 函式');
+    assert(typeof SidebarComponent.setSectionCollapseState === 'function', 'SidebarComponent 應提供 setSectionCollapseState 函式');
+    
+    // 初始狀態應皆為 false (未收合)
+    const initialCollapse = SidebarComponent.getSectionCollapseState();
+    assert.strictEqual(typeof initialCollapse, 'object', 'Collapse 狀態應為物件');
+    
+    // 記憶體狀態更新
+    SidebarComponent.setSectionCollapseState({ future: true, history: true });
+    const updatedCollapse = SidebarComponent.getSectionCollapseState();
+    assert.strictEqual(updatedCollapse.future, true, 'future 區塊狀態應已更新為 true');
+    assert.strictEqual(updatedCollapse.history, true, 'history 區塊狀態應已更新為 true');
+    assert.strictEqual(updatedCollapse.active, false, 'active 區塊狀態應保持為 false');
+
+    // 測試 localStorage 雙向持久化儲存與讀取
+    const localStore = {};
+    global.localStorage = {
+      getItem: (k) => localStore[k] || null,
+      setItem: (k, v) => { localStore[k] = String(v); }
+    };
+    SidebarComponent.setSectionCollapseState({ active: true, future: false, history: true });
+    const localCollapse = SidebarComponent.getSectionCollapseState();
+    assert.strictEqual(localCollapse.active, true, 'localStorage 啟用時 active 應為 true');
+    assert.strictEqual(localCollapse.future, false, 'localStorage 啟用時 future 應為 false');
+    assert.strictEqual(localCollapse.history, true, 'localStorage 啟用時 history 應為 true');
+    assert(localStore['bjwt_sidebar_sections_collapsed'].includes('"active":true'), 'localStorage 應儲存序列化之 JSON');
+
+    // 復原狀態
+    SidebarComponent.setSectionCollapseState({ active: false, future: false, history: false });
+    delete global.localStorage;
+
+    // 8. 測試風琴夾原始碼邏輯與無障礙屬性
+    assert(checkSidebarCode.includes('renderCollapsibleSection'), 'sidebar.js 應包含 renderCollapsibleSection 風琴夾渲染函式');
+    assert(checkSidebarCode.includes('bjwt-section-toggle-icon'), 'sidebar.js 應包含 bjwt-section-toggle-icon 風琴夾箭頭');
+    assert(checkSidebarCode.includes('bjwt-sprint-section-body'), 'sidebar.js 應包含 bjwt-sprint-section-body 容器');
+    assert(checkSidebarCode.includes('aria-expanded'), 'sidebar.js 應設定 aria-expanded 屬性');
+    assert(checkSidebarCode.includes('aria-controls'), 'sidebar.js 應設定 aria-controls 屬性');
+    assert(checkSidebarCode.includes('sectionCollapse'), 'sidebar.js signature 應包含 sectionCollapse 變更偵測');
 
     global.document.querySelector = origQuerySelector;
     console.log('✓ 側邊欄點數純數字、未開始衝刺點數統計與三分區 (進行中/未開始/已結束) 檢查通過！');
