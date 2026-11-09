@@ -524,12 +524,12 @@
             </div>
             <div class="bjwt-popover-quick-chips">
               <span class="bjwt-popover-chip" data-pt="1">1</span>
+              <span class="bjwt-popover-chip" data-pt="2">2</span>
               <span class="bjwt-popover-chip" data-pt="3">3</span>
               <span class="bjwt-popover-chip" data-pt="5">5</span>
               <span class="bjwt-popover-chip" data-pt="8">8</span>
               <span class="bjwt-popover-chip" data-pt="13">13</span>
               <span class="bjwt-popover-chip" data-pt="20">20</span>
-              <span class="bjwt-popover-chip" data-pt="40">40</span>
               <span class="bjwt-popover-chip bjwt-chip-clear" data-pt="">清空</span>
             </div>
             <div class="bjwt-popover-actions">
