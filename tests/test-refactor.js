@@ -2533,14 +2533,17 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     assert(typeof SidebarComponent.getSectionCollapseState === 'function', 'SidebarComponent 應提供 getSectionCollapseState 函式');
     assert(typeof SidebarComponent.setSectionCollapseState === 'function', 'SidebarComponent 應提供 setSectionCollapseState 函式');
     
-    // 初始狀態應皆為 false (未收合)
+    // 預設狀態：「進行中衝刺」展開 (false)、「未開始衝刺」收合 (true)、「已結束衝刺」展開 (false)
     const initialCollapse = SidebarComponent.getSectionCollapseState();
     assert.strictEqual(typeof initialCollapse, 'object', 'Collapse 狀態應為物件');
+    assert.strictEqual(initialCollapse.future, true, '預設狀態下「未開始衝刺」風琴夾應為收合 (future: true)');
+    assert.strictEqual(initialCollapse.active, false, '預設狀態下「進行中衝刺」風琴夾應為展開 (active: false)');
+    assert.strictEqual(initialCollapse.history, false, '預設狀態下「已結束衝刺」風琴夾應為展開 (history: false)');
     
     // 記憶體狀態更新
-    SidebarComponent.setSectionCollapseState({ future: true, history: true });
+    SidebarComponent.setSectionCollapseState({ future: false, history: true });
     const updatedCollapse = SidebarComponent.getSectionCollapseState();
-    assert.strictEqual(updatedCollapse.future, true, 'future 區塊狀態應已更新為 true');
+    assert.strictEqual(updatedCollapse.future, false, 'future 區塊狀態應已更新為 false');
     assert.strictEqual(updatedCollapse.history, true, 'history 區塊狀態應已更新為 true');
     assert.strictEqual(updatedCollapse.active, false, 'active 區塊狀態應保持為 false');
 
@@ -2550,15 +2553,15 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
       getItem: (k) => localStore[k] || null,
       setItem: (k, v) => { localStore[k] = String(v); }
     };
-    SidebarComponent.setSectionCollapseState({ active: true, future: false, history: true });
+    SidebarComponent.setSectionCollapseState({ active: true, future: true, history: true });
     const localCollapse = SidebarComponent.getSectionCollapseState();
     assert.strictEqual(localCollapse.active, true, 'localStorage 啟用時 active 應為 true');
-    assert.strictEqual(localCollapse.future, false, 'localStorage 啟用時 future 應為 false');
+    assert.strictEqual(localCollapse.future, true, 'localStorage 啟用時 future 應為 true');
     assert.strictEqual(localCollapse.history, true, 'localStorage 啟用時 history 應為 true');
-    assert(localStore['bjwt_sidebar_sections_collapsed'].includes('"active":true'), 'localStorage 應儲存序列化之 JSON');
+    assert(localStore['bjwt_sidebar_sections_collapsed'].includes('"future":true'), 'localStorage 應儲存序列化之 JSON');
 
-    // 復原狀態
-    SidebarComponent.setSectionCollapseState({ active: false, future: false, history: false });
+    // 復原狀態為預設值
+    SidebarComponent.setSectionCollapseState(SidebarComponent.DEFAULT_SECTION_COLLAPSE_STATE);
     delete global.localStorage;
 
     // 8. 測試風琴夾原始碼邏輯與無障礙屬性
