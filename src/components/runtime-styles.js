@@ -258,6 +258,16 @@
         gap: 5px !important;
         flex-shrink: 0 !important;
       }
+      .bjwt-sprint-tab-badge,
+      .bjwt-sprint-tab.active .bjwt-sprint-tab-badge {
+        flex-shrink: 0 !important;
+        padding: 2px 7px !important;
+        border-radius: 999px !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        background: var(--ds-background-neutral, #ebecf0) !important;
+        color: var(--ds-text-subtle, #42526e) !important;
+      }
       .bjwt-sprint-tab.bjwt-sprint-tab-history {
         background: rgba(245, 158, 11, 0.07) !important;
         border-left: 3px dashed #f59e0b !important;

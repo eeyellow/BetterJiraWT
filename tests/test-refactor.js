@@ -2611,6 +2611,13 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     assert(checkRuntimeStyles.includes('bjwt-section-count-badge'), 'runtime-styles.js 應包含 bjwt-section-count-badge 醒目計數徽章樣式');
     assert(checkRuntimeStyles.includes('13.5px'), 'runtime-styles.js 分區標頭字體應加大為 13.5px 以表現階層感');
 
+    // 6-1. 測試選取與未選取之衝刺點數徽章統一為灰底色
+    assert(checkStylesCss.includes('.bjwt-sprint-tab.active .bjwt-sprint-tab-badge'), 'styles.css 應包含 active 衝刺徽章樣式設定');
+    assert(checkStylesCss.includes('background: var(--ds-background-neutral, #ebecf0) !important;'), 'styles.css 應將選取之衝刺徽章統一設為灰底色');
+    assert(!checkStylesCss.includes('background: var(--ds-border-selected, #0c66e4);'), 'styles.css 選取之衝刺徽章不可為藍底色');
+    assert(checkRuntimeStyles.includes('.bjwt-sprint-tab.active .bjwt-sprint-tab-badge'), 'runtime-styles.js 應包含 active 衝刺徽章樣式設定');
+    assert(checkRuntimeStyles.includes('background: var(--ds-background-neutral, #ebecf0) !important;'), 'runtime-styles.js 應將選取之衝刺徽章統一設為灰底色');
+
     // 7. 測試風琴夾狀態管理 (getSectionCollapseState / setSectionCollapseState)
     assert(typeof SidebarComponent.getSectionCollapseState === 'function', 'SidebarComponent 應提供 getSectionCollapseState 函式');
     assert(typeof SidebarComponent.setSectionCollapseState === 'function', 'SidebarComponent 應提供 setSectionCollapseState 函式');
