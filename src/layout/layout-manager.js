@@ -800,7 +800,15 @@
    * @param {Function} [onRefresh] - 刷新時要執行的評估函式
    */
   function scheduleLayoutRefresh(onRefresh) {
-    if (layoutRafId) {
+    if (typeof requestAnimationFrame !== 'function') {
+      if (onRefresh) {
+        onRefresh();
+      } else if (BetterJira.App && typeof BetterJira.App.evaluateAndApply === 'function') {
+        BetterJira.App.evaluateAndApply();
+      }
+      return;
+    }
+    if (layoutRafId && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(layoutRafId);
     }
     layoutRafId = requestAnimationFrame(() => {
