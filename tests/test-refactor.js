@@ -77,6 +77,11 @@ global.window = {
   indexedDB: global.indexedDB,
   chrome: global.chrome
 };
+global.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+global.cancelAnimationFrame = (id) => clearTimeout(id);
+global.window.requestAnimationFrame = global.requestAnimationFrame;
+global.window.cancelAnimationFrame = global.cancelAnimationFrame;
+
 global.NodeFilter = {
   SHOW_ALL: -1,
   SHOW_ELEMENT: 1,
@@ -2712,6 +2717,170 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     assert(checkJiraApi.includes('!iss.isSubtask'), 'jira-api.js 應包含 !iss.isSubtask 卡片過濾');
 
     console.log('✓ 嚴格排除子卡片 (SubTask) 出現在右側欄卡片清單與衝刺統計檢查通過！');
+  }
+
+  console.log('--- 測試 27: 右側欄建立卡片自動歸入當前 Sprint、Agile 移動 API 與行內快速建立檢查 ---');
+  {
+    const { JiraApiService, ActiveSprintView, IssueStore } = BetterJira;
+
+    // 1. 測試 JiraApiService.resolveSprintId
+    assert.strictEqual(typeof JiraApiService.resolveSprintId, 'function', 'resolveSprintId 應為函式');
+
+    // 1-1. 直接從 item.meta.sprintId 解析
+    const mockItemWithId = {
+      meta: { sprintId: '456', title: 'Sprint 20' }
+    };
+    const resolvedDirect = await JiraApiService.resolveSprintId(mockItemWithId);
+    assert.strictEqual(resolvedDirect, '456', '應直接回傳 meta.sprintId');
+
+    // 1-2. 從 IssueStore boardSprints 比對標題解析
+    IssueStore.setBoardSprints([
+      { id: 789, name: '衝刺 2026-W45', state: 'active' },
+      { id: 790, name: '衝刺 2026-W46', state: 'future' }
+    ]);
+    const mockItemWithoutId = {
+      meta: { title: '衝刺 2026-W45' }
+    };
+    const resolvedFromBoard = await JiraApiService.resolveSprintId(mockItemWithoutId);
+    assert.strictEqual(resolvedFromBoard, '789', '應從 boardSprints 成功比對並解析出 sprintId 789');
+    assert.strictEqual(mockItemWithoutId.meta.sprintId, '789', '解析後應自動快取至 meta.sprintId');
+
+    // 2. 測試 JiraApiService.moveIssuesToSprint 呼叫 Jira 官方 Agile API
+    assert.strictEqual(typeof JiraApiService.moveIssuesToSprint, 'function', 'moveIssuesToSprint 應為函式');
+    const origFetch = global.fetch;
+    let agileMoveCalled = false;
+    let agileMoveUrl = '';
+    let agileMoveBody = null;
+
+    global.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/rest/agile/1.0/sprint/789/issue')) {
+        agileMoveCalled = true;
+        agileMoveUrl = u;
+        agileMoveBody = JSON.parse(opts.body || '{}');
+        return {
+          ok: true,
+          status: 204,
+          json: async () => ({})
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    const moveResult = await JiraApiService.moveIssuesToSprint(789, ['PROJ-999']);
+    assert.strictEqual(moveResult, true, 'moveIssuesToSprint 應回傳 true');
+    assert.strictEqual(agileMoveCalled, true, '應呼叫 Jira Agile sprint issue 移動 API');
+    assert.deepStrictEqual(agileMoveBody, { issues: ['PROJ-999'] }, 'Payload 應包含 issues: ["PROJ-999"]');
+
+    // 3. 測試 JiraApiService.createIssueInSprint API 建立並自動移入 Sprint
+    assert.strictEqual(typeof JiraApiService.createIssueInSprint, 'function', 'createIssueInSprint 應為函式');
+    let issueCreated = false;
+    let issueMoved = false;
+
+    global.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/rest/api/3/issue') || u.includes('/rest/api/2/issue')) {
+        issueCreated = true;
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ id: '10001', key: 'PROJ-1001' })
+        };
+      }
+      if (u.includes('/rest/agile/1.0/sprint/789/issue')) {
+        issueMoved = true;
+        return { ok: true, status: 204, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    const createRes = await JiraApiService.createIssueInSprint({
+      summary: '測試在衝刺中建立卡片',
+      sprintId: 789,
+      projectKey: 'PROJ'
+    });
+    assert.strictEqual(createRes.success, true, 'createIssueInSprint 應回傳 success: true');
+    assert.strictEqual(createRes.key, 'PROJ-1001', '建立成功應回傳卡片 Key');
+    assert.strictEqual(issueCreated, true, '應呼叫 issue 建立 API');
+    assert.strictEqual(issueMoved, true, '建立後應自動將卡片移入 Sprint 789');
+
+    // 4. 測試 ActiveSprintView.handleNewlyCreatedIssue 與建立追蹤
+    let trackerMovedCalled = false;
+    let toastCreated = false;
+    global.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/rest/agile/1.0/sprint/789/issue')) {
+        trackerMovedCalled = true;
+        return { ok: true, status: 204, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    const mockTracker = {
+      item: mockItemWithoutId,
+      sprintId: '789',
+      sprintTitle: '衝刺 2026-W45',
+      startTime: Date.now(),
+      processedKeys: new Set()
+    };
+
+    // 模擬 document.createElement 與 document.body 以支援 Toast
+    const origCreateElement = global.document.createElement;
+    const origDocBody = global.document.body;
+    const origDocQuerySelector = global.document.querySelector;
+
+    global.document.createElement = (tag) => new MockElement(tag);
+    global.document.body = new MockElement('body');
+    global.document.querySelector = (sel) => {
+      if (sel === '.bjwt-sprint-create-toast') return null;
+      if (origDocQuerySelector) return origDocQuerySelector(sel);
+      return null;
+    };
+
+    let appendedToast = null;
+    const origBodyAppendChild = global.document.body.appendChild;
+    global.document.body.appendChild = function(el) {
+      if (el && el.className && el.className.includes('bjwt-sprint-create-toast')) {
+        toastCreated = true;
+        appendedToast = el;
+      }
+      return origBodyAppendChild.call(this, el);
+    };
+
+    await ActiveSprintView.handleNewlyCreatedIssue('PROJ-1002', mockTracker);
+    assert.strictEqual(trackerMovedCalled, true, 'handleNewlyCreatedIssue 應將卡片移動至指定衝刺');
+    assert.strictEqual(toastCreated, true, '卡片移動後應顯示衝刺建立 Toast 提示');
+    assert(appendedToast.innerHTML.includes('PROJ-1002'), 'Toast 內容應包含新卡片編號 PROJ-1002');
+    assert(appendedToast.innerHTML.includes('衝刺 2026-W45'), 'Toast 內容應包含衝刺名稱');
+
+    // 5. 測試自定義檢視中行內建立表單與完整視窗按鈕結構
+    const activeViewJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/active-sprint-view.js'), 'utf8');
+    assert(activeViewJs.includes('bjwt-active-inline-create-form'), '應包含 bjwt-active-inline-create-form 表單');
+    assert(activeViewJs.includes('bjwt-inline-create-input'), '應包含 bjwt-inline-create-input 輸入框');
+    assert(activeViewJs.includes('bjwt-inline-create-submit-btn'), '應包含 bjwt-inline-create-submit-btn 建立按鈕');
+    assert(activeViewJs.includes('bjwt-inline-create-modal-btn'), '應包含 bjwt-inline-create-modal-btn 完整視窗按鈕');
+    assert(activeViewJs.includes('bjwt-inline-create-cancel-btn'), '應包含 bjwt-inline-create-cancel-btn 取消按鈕');
+    assert(activeViewJs.includes('startSprintCreationTracking'), '應包含 startSprintCreationTracking 建立追蹤機制');
+
+    // 6. 測試 CSS 樣式包含行內建立與 Toast 樣式
+    const stylesCssContent = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+    const runtimeStylesJsContent = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+
+    [stylesCssContent, runtimeStylesJsContent].forEach((styleCode) => {
+      assert(styleCode.includes('.bjwt-active-inline-create-form'), '應包含 .bjwt-active-inline-create-form');
+      assert(styleCode.includes('.bjwt-inline-create-input'), '應包含 .bjwt-inline-create-input');
+      assert(styleCode.includes('.bjwt-inline-create-submit-btn'), '應包含 .bjwt-inline-create-submit-btn');
+      assert(styleCode.includes('.bjwt-inline-create-modal-btn'), '應包含 .bjwt-inline-create-modal-btn');
+      assert(styleCode.includes('.bjwt-inline-create-cancel-btn'), '應包含 .bjwt-inline-create-cancel-btn');
+      assert(styleCode.includes('.bjwt-sprint-create-toast'), '應包含 .bjwt-sprint-create-toast');
+    });
+
+    global.fetch = origFetch;
+    global.document.createElement = origCreateElement;
+    global.document.body = origDocBody;
+    global.document.querySelector = origDocQuerySelector;
+
+    console.log('✓ 右側欄建立卡片自動歸入當前 Sprint、Agile 移動 API 與行內快速建立檢查通過！');
   }
 
   console.log('============================================');

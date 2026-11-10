@@ -535,6 +535,199 @@
   }
 
   /**
+   * 解析衝刺物件的數值 ID (若 meta 中為空，自動從已快取的看板衝刺比對或非同步抓取)
+   *
+   * @param {Object} itemOrMeta - 衝刺結構或 meta 物件
+   * @returns {Promise<string|null>} 衝刺 ID 字串 (若無則回傳 null)
+   */
+  async function resolveSprintId(itemOrMeta) {
+    if (!itemOrMeta) return null;
+    const meta = itemOrMeta.meta || itemOrMeta;
+    if (meta.sprintId && !isNaN(parseInt(meta.sprintId, 10))) {
+      return String(meta.sprintId);
+    }
+    const cleanTitle = (BetterJira.TextUtils && typeof BetterJira.TextUtils.cleanSprintTitle === 'function')
+      ? BetterJira.TextUtils.cleanSprintTitle(meta.title || meta.name || '')
+      : (meta.title || meta.name || '');
+
+    // 1. 從已快取的 boardSprints 查找
+    const { IssueStore } = BetterJira;
+    const boardSprints = IssueStore && typeof IssueStore.getBoardSprints === 'function' ? IssueStore.getBoardSprints() : null;
+    if (Array.isArray(boardSprints)) {
+      const found = boardSprints.find((s) => {
+        if (!s) return false;
+        if (meta.sprintId && String(s.id) === String(meta.sprintId)) return true;
+        const sName = (BetterJira.TextUtils && typeof BetterJira.TextUtils.cleanSprintTitle === 'function')
+          ? BetterJira.TextUtils.cleanSprintTitle(s.name || '')
+          : (s.name || '');
+        return sName && sName.toLowerCase() === cleanTitle.toLowerCase();
+      });
+      if (found && found.id) {
+        if (meta) meta.sprintId = String(found.id);
+        return String(found.id);
+      }
+    }
+
+    // 2. 從 boardId 呼叫 fetchActiveAndFutureSprintsForBoard 查找
+    let boardId = IssueStore && typeof IssueStore.getBoardId === 'function' ? IssueStore.getBoardId() : null;
+    if (!boardId && typeof window !== 'undefined' && window.location) {
+      const href = window.location.href || '';
+      const m = href.match(/\/boards\/(\d+)/i) || href.match(/[?&]rapidView=(\d+)/i);
+      if (m && m[1]) boardId = m[1];
+    }
+    if (boardId) {
+      try {
+        const fetchedList = await fetchActiveAndFutureSprintsForBoard(boardId);
+        if (Array.isArray(fetchedList)) {
+          const found = fetchedList.find((s) => {
+            if (!s) return false;
+            const sName = (BetterJira.TextUtils && typeof BetterJira.TextUtils.cleanSprintTitle === 'function')
+              ? BetterJira.TextUtils.cleanSprintTitle(s.name || '')
+              : (s.name || '');
+            return sName && sName.toLowerCase() === cleanTitle.toLowerCase();
+          });
+          if (found && found.id) {
+            if (meta) meta.sprintId = String(found.id);
+            return String(found.id);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return meta.sprintId ? String(meta.sprintId) : null;
+  }
+
+  /**
+   * 將指定的一或多張卡片移動 / 指派至指定的衝刺 (Sprint)
+   * 呼叫 Jira 官方 Agile REST API: POST /rest/agile/1.0/sprint/{sprintId}/issue
+   *
+   * @param {string|number} sprintId - 目標衝刺 ID
+   * @param {string[]|string} issueKeys - 卡片編號陣列或單一卡片編號
+   * @returns {Promise<boolean>} 是否成功移動
+   */
+  async function moveIssuesToSprint(sprintId, issueKeys) {
+    if (!sprintId) return false;
+    const keys = Array.isArray(issueKeys)
+      ? issueKeys.filter(Boolean)
+      : typeof issueKeys === 'string' && issueKeys
+      ? [issueKeys]
+      : [];
+    if (keys.length === 0) return false;
+
+    try {
+      const res = await fetch(
+        `${window.location.origin}/rest/agile/1.0/sprint/${encodeURIComponent(String(sprintId))}/issue`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({ issues: keys })
+        }
+      );
+      if (res.ok || res.status === 204) {
+        return true;
+      }
+    } catch (err) {
+      console.warn('[BetterJiraWT] moveIssuesToSprint error:', err);
+    }
+    return false;
+  }
+
+  /**
+   * 透過 Jira REST API 快速建立卡片並自動指派至指定衝刺 (Sprint)
+   *
+   * @param {Object} options - 建立參數
+   * @param {string} options.summary - 卡片標題
+   * @param {string|number} options.sprintId - 目標衝刺 ID
+   * @param {string} [options.projectKey] - 專案 Key (若無則自動偵測)
+   * @param {string} [options.issueTypeName='Task'] - 問題類型名稱
+   * @returns {Promise<{success: boolean, key?: string, id?: string, error?: string}>}
+   */
+  async function createIssueInSprint({ summary, sprintId, projectKey = '', issueTypeName = 'Task' }) {
+    if (!summary || !summary.trim()) {
+      return { success: false, error: '卡片標題不可為空' };
+    }
+    const cleanSummary = summary.trim();
+
+    try {
+      let effectiveProjectKey = projectKey;
+      if (!effectiveProjectKey) {
+        const ctx = await detectJiraContext();
+        effectiveProjectKey = ctx.projectKey;
+      }
+      if (!effectiveProjectKey) {
+        return { success: false, error: '無法偵測當前專案 Key' };
+      }
+
+      // 1. 呼叫 Jira Issue 建立 API (嘗試 v3 與 v2)
+      const endpoints = [
+        `${window.location.origin}/rest/api/3/issue`,
+        `${window.location.origin}/rest/api/2/issue`
+      ];
+
+      let createdData = null;
+      let lastErrMsg = '';
+
+      for (const ep of endpoints) {
+        try {
+          const bodyPayload = {
+            fields: {
+              project: { key: effectiveProjectKey },
+              summary: cleanSummary,
+              issuetype: { name: issueTypeName }
+            }
+          };
+
+          const res = await fetch(ep, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json'
+            },
+            body: JSON.stringify(bodyPayload)
+          });
+
+          if (res.ok) {
+            createdData = await res.json();
+            break;
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            lastErrMsg =
+              (errData.errors && Object.values(errData.errors).join(', ')) ||
+              (errData.errorMessages && errData.errorMessages.join(', ')) ||
+              `HTTP ${res.status}`;
+          }
+        } catch (e) {
+          lastErrMsg = e.message;
+        }
+      }
+
+      if (!createdData || !createdData.key) {
+        return { success: false, error: lastErrMsg || '建立卡片失敗' };
+      }
+
+      // 2. 將新建立的卡片移動到指定衝刺中
+      if (sprintId) {
+        await moveIssuesToSprint(sprintId, [createdData.key]);
+      }
+
+      return {
+        success: true,
+        key: createdData.key,
+        id: createdData.id
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
    * 透過 Jira Agile REST API 抓取未結束衝刺的完整卡片資料
    * 具備 5 分鐘快取、In-Flight 單例去重、失敗退避與自動 400 欄位降級機制，
    * 絕對防範高頻重複發送網路請求。
@@ -1606,6 +1799,9 @@
     fetchAssignableUsers,
     resolveJiraUser,
     updateIssueAssignee,
+    resolveSprintId,
+    moveIssuesToSprint,
+    createIssueInSprint,
     syncExtensionIcon
   };
 })();
