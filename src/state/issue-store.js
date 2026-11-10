@@ -609,6 +609,66 @@
     return false;
   }
 
+  /**
+   * 當卡片被移動至其他衝刺時，更新記憶體中各衝刺快取池
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string|number} targetSprintId - 目標衝刺 ID
+   */
+  function moveIssueInSprintStore(issueKey, targetSprintId) {
+    if (!issueKey || !targetSprintId) return;
+    const key = String(issueKey).toUpperCase();
+    const targetSprintIdStr = String(targetSprintId);
+
+    let issueObj = issueMetadataMap.get(key);
+    if (!issueObj) {
+      activeSprintCache.forEach((cached) => {
+        if (!issueObj && cached && Array.isArray(cached.issues)) {
+          const found = cached.issues.find((i) => i && String(i.key || '').toUpperCase() === key);
+          if (found) issueObj = found;
+        }
+      });
+    }
+
+    activeSprintCache.forEach((cached) => {
+      if (!cached) return;
+      const isTarget = cached.sprintId && String(cached.sprintId) === targetSprintIdStr;
+      if (!isTarget) {
+        if (cached.masterIssuesMap instanceof Map) {
+          cached.masterIssuesMap.delete(key);
+        }
+        if (Array.isArray(cached.issues)) {
+          cached.issues = cached.issues.filter((i) => i && String(i.key).toUpperCase() !== key);
+        }
+        if (Array.isArray(cached.rawIssues)) {
+          cached.rawIssues = cached.rawIssues.filter((i) => i && String(i.key).toUpperCase() !== key);
+        }
+        if (Array.isArray(cached.allApiIssues)) {
+          cached.allApiIssues = cached.allApiIssues.filter((i) => i && String(i.key).toUpperCase() !== key);
+        }
+      } else if (issueObj) {
+        if (cached.masterIssuesMap instanceof Map) {
+          cached.masterIssuesMap.set(key, issueObj);
+        }
+        if (Array.isArray(cached.issues) && !cached.issues.some((i) => i && String(i.key).toUpperCase() === key)) {
+          cached.issues.push(issueObj);
+        }
+        if (Array.isArray(cached.rawIssues) && !cached.rawIssues.some((i) => i && String(i.key).toUpperCase() === key)) {
+          cached.rawIssues.push(issueObj);
+        }
+        if (Array.isArray(cached.allApiIssues) && !cached.allApiIssues.some((i) => i && String(i.key).toUpperCase() === key)) {
+          cached.allApiIssues.push(issueObj);
+        }
+      }
+    });
+
+    loadedHistoricalSprints.forEach((hist) => {
+      if (hist && Array.isArray(hist.issues)) {
+        hist.issues = hist.issues.filter((i) => i && String(i.key).toUpperCase() !== key);
+      }
+    });
+  }
+
   BetterJira.IssueStore = {
     issueMetadataMap,
     activeSprintCache,
@@ -620,6 +680,7 @@
     mergeAndCacheIssue,
     normalizeJiraIssue,
     isSubtaskIssue,
+    moveIssueInSprintStore,
     appendHistoricalSprintToState,
     removeHistoricalSprint,
     getLoadedHistoricalSprints: () => loadedHistoricalSprints,

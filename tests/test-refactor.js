@@ -99,6 +99,7 @@ global.document = {
   addEventListener: () => {},
   removeEventListener: () => {},
   querySelectorAll: () => [],
+  querySelector: (sel) => null,
   createTreeWalker: (root, whatToShow, filter) => {
     const nodes = [];
     function collect(el) {
@@ -674,11 +675,83 @@ class MockElement {
   set href(v) {
     this.setAttribute('href', v);
   }
+  get id() {
+    return this.getAttribute('id') || '';
+  }
+  set id(v) {
+    this.setAttribute('id', v);
+  }
+  get disabled() {
+    return this.hasAttribute('disabled') || this._disabled === true;
+  }
+  set disabled(v) {
+    this._disabled = Boolean(v);
+    if (v) this.setAttribute('disabled', '');
+    else this.removeAttribute('disabled');
+  }
   get className() {
     return Array.from(this.classList._classes).join(' ');
   }
   set className(val) {
     this.classList._classes = new Set((val || '').split(/\s+/).filter(Boolean));
+  }
+  get value() {
+    return this.getAttribute('value') !== null ? this.getAttribute('value') : (this._value || '');
+  }
+  set value(v) {
+    this._value = String(v);
+    this.setAttribute('value', v);
+  }
+  get options() {
+    return this.querySelectorAll('option');
+  }
+  get selectedIndex() {
+    const opts = this.options;
+    const idx = opts.findIndex((o) => o.value === this.value);
+    return idx !== -1 ? idx : 0;
+  }
+  get selectedOptions() {
+    const opts = this.options;
+    const selected = opts.filter((o) => o.value === this.value);
+    return selected.length > 0 ? selected : (opts.length > 0 ? [opts[0]] : []);
+  }
+  get innerHTML() {
+    return this._innerHTML || '';
+  }
+  set innerHTML(html) {
+    this._innerHTML = html;
+    this.children = [];
+    if (!html || typeof html !== 'string') return;
+    const tagRegex = /<([a-zA-Z0-9_-]+)([^>]*)>(?:([\s\S]*?)<\/\1>)?/g;
+    let match;
+    while ((match = tagRegex.exec(html)) !== null) {
+      const tagName = match[1];
+      const attrStr = match[2] || '';
+      const innerContent = match[3] || '';
+      const child = new MockElement(tagName);
+      const attrRegex = /([a-zA-Z0-9_-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^>\s]+)))?/g;
+      let aMatch;
+      while ((aMatch = attrRegex.exec(attrStr)) !== null) {
+        const attrName = aMatch[1];
+        if (attrName === tagName) continue;
+        const attrVal = aMatch[2] !== undefined ? aMatch[2] : aMatch[3] !== undefined ? aMatch[3] : aMatch[4] !== undefined ? aMatch[4] : '';
+        if (attrName === 'class') {
+          child.className = attrVal;
+        } else if (attrName === 'id') {
+          child.setAttribute('id', attrVal);
+        } else {
+          child.setAttribute(attrName, attrVal);
+        }
+      }
+      if (innerContent) {
+        if (innerContent.includes('<')) {
+          child.innerHTML = innerContent;
+        } else {
+          child.textContent = innerContent;
+        }
+      }
+      this.appendChild(child);
+    }
   }
   appendChild(child) {
     child.parentElement = this;
@@ -814,12 +887,12 @@ class MockElement {
     if (!this._listeners || !this._listeners[event]) return;
     this._listeners[event] = this._listeners[event].filter((f) => f !== fn);
   }
-  dispatchEvent(evt) {
+  async dispatchEvent(evt) {
     if (!this._listeners || !this._listeners[evt.type]) return true;
     evt.target = evt.target || this;
     evt.currentTarget = this;
     for (const fn of this._listeners[evt.type]) {
-      fn.call(this, evt);
+      await fn.call(this, evt);
     }
     return !evt.defaultPrevented;
   }
@@ -2881,6 +2954,145 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     global.document.querySelector = origDocQuerySelector;
 
     console.log('✓ 右側欄建立卡片自動歸入當前 Sprint、Agile 移動 API 與行內快速建立檢查通過！');
+  }
+
+  console.log('--- 測試 28: 卡片右鍵選單「移動至其他 Sprint」功能、候選衝刺篩選 (進行中與未開始) 與儲存移動檢查 ---');
+  {
+    const { CardContextMenuComponent, IssueStore, JiraApiService } = BetterJira;
+
+    // 1. 測試 CardContextMenuComponent 匯出與相關方法
+    assert(CardContextMenuComponent, 'BetterJira 應匯出 CardContextMenuComponent');
+    assert.strictEqual(typeof CardContextMenuComponent.openMoveSprintModal, 'function', 'CardContextMenuComponent 應提供 openMoveSprintModal');
+    assert.strictEqual(typeof CardContextMenuComponent.getCandidateMoveSprints, 'function', 'CardContextMenuComponent 應提供 getCandidateMoveSprints');
+    assert.strictEqual(typeof CardContextMenuComponent.showSprintMoveToast, 'function', 'CardContextMenuComponent 應提供 showSprintMoveToast');
+    assert.strictEqual(typeof IssueStore.moveIssueInSprintStore, 'function', 'IssueStore 應提供 moveIssueInSprintStore');
+
+    // 2. 測試右鍵選單 HTML 模板是否包含「移動至其他 Sprint...」動作項目
+    const cardContextMenuJs = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/card-context-menu.js'), 'utf8');
+    assert(cardContextMenuJs.includes('移動至其他 Sprint...'), 'card-context-menu.js 應包含「移動至其他 Sprint...」選項文字');
+    assert(cardContextMenuJs.includes('data-action="move-sprint"'), 'card-context-menu.js 應包含 data-action="move-sprint"');
+    assert(cardContextMenuJs.includes('openMoveSprintModal'), 'card-context-menu.js 應在點擊時呼叫 openMoveSprintModal');
+
+    // 3. 測試 getCandidateMoveSprints 篩選候選衝刺 (嚴格僅保留 active 與 future，排除 closed 衝刺)
+    IssueStore.setBoardSprints([
+      { id: 301, name: '2026-W45 進行中衝刺', state: 'active' },
+      { id: 302, name: '2026-W46 未開始衝刺 A', state: 'future' },
+      { id: 303, name: '2026-W47 未開始衝刺 B', state: 'future' },
+      { id: 300, name: '2026-W44 已結束歷史衝刺', state: 'closed' }
+    ]);
+
+    const candidates = await CardContextMenuComponent.getCandidateMoveSprints();
+    assert.strictEqual(candidates.length, 3, '候選衝刺應僅包含 3 個 (1 active + 2 future)');
+    assert(candidates.some((s) => s.id === '301' && s.state === 'active' && s.stateLabel === '進行中'), '應包含 301 進行中衝刺');
+    assert(candidates.some((s) => s.id === '302' && s.state === 'future' && s.stateLabel === '未開始'), '應包含 302 未開始衝刺');
+    assert(candidates.some((s) => s.id === '303' && s.state === 'future' && s.stateLabel === '未開始'), '應包含 303 未開始衝刺');
+    assert(!candidates.some((s) => s.id === '300'), '不可包含已結束 (closed) 的歷史衝刺');
+
+    // 4. 測試 openMoveSprintModal 介面渲染與移動互動
+    const origCreateElement = global.document.createElement;
+    const origDocBody = global.document.body;
+    const origDocQuerySelector = global.document.querySelector;
+
+    global.document.createElement = (tag) => new MockElement(tag);
+    global.document.body = new MockElement('body');
+
+    await CardContextMenuComponent.openMoveSprintModal({
+      key: 'WMC-999',
+      summary: '測試移動卡片至其他衝刺',
+      sprintId: '301',
+      sprintTitle: '2026-W45 進行中衝刺'
+    });
+
+    const modal = global.document.body.querySelector('#bjwt-move-sprint-modal');
+    assert(modal, '移動卡片彈窗應成功加入 document.body');
+    const badge = modal.querySelector('.bjwt-move-sprint-badge');
+    assert(badge && badge.textContent.includes('WMC-999'), '彈窗標頭應顯示卡片 Key: WMC-999');
+    const currentInfo = modal.querySelector('.bjwt-move-sprint-current');
+    assert(currentInfo && currentInfo.textContent.includes('2026-W45'), '彈窗應顯示目前所在衝刺');
+
+    const selectEl = modal.querySelector('#bjwt-move-sprint-select');
+    assert(selectEl, '應存在衝刺選單 select');
+    const submitBtn = modal.querySelector('.bjwt-move-sprint-submit-btn');
+    assert(submitBtn, '應存在「儲存」按鈕');
+    assert.strictEqual(submitBtn.disabled, true, '尚未選擇或選擇目前衝刺時「儲存」按鈕應為 disabled');
+
+    // 模擬選擇 302 (未開始衝刺 A)
+    selectEl.value = '302';
+    await selectEl.dispatchEvent({ type: 'change' });
+    assert.strictEqual(submitBtn.disabled, false, '選擇有效目標衝刺後「儲存」按鈕應啟用');
+
+    // 5. 測試點擊「儲存」呼叫 Jira Agile 移動 API、更新 IssueStore 快取並彈出 Toast
+    const origFetch = global.fetch;
+    let agileMoveCalled = false;
+    let targetMoveUrl = '';
+    let targetMovePayload = null;
+    let moveToastShown = false;
+
+    global.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/rest/agile/1.0/sprint/302/issue')) {
+        agileMoveCalled = true;
+        targetMoveUrl = u;
+        targetMovePayload = JSON.parse(opts.body || '{}');
+        return { ok: true, status: 204, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    // 監聽 toast
+    const origAppend = global.document.body.appendChild;
+    global.document.body.appendChild = function(el) {
+      if (el && el.className && el.className.includes('bjwt-sprint-create-toast')) {
+        moveToastShown = true;
+      }
+      return origAppend.call(this, el);
+    };
+
+    // 準備 IssueStore 快取狀態測試 moveIssueInSprintStore
+    IssueStore.setActiveSprintCache('sprint_301', {
+      key: 'sprint_301',
+      sprintId: '301',
+      issues: [{ key: 'WMC-999', summary: '測試移動卡片' }]
+    });
+    IssueStore.setActiveSprintCache('sprint_302', {
+      key: 'sprint_302',
+      sprintId: '302',
+      issues: []
+    });
+
+    await submitBtn.dispatchEvent({ type: 'click' });
+
+    assert.strictEqual(agileMoveCalled, true, '點擊儲存應發送 Agile API 請求移動卡片');
+    assert(targetMoveUrl.includes('/rest/agile/1.0/sprint/302/issue'), '應呼叫目標 Sprint 302 的 issue 端點');
+    assert.deepStrictEqual(targetMovePayload, { issues: ['WMC-999'] }, 'Payload 應包含 WMC-999');
+
+    // 驗證快取更新
+    const sprint301Cache = IssueStore.getActiveSprintCache('sprint_301');
+    const sprint302Cache = IssueStore.getActiveSprintCache('sprint_302');
+    assert(!sprint301Cache.issues.some((i) => i.key === 'WMC-999'), '舊衝刺快取中應已移除 WMC-999');
+    assert(sprint302Cache.issues.some((i) => i.key === 'WMC-999'), '新衝刺快取中應已加入 WMC-999');
+
+    assert.strictEqual(moveToastShown, true, '移動成功後應顯示移動成功 Toast');
+
+    // 6. 測試 CSS 樣式包含移動彈窗類別
+    const stylesCssContent = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+    const runtimeStylesJsContent = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+
+    [stylesCssContent, runtimeStylesJsContent].forEach((styleCode) => {
+      assert(styleCode.includes('.bjwt-move-sprint-overlay'), '應包含 .bjwt-move-sprint-overlay');
+      assert(styleCode.includes('.bjwt-move-sprint-dialog'), '應包含 .bjwt-move-sprint-dialog');
+      assert(styleCode.includes('.bjwt-move-sprint-header'), '應包含 .bjwt-move-sprint-header');
+      assert(styleCode.includes('.bjwt-move-sprint-select'), '應包含 .bjwt-move-sprint-select');
+      assert(styleCode.includes('.bjwt-move-sprint-submit-btn'), '應包含 .bjwt-move-sprint-submit-btn');
+      assert(styleCode.includes('.bjwt-move-sprint-cancel-btn'), '應包含 .bjwt-move-sprint-cancel-btn');
+    });
+
+    global.fetch = origFetch;
+    global.document.createElement = origCreateElement;
+    global.document.body = origDocBody;
+    global.document.querySelector = origDocQuerySelector;
+
+    console.log('✓ 卡片右鍵選單「移動至其他 Sprint」功能、候選衝刺篩選 (進行中與未開始) 與儲存移動檢查通過！');
   }
 
   console.log('============================================');

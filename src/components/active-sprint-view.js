@@ -888,7 +888,10 @@
         if (CardContextMenuComponent && typeof CardContextMenuComponent.open === 'function') {
           CardContextMenuComponent.open(e.clientX, e.clientY, {
             key: issueKey,
-            summary: summaryText
+            summary: summaryText,
+            sprintItem: item,
+            sprintTitle: (sprintData && sprintData.title) || (item && item.meta && item.meta.title) || '',
+            sprintId: (item && item.meta && item.meta.sprintId) || (sprintData && sprintData.sprintId) || ''
           });
         }
       });
