@@ -287,12 +287,11 @@
             <circle cx="12" cy="12" r="9"></circle>
             <polyline points="12 7 12 12 15 15"></polyline>
           </svg>
-          <span class="bjwt-sprint-tab-name" title="${escapeHtml(item.meta.title)} (已結束)">
+          <span class="bjwt-sprint-tab-name" title="${escapeHtml(item.meta.title)}">
             ${escapeHtml(item.meta.title)}
           </span>
         </span>
         <span class="bjwt-sprint-tab-right">
-          <span class="bjwt-closed-pill">已結束</span>
           <span class="bjwt-sprint-tab-badge" data-bjwt-tab-key="${escapeHtml(item.meta.key)}" title="${escapeHtml(badgeTitle)}">${escapeHtml(badgeText)}</span>
           <span class="bjwt-history-remove-btn" role="button" tabindex="0" title="從清單移除此歷史衝刺" aria-label="移除歷史衝刺">✕</span>
         </span>

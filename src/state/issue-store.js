@@ -629,6 +629,14 @@
         }
       });
     }
+    if (!issueObj) {
+      loadedHistoricalSprints.forEach((hist) => {
+        if (!issueObj && hist && Array.isArray(hist.issues)) {
+          const found = hist.issues.find((i) => i && String(i.key || '').toUpperCase() === key);
+          if (found) issueObj = found;
+        }
+      });
+    }
 
     activeSprintCache.forEach((cached) => {
       if (!cached) return;
