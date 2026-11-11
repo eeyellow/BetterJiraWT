@@ -115,14 +115,17 @@
     const menuWidth = menuEl.offsetWidth || 190;
     const menuHeight = menuEl.offsetHeight || 120;
 
-    let left = x + 2;
-    let top = y + 2;
+    const posX = typeof x === 'number' && !isNaN(x) ? x : 100;
+    const posY = typeof y === 'number' && !isNaN(y) ? y : 100;
+
+    let left = posX + 2;
+    let top = posY + 2;
 
     if (left + menuWidth > winWidth - 10) {
-      left = Math.max(10, x - menuWidth - 2);
+      left = Math.max(10, posX - menuWidth - 2);
     }
     if (top + menuHeight > winHeight - 10) {
-      top = Math.max(10, y - menuHeight - 2);
+      top = Math.max(10, posY - menuHeight - 2);
     }
 
     menuEl.style.left = `${Math.round(left)}px`;
@@ -289,7 +292,7 @@
       doc.addEventListener('click', handleDocumentClick, true);
       doc.addEventListener('contextmenu', handleDocumentClick, true);
       doc.addEventListener('keydown', handleDocumentKeydown, true);
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('scroll', handleWindowScroll, true);
       }
     }, 10);
@@ -298,7 +301,7 @@
       doc.removeEventListener('click', handleDocumentClick, true);
       doc.removeEventListener('contextmenu', handleDocumentClick, true);
       doc.removeEventListener('keydown', handleDocumentKeydown, true);
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
         window.removeEventListener('scroll', handleWindowScroll, true);
       }
     };
@@ -618,14 +621,19 @@
             // 3. 顯示綠色浮動 Toast
             showSprintMoveToast(key, targetSprintName);
 
-            // 4. 重置自定義檢視渲染 Signature 並觸發畫面重繪
+            // 4. 重置自定義檢視與歷史衝刺渲染 Signature 並觸發畫面重繪
             if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'function') {
-              document.querySelectorAll('.bjwt-active-sprint-custom-view').forEach((el) => {
+              document.querySelectorAll('.bjwt-active-sprint-custom-view, .bjwt-history-sprint-branch, [data-bjwt-render-sig]').forEach((el) => {
                 el.removeAttribute('data-bjwt-render-sig');
               });
             }
 
-            if (issueData.sprintItem && ActiveSprintView && typeof ActiveSprintView.syncActiveSprintIssuesFromApi === 'function') {
+            if (
+              issueData.sprintItem &&
+              (!issueData.sprintItem.meta || !issueData.sprintItem.meta.isHistorical) &&
+              ActiveSprintView &&
+              typeof ActiveSprintView.syncActiveSprintIssuesFromApi === 'function'
+            ) {
               ActiveSprintView.syncActiveSprintIssuesFromApi(issueData.sprintItem, true).catch(() => {});
             }
 

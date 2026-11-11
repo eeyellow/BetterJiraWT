@@ -162,10 +162,10 @@
     }
 
     branchEl.querySelectorAll('.bjwt-history-card').forEach((cardEl) => {
-      const issueKey = cardEl.getAttribute('data-bjwt-history-issue-key');
+      const issueKey = cardEl.getAttribute('data-bjwt-history-issue-key') || cardEl.getAttribute('data-issue-key') || '';
       const issueObj =
         visibleIssues.find((i) => i.key === issueKey) ||
-        histItem.issues.find((i) => i.key === issueKey);
+        (Array.isArray(histItem.issues) ? histItem.issues.find((i) => i.key === issueKey) : null);
       const handleActivate = (e) => {
         const latestIssue =
           (IssueStore && typeof IssueStore.getCachedIssue === 'function' && IssueStore.getCachedIssue(issueKey)) ||
@@ -206,9 +206,21 @@
           CardContextMenuComponent.open(e.clientX, e.clientY, {
             key: issueKey,
             summary: summaryText,
-            sprintItem: item,
-            sprintTitle: (histData && histData.title) || (item && item.meta && item.meta.title) || '',
-            sprintId: (histItem && histItem.sprintId) || (item && item.meta && item.meta.sprintId) || ''
+            sprintItem: {
+              sprintEl: branchEl,
+              branch: branchEl,
+              headerPartner: null,
+              meta: {
+                key: histItem && histItem.key,
+                title: (histItem && histItem.title) || '',
+                rawTitle: (histItem && histItem.title) || '',
+                isHistorical: true,
+                sprintState: 'closed',
+                sprintId: (histItem && histItem.sprintId) || ''
+              }
+            },
+            sprintTitle: (histItem && histItem.title) || '',
+            sprintId: (histItem && histItem.sprintId) || ''
           });
         }
       });

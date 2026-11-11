@@ -898,6 +898,12 @@ class MockElement {
   }
 }
 global.Element = MockElement;
+if (!global.document.createElement) {
+  global.document.createElement = (tag) => new MockElement(tag);
+}
+if (!global.document.body) {
+  global.document.body = new MockElement('body');
+}
 
 // 1. 測試 isDomCardFilteredOrHidden
 const divClean = new MockElement('div');
@@ -2517,7 +2523,63 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     assert(checkStyles.includes('bjwt-copy-toast'), 'styles.css 應包含 bjwt-copy-toast');
     assert(checkStyles.includes('bjwt-context-sub-icon'), 'styles.css 應包含 bjwt-context-sub-icon');
 
-    console.log('✓ 卡片右鍵自訂選單 (在新分頁開啟、複製編號/標題) 檢查通過！');
+    // 6. 測試已結束歷史衝刺 (HistorySprintView) 卡片右鍵點擊正常開啟右鍵選單
+    const { HistorySprintView } = BetterJira;
+    assert(HistorySprintView && typeof HistorySprintView.renderHistoricalSprintBranch === 'function', 'HistorySprintView 應提供 renderHistoricalSprintBranch');
+    const mockBranchEl = new MockElement('div');
+    const mockHistItem = {
+      key: 'hist_sprint_test',
+      title: 'Sprint 99 (已結束歷史衝刺)',
+      sprintId: '99',
+      issues: [
+        {
+          key: 'HIST-101',
+          summary: '歷史測試卡片標題',
+          statusName: 'Done',
+          statusCategory: 'done',
+          storyPoints: 5,
+          priorityName: 'High',
+          priorityIcon: '',
+          issueTypeName: 'Story',
+          issueTypeIcon: '',
+          isSubtask: false,
+          isDone: true
+        }
+      ]
+    };
+    HistorySprintView.renderHistoricalSprintBranch(mockBranchEl, mockHistItem);
+    const cardEl = mockBranchEl.querySelector('.bjwt-history-card');
+    assert(cardEl, '歷史衝刺應成功渲染出卡片節點');
+
+    let menuOpenedWith = null;
+    const origOpen = CardContextMenuComponent.open;
+    CardContextMenuComponent.open = (x, y, data) => {
+      menuOpenedWith = { x, y, data };
+      origOpen(x, y, data);
+    };
+
+    let prevented = false;
+    let stopped = false;
+    await cardEl.dispatchEvent({
+      type: 'contextmenu',
+      clientX: 250,
+      clientY: 350,
+      preventDefault: () => { prevented = true; },
+      stopPropagation: () => { stopped = true; }
+    });
+
+    assert(prevented, '歷史衝刺卡片 contextmenu 事件應調用 preventDefault');
+    assert(stopped, '歷史衝刺卡片 contextmenu 事件應調用 stopPropagation');
+    assert(menuOpenedWith, '歷史衝刺卡片右鍵應成功調用 CardContextMenuComponent.open');
+    assert.strictEqual(menuOpenedWith.data.key, 'HIST-101', '右鍵選單資料 key 應正確');
+    assert.strictEqual(menuOpenedWith.data.sprintTitle, 'Sprint 99 (已結束歷史衝刺)', '右鍵選單資料 sprintTitle 應正確');
+    assert.strictEqual(menuOpenedWith.data.sprintId, '99', '右鍵選單資料 sprintId 應正確');
+    assert(menuOpenedWith.data.sprintItem && menuOpenedWith.data.sprintItem.meta.isHistorical, 'sprintItem 應標記為歷史衝刺');
+
+    CardContextMenuComponent.open = origOpen;
+    CardContextMenuComponent.close();
+
+    console.log('✓ 卡片右鍵自訂選單 (在新分頁開啟、複製編號/標題、歷史衝刺卡片右鍵相容) 檢查通過！');
   }
 
   console.log('--- 測試 25: 側邊欄點數顯示純數字、未開始衝刺點數統計與三分區 (進行中/未開始/已結束) 檢查 ---');
@@ -2667,6 +2729,9 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     assert(checkSidebarCode.includes('bjwt-history-tab-icon'), 'Sprint 項目按鈕應保留歷史時鐘圖示');
     assert(checkSidebarCode.includes('live-item-dot active-item-dot'), 'Sprint 項目按鈕應保留進行中衝刺圓點');
     assert(checkSidebarCode.includes('future-item-dot'), 'Sprint 項目按鈕應保留未開始衝刺圓點');
+
+    // 10. 測試已結束衝刺項目已移除多餘的「已結束」文字標籤
+    assert(!checkSidebarCode.includes('<span class="bjwt-closed-pill">已結束</span>'), 'sidebar.js 已結束衝刺項目中不應包含多餘的「已結束」標籤');
 
     global.document.querySelector = origQuerySelector;
     console.log('✓ 側邊欄點數純數字、未開始衝刺點數統計與三分區 (進行中/未開始/已結束) 檢查通過！');
@@ -3093,6 +3158,29 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
       assert(styleCode.includes('.bjwt-move-sprint-submit-btn'), '應包含 .bjwt-move-sprint-submit-btn');
       assert(styleCode.includes('.bjwt-move-sprint-cancel-btn'), '應包含 .bjwt-move-sprint-cancel-btn');
     });
+
+    // 7. 測試 IssueStore.moveIssueInSprintStore 支援從已結束歷史衝刺快取移動至目標衝刺
+    IssueStore.appendHistoricalSprintToState({
+      key: 'hist_move_test',
+      title: '歷史衝刺移動測試',
+      sprintId: '888',
+      issues: [
+        { key: 'HIST-888', summary: '歷史待移動卡片', storyPoints: 3 }
+      ]
+    });
+    IssueStore.activeSprintCache.set('sprint_701', {
+      key: 'sprint_701',
+      sprintId: '701',
+      title: '目標衝刺',
+      issues: []
+    });
+
+    IssueStore.moveIssueInSprintStore('HIST-888', '701');
+
+    const targetSprintCache = IssueStore.activeSprintCache.get('sprint_701');
+    assert(targetSprintCache.issues.some((i) => i.key === 'HIST-888'), '目標衝刺快取中應已加入 HIST-888');
+    const histSprintAfter = IssueStore.loadedHistoricalSprints.find((h) => h.key === 'hist_move_test');
+    assert(!histSprintAfter.issues.some((i) => i.key === 'HIST-888'), '歷史衝刺快取中應已移除 HIST-888');
 
     global.fetch = origFetch;
     global.document.createElement = origCreateElement;
