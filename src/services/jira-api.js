@@ -1776,6 +1776,116 @@
     }
   }
 
+  /**
+   * 將純文字轉換為 Jira v3 API 所需的 Atlassian Document Format (ADF) 結構
+   *
+   * @param {string} text - 純文字內容
+   * @returns {Object} ADF document 物件
+   */
+  function plainTextToAdf(text) {
+    const lines = String(text || '').split('\n');
+    const content = lines.map((line) => ({
+      type: 'paragraph',
+      content: line ? [{ type: 'text', text: line }] : []
+    }));
+    return {
+      type: 'doc',
+      version: 1,
+      content: content.length > 0 ? content : [{ type: 'paragraph', content: [] }]
+    };
+  }
+
+  /**
+   * 共用留言 API 請求輔助函式：優先嘗試 REST API v2 (支援純文字/Wiki 語法)，若遇到格式不相容則自動回退至 v3 ADF 格式
+   *
+   * @param {string} method - HTTP 方法 ('POST' | 'PUT')
+   * @param {string} issuePath - 留言端點相對路徑 (例如 'issue/WMC-1/comment')
+   * @param {string} bodyText - 留言文字內容
+   * @returns {Promise<{success: boolean, comment?: Object|null, error?: string}>}
+   */
+  async function sendCommentRequest(method, issuePath, bodyText) {
+    const attempts = [
+      { url: `${window.location.origin}/rest/api/2/${issuePath}`, payload: { body: bodyText } },
+      { url: `${window.location.origin}/rest/api/3/${issuePath}`, payload: { body: plainTextToAdf(bodyText) } }
+    ];
+
+    let lastError = '留言送出失敗';
+    for (let i = 0; i < attempts.length; i += 1) {
+      const { url, payload } = attempts[i];
+      try {
+        const res = await fetch(url, {
+          method,
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-Atlassian-Token': 'no-check'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          const comment = await res.json().catch(() => null);
+          return { success: true, comment };
+        }
+
+        const errJson = await res.json().catch(() => null);
+        if (errJson) {
+          if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
+            lastError = errJson.errorMessages.join(', ');
+          } else if (errJson.errors && typeof errJson.errors === 'object') {
+            lastError = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
+          }
+        } else {
+          lastError = `HTTP ${res.status}`;
+        }
+
+        // 僅在格式/端點不支援時回退至下一個版本，權限或驗證錯誤不重試
+        if (res.status !== 400 && res.status !== 404 && res.status !== 415) {
+          return { success: false, error: lastError };
+        }
+      } catch (e) {
+        lastError = e && e.message ? e.message : '網路請求失敗';
+      }
+    }
+
+    return { success: false, error: lastError };
+  }
+
+  /**
+   * 新增卡片留言
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string} bodyText - 留言內容
+   * @returns {Promise<{success: boolean, comment?: Object|null, error?: string}>}
+   */
+  async function addIssueComment(issueKey, bodyText) {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+    const trimmed = String(bodyText || '').trim();
+    if (!trimmed) return { success: false, error: '留言內容不能為空' };
+    return sendCommentRequest('POST', `issue/${encodeURIComponent(issueKey)}/comment`, trimmed);
+  }
+
+  /**
+   * 編輯既有卡片留言
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string|number} commentId - 留言 ID
+   * @param {string} bodyText - 更新後留言內容
+   * @returns {Promise<{success: boolean, comment?: Object|null, error?: string}>}
+   */
+  async function updateIssueComment(issueKey, commentId, bodyText) {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+    if (!commentId) return { success: false, error: '缺少 commentId' };
+    const trimmed = String(bodyText || '').trim();
+    if (!trimmed) return { success: false, error: '留言內容不能為空' };
+    return sendCommentRequest(
+      'PUT',
+      `issue/${encodeURIComponent(issueKey)}/comment/${encodeURIComponent(commentId)}`,
+      trimmed
+    );
+  }
+
   BetterJira.JiraApiService = {
     detectJiraContext,
     detectStoryPointsCustomField,
@@ -1802,6 +1912,8 @@
     resolveSprintId,
     moveIssuesToSprint,
     createIssueInSprint,
+    addIssueComment,
+    updateIssueComment,
     syncExtensionIcon
   };
 })();

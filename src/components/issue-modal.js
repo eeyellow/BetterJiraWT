@@ -396,7 +396,21 @@
           </div>
 
           <div class="bjwt-detail-section" id="bjwt-detail-comments-container" style="display: none;">
-            <div class="bjwt-detail-section-title">活動與留言 (<span id="bjwt-detail-comments-count">0</span>)</div>
+            <div class="bjwt-detail-section-title">
+              活動與留言 (<span id="bjwt-detail-comments-count">0</span>)
+              <span class="bjwt-edit-only bjwt-edit-tip">(編輯模式下可新增或修改留言)</span>
+            </div>
+            <div class="bjwt-comment-add-box bjwt-edit-only" id="bjwt-comment-add-box">
+              <textarea
+                class="bjwt-comment-textarea"
+                id="bjwt-add-comment-field"
+                rows="3"
+                placeholder="輸入新留言..."
+              ></textarea>
+              <div class="bjwt-comment-actions">
+                <button type="button" class="bjwt-comment-submit-btn" id="bjwt-add-comment-btn">新增留言</button>
+              </div>
+            </div>
             <div class="bjwt-comment-list" id="bjwt-detail-comments-list"></div>
           </div>
         </div>
@@ -512,11 +526,232 @@
     let currentRawDesc = '';
     let currentRawPoints = initialPoints !== '-' ? initialPoints : '';
     let currentStatusName = initialStatusName;
+    let currentComments = [];
+    const renderedCommentsMap = new Map();
 
     const editBtn = modalEl.querySelector('.bjwt-history-modal-edit-btn');
     const saveBtn = modalEl.querySelector('.bjwt-history-modal-save-btn');
     const cancelBtn = modalEl.querySelector('.bjwt-history-modal-cancel-btn');
     const msgBanner = modalEl.querySelector('#bjwt-modal-msg-banner');
+    const addCommentField = modalEl.querySelector('#bjwt-add-comment-field');
+    const addCommentBtn = modalEl.querySelector('#bjwt-add-comment-btn');
+
+    function showModalBanner(type, text, autoHideMs = 0) {
+      if (!msgBanner) return;
+      msgBanner.className =
+        type === 'error'
+          ? 'bjwt-edit-error-banner'
+          : type === 'warning'
+            ? 'bjwt-edit-warning-banner'
+            : 'bjwt-edit-success-banner';
+      msgBanner.textContent = text;
+      msgBanner.style.display = 'block';
+      if (autoHideMs > 0) {
+        setTimeout(() => {
+          if (msgBanner && modalEl.isConnected) {
+            msgBanner.style.display = 'none';
+          }
+        }, autoHideMs);
+      }
+    }
+
+    function getCommentPlainText(comm) {
+      if (!comm) return '';
+      if (typeof comm.body === 'object' && comm.body !== null) {
+        return AdfParser.adfToPlainText(comm.body);
+      }
+      return String(comm.body || '');
+    }
+
+    function renderCommentsList() {
+      const commentsContainer = modalEl.querySelector('#bjwt-detail-comments-container');
+      const commentsList = modalEl.querySelector('#bjwt-detail-comments-list');
+      const commentsCount = modalEl.querySelector('#bjwt-detail-comments-count');
+      const isEditMode = modalEl.hasAttribute('data-bjwt-edit-mode');
+
+      if (commentsCount) commentsCount.textContent = String(currentComments.length);
+      if (commentsContainer) {
+        commentsContainer.style.display = currentComments.length > 0 || isEditMode ? 'block' : 'none';
+      }
+      if (!commentsList) return;
+
+      if (currentComments.length === 0) {
+        commentsList.innerHTML = isEditMode
+          ? '<div class="bjwt-comment-empty">目前尚無留言，可於上方輸入框新增。</div>'
+          : '';
+        return;
+      }
+
+      commentsList.innerHTML = currentComments
+        .map((comm) => {
+          const commId = comm.id ? String(comm.id) : '';
+          const author = comm.author || {};
+          const authorName = author.displayName || author.name || '未知使用者';
+          const avatar =
+            author.avatarUrls && (author.avatarUrls['24x24'] || author.avatarUrls['48x48']);
+          const dateStr = formatShortDateTime(comm.created);
+          const isEdited = comm.updated && comm.created && comm.updated !== comm.created;
+          const renderedHtml =
+            (commId && renderedCommentsMap.get(commId)) ||
+            comm.renderedBody ||
+            (comm.isRendered ? comm.body : null);
+          const bodyHtml = formatCommentBody(comm, renderedHtml);
+          const rawText = getCommentPlainText(comm);
+
+          return `
+            <div class="bjwt-comment-item" data-bjwt-comment-id="${escapeHtml(commId)}">
+              <div class="bjwt-comment-header">
+                <div class="bjwt-user-cell">
+                  ${
+                    avatar
+                      ? `<img src="${escapeHtml(avatar)}" alt="" />`
+                      : `<span class="bjwt-user-avatar-placeholder">👤</span>`
+                  }
+                  <span class="bjwt-comment-author">${escapeHtml(authorName)}</span>
+                </div>
+                <span class="bjwt-comment-date">${escapeHtml(dateStr)}${isEdited ? ' (已編輯)' : ''}</span>
+                ${
+                  commId
+                    ? `<button type="button" class="bjwt-comment-edit-btn bjwt-edit-only" data-bjwt-comment-edit-id="${escapeHtml(commId)}">編輯</button>`
+                    : ''
+                }
+              </div>
+              <div class="bjwt-comment-body">${bodyHtml}</div>
+              <div class="bjwt-comment-edit-box" style="display: none;">
+                <textarea class="bjwt-comment-textarea bjwt-comment-edit-textarea" rows="3">${escapeHtml(rawText)}</textarea>
+                <div class="bjwt-comment-actions">
+                  <button type="button" class="bjwt-comment-submit-btn bjwt-comment-edit-save-btn">儲存留言</button>
+                  <button type="button" class="bjwt-comment-cancel-btn bjwt-comment-edit-cancel-btn">取消</button>
+                </div>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+
+      commentsList.querySelectorAll('.bjwt-comment-item').forEach((itemEl) => {
+        const commId = itemEl.getAttribute('data-bjwt-comment-id');
+        const editCommBtn = itemEl.querySelector('.bjwt-comment-edit-btn');
+        const bodyEl = itemEl.querySelector('.bjwt-comment-body');
+        const editBoxEl = itemEl.querySelector('.bjwt-comment-edit-box');
+        const editTextarea = itemEl.querySelector('.bjwt-comment-edit-textarea');
+        const editSaveBtn = itemEl.querySelector('.bjwt-comment-edit-save-btn');
+        const editCancelBtn = itemEl.querySelector('.bjwt-comment-edit-cancel-btn');
+
+        if (editCommBtn && bodyEl && editBoxEl) {
+          editCommBtn.addEventListener('click', () => {
+            const matched = currentComments.find((c) => String(c.id || '') === commId);
+            if (editTextarea && matched) {
+              editTextarea.value = getCommentPlainText(matched);
+            }
+            itemEl.setAttribute('data-bjwt-comment-editing', 'true');
+            bodyEl.style.display = 'none';
+            editBoxEl.style.display = 'block';
+            if (editTextarea) editTextarea.focus();
+          });
+        }
+
+        if (editCancelBtn && bodyEl && editBoxEl) {
+          editCancelBtn.addEventListener('click', () => {
+            itemEl.removeAttribute('data-bjwt-comment-editing');
+            editBoxEl.style.display = 'none';
+            bodyEl.style.display = 'block';
+          });
+        }
+
+        if (editSaveBtn && editTextarea) {
+          editSaveBtn.addEventListener('click', async () => {
+            const newText = editTextarea.value.trim();
+            if (!newText) {
+              showModalBanner('error', '留言內容不能為空。');
+              return;
+            }
+            editSaveBtn.disabled = true;
+            editSaveBtn.textContent = '儲存中...';
+            try {
+              await saveEditedComment(commId, newText);
+              showModalBanner('success', '✓ 留言已成功更新！', 3000);
+            } catch (err) {
+              showModalBanner('error', `留言更新失敗：${err && err.message ? err.message : '未知錯誤'}`);
+              editSaveBtn.disabled = false;
+              editSaveBtn.textContent = '儲存留言';
+            }
+          });
+        }
+      });
+    }
+
+    async function submitNewComment(text) {
+      const trimmed = String(text || '').trim();
+      if (!trimmed) return null;
+      const res = await JiraApiService.addIssueComment(issueKey, trimmed);
+      if (!res || !res.success) {
+        throw new Error((res && res.error) || '新增留言失敗');
+      }
+      const created = res.comment || {
+        id: String(Date.now()),
+        body: trimmed,
+        created: new Date().toISOString(),
+        author: { displayName: '目前使用者' }
+      };
+      if (created.id && created.renderedBody) {
+        renderedCommentsMap.set(String(created.id), created.renderedBody);
+      }
+      currentComments.push(created);
+      if (addCommentField) addCommentField.value = '';
+      renderCommentsList();
+      return created;
+    }
+
+    async function saveEditedComment(commentId, newText) {
+      const trimmed = String(newText || '').trim();
+      if (!trimmed) throw new Error('留言內容不能為空');
+      const res = await JiraApiService.updateIssueComment(issueKey, commentId, trimmed);
+      if (!res || !res.success) {
+        throw new Error((res && res.error) || '更新留言失敗');
+      }
+      const idx = currentComments.findIndex((c) => String(c.id || '') === String(commentId));
+      if (idx !== -1) {
+        const updatedObj = res.comment || {};
+        currentComments[idx] = {
+          ...currentComments[idx],
+          ...updatedObj,
+          body: updatedObj.body !== undefined ? updatedObj.body : trimmed,
+          renderedBody: updatedObj.renderedBody || null,
+          isRendered: false,
+          updated: updatedObj.updated || new Date().toISOString()
+        };
+        if (updatedObj.renderedBody) {
+          renderedCommentsMap.set(String(commentId), updatedObj.renderedBody);
+        } else {
+          renderedCommentsMap.delete(String(commentId));
+        }
+      }
+      renderCommentsList();
+    }
+
+    if (addCommentBtn && addCommentField) {
+      addCommentBtn.addEventListener('click', async () => {
+        const text = addCommentField.value.trim();
+        if (!text) {
+          showModalBanner('error', '請先輸入留言內容。');
+          addCommentField.focus();
+          return;
+        }
+        addCommentBtn.disabled = true;
+        addCommentBtn.textContent = '送出中...';
+        if (msgBanner) msgBanner.style.display = 'none';
+        try {
+          await submitNewComment(text);
+          showModalBanner('success', '✓ 留言已成功新增！', 3000);
+        } catch (err) {
+          showModalBanner('error', `新增留言失敗：${err && err.message ? err.message : '未知錯誤'}`);
+        } finally {
+          addCommentBtn.disabled = false;
+          addCommentBtn.textContent = '新增留言';
+        }
+      });
+    }
 
     function setEditMode(active) {
       if (active) {
@@ -527,10 +762,13 @@
         if (summaryInput) summaryInput.value = currentRawSummary;
         if (descTextarea) descTextarea.value = currentRawDesc;
         if (pointsInput) pointsInput.value = currentRawPoints !== null && currentRawPoints !== undefined && currentRawPoints !== '-' ? currentRawPoints : '';
+        renderCommentsList();
         if (summaryInput) summaryInput.focus();
       } else {
         modalEl.removeAttribute('data-bjwt-edit-mode');
+        if (addCommentField) addCommentField.value = '';
         if (msgBanner) msgBanner.style.display = 'none';
+        renderCommentsList();
       }
     }
 
@@ -549,11 +787,7 @@
 
         const newSummary = summaryInput ? summaryInput.value.trim() : currentRawSummary;
         if (!newSummary) {
-          if (msgBanner) {
-            msgBanner.className = 'bjwt-edit-error-banner';
-            msgBanner.textContent = '卡片標題 (Summary) 不能為空。';
-            msgBanner.style.display = 'block';
-          }
+          showModalBanner('error', '卡片標題 (Summary) 不能為空。');
           return;
         }
 
@@ -561,6 +795,10 @@
         const newPointsStr = pointsInput ? pointsInput.value.trim() : '';
         const newPoints = newPointsStr === '' ? null : Number(newPointsStr);
         const transitionId = statusSelect ? statusSelect.value : '';
+        const pendingNewComment = addCommentField ? addCommentField.value.trim() : '';
+        const editingCommentItems = Array.from(
+          modalEl.querySelectorAll('.bjwt-comment-item[data-bjwt-comment-editing="true"]')
+        );
 
         // 檢查是否有實質修改 (Dirty Check)
         const summaryChanged = newSummary !== currentRawSummary;
@@ -571,8 +809,9 @@
             : '';
         const pointsChanged = newPointsStr !== origPointsStr;
         const statusChanged = Boolean(transitionId);
+        const commentsChanged = Boolean(pendingNewComment) || editingCommentItems.length > 0;
 
-        if (!summaryChanged && !descChanged && !pointsChanged && !statusChanged) {
+        if (!summaryChanged && !descChanged && !pointsChanged && !statusChanged && !commentsChanged) {
           setEditMode(false);
           return;
         }
@@ -602,6 +841,19 @@
             if (!transRes.success) {
               console.warn('狀態轉換未成功:', transRes.error);
             }
+          }
+
+          for (const itemEl of editingCommentItems) {
+            const commId = itemEl.getAttribute('data-bjwt-comment-id');
+            const editTextarea = itemEl.querySelector('.bjwt-comment-edit-textarea');
+            const editedText = editTextarea ? editTextarea.value.trim() : '';
+            if (commId && editedText) {
+              await saveEditedComment(commId, editedText);
+            }
+          }
+
+          if (pendingNewComment) {
+            await submitNewComment(pendingNewComment);
           }
 
           currentRawSummary = newSummary;
@@ -789,7 +1041,7 @@
         }
 
         // 4. 留言清單 (使用 renderedCommentsMap 避免雙重 escapeHtml 造成顯示 HTML 原始碼)
-        const renderedCommentsMap = new Map();
+        renderedCommentsMap.clear();
         if (renderedFields.comment && Array.isArray(renderedFields.comment.comments)) {
           renderedFields.comment.comments.forEach((rc) => {
             if (rc && rc.id) {
@@ -802,43 +1054,8 @@
           (fields.comment && fields.comment.comments) ||
           (renderedFields.comment && renderedFields.comment.comments) ||
           [];
-        const commentsContainer = modalEl.querySelector('#bjwt-detail-comments-container');
-        const commentsList = modalEl.querySelector('#bjwt-detail-comments-list');
-        const commentsCount = modalEl.querySelector('#bjwt-detail-comments-count');
-        if (commentsContainer && commentsList && rawComments.length > 0) {
-          commentsContainer.style.display = 'block';
-          if (commentsCount) commentsCount.textContent = String(rawComments.length);
-          commentsList.innerHTML = rawComments
-            .map((comm) => {
-              const author = comm.author || {};
-              const authorName = author.displayName || author.name || '未知使用者';
-              const avatar =
-                author.avatarUrls && (author.avatarUrls['24x24'] || author.avatarUrls['48x48']);
-              const dateStr = formatShortDateTime(comm.created);
-              const renderedHtml =
-                renderedCommentsMap.get(String(comm.id)) ||
-                comm.renderedBody ||
-                (comm.isRendered ? comm.body : null);
-              const bodyHtml = formatCommentBody(comm, renderedHtml);
-              return `
-                <div class="bjwt-comment-item">
-                  <div class="bjwt-comment-header">
-                    <div class="bjwt-user-cell">
-                      ${
-                        avatar
-                          ? `<img src="${escapeHtml(avatar)}" alt="" />`
-                          : `<span class="bjwt-user-avatar-placeholder">👤</span>`
-                      }
-                      <span class="bjwt-comment-author">${escapeHtml(authorName)}</span>
-                    </div>
-                    <span class="bjwt-comment-date">${escapeHtml(dateStr)}</span>
-                  </div>
-                  <div class="bjwt-comment-body">${bodyHtml}</div>
-                </div>
-              `;
-            })
-            .join('');
-        }
+        currentComments = Array.isArray(rawComments) ? [...rawComments] : [];
+        renderCommentsList();
 
         // 5. 報告者
         if (fields.reporter) {
