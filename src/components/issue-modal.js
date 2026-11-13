@@ -400,6 +400,7 @@
               活動與留言 (<span id="bjwt-detail-comments-count">0</span>)
               <span class="bjwt-edit-only bjwt-edit-tip">(編輯模式下可新增或修改留言)</span>
             </div>
+            <div class="bjwt-comment-list" id="bjwt-detail-comments-list"></div>
             <div class="bjwt-comment-add-box bjwt-edit-only" id="bjwt-comment-add-box">
               <textarea
                 class="bjwt-comment-textarea"
@@ -411,7 +412,6 @@
                 <button type="button" class="bjwt-comment-submit-btn" id="bjwt-add-comment-btn">新增留言</button>
               </div>
             </div>
-            <div class="bjwt-comment-list" id="bjwt-detail-comments-list"></div>
           </div>
         </div>
 
@@ -577,7 +577,7 @@
 
       if (currentComments.length === 0) {
         commentsList.innerHTML = isEditMode
-          ? '<div class="bjwt-comment-empty">目前尚無留言，可於上方輸入框新增。</div>'
+          ? '<div class="bjwt-comment-empty">目前尚無留言，可於下方輸入框新增。</div>'
           : '';
         return;
       }

@@ -1256,7 +1256,7 @@
         display: block !important;
       }
       .bjwt-comment-add-box {
-        margin-bottom: 14px !important;
+        margin-top: 14px !important;
         padding: 12px !important;
         border-radius: 8px !important;
         background: var(--ds-surface-raised, rgba(255, 255, 255, 0.04)) !important;

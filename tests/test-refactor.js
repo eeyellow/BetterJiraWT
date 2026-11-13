@@ -3377,7 +3377,11 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     await commEditSaveBtn.dispatchEvent({ type: 'click' });
     assert(apiCalls.some((c) => c.method === 'PUT' && c.url.includes('/comment/101') && c.body.body === '更新後的既有留言'), '應發送 PUT 請求更新留言 101');
 
-    // 3b. 使用新增留言輸入框並透過「新增留言」按鈕送出
+    // 3b. 使用新增留言輸入框並透過「新增留言」按鈕送出，並驗證輸入區塊位於留言清單下方
+    const commentsContainerEl = modalEl.querySelector('#bjwt-detail-comments-container');
+    const commentsListIdx = commentsContainerEl.children.findIndex((c) => c.id === 'bjwt-detail-comments-list');
+    const addBoxIdx = commentsContainerEl.children.findIndex((c) => c.id === 'bjwt-comment-add-box');
+    assert(commentsListIdx !== -1 && addBoxIdx !== -1 && addBoxIdx > commentsListIdx, '新增留言輸入區塊應位於留言清單最下方');
     const addCommField = modalEl.querySelector('#bjwt-add-comment-field');
     const addCommBtn = modalEl.querySelector('#bjwt-add-comment-btn');
     assert(addCommField && addCommBtn, '編輯模式下應顯示新增留言輸入框與送出按鈕');
