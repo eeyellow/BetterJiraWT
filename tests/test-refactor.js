@@ -644,11 +644,12 @@ class MockElement {
     this._textContent = undefined;
   }
   get textContent() {
-    if (this._textContent !== undefined) return this._textContent;
-    if (this.children.length === 0) return '';
-    return this.children.map((c) => c.textContent).join(' ');
+    if (this.children.length === 0) return this._textContent !== undefined ? this._textContent : '';
+    const childText = this.children.map((c) => c.textContent).join(' ');
+    return this._textContent ? `${this._textContent}${childText}` : childText;
   }
   set textContent(val) {
+    this.children = [];
     this._textContent = val;
   }
   setAttribute(k, v) {
@@ -722,35 +723,45 @@ class MockElement {
     this._innerHTML = html;
     this.children = [];
     if (!html || typeof html !== 'string') return;
-    const tagRegex = /<([a-zA-Z0-9_-]+)([^>]*)>(?:([\s\S]*?)<\/\1>)?/g;
+    const voidTags = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+    const tokenRegex = /<!--[\s\S]*?-->|<\/([a-zA-Z0-9_-]+)\s*>|<([a-zA-Z0-9_-]+)([^>]*?)(\/?)>|([^<]+)/g;
+    const stack = [this];
     let match;
-    while ((match = tagRegex.exec(html)) !== null) {
-      const tagName = match[1];
-      const attrStr = match[2] || '';
-      const innerContent = match[3] || '';
-      const child = new MockElement(tagName);
-      const attrRegex = /([a-zA-Z0-9_-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^>\s]+)))?/g;
-      let aMatch;
-      while ((aMatch = attrRegex.exec(attrStr)) !== null) {
-        const attrName = aMatch[1];
-        if (attrName === tagName) continue;
-        const attrVal = aMatch[2] !== undefined ? aMatch[2] : aMatch[3] !== undefined ? aMatch[3] : aMatch[4] !== undefined ? aMatch[4] : '';
-        if (attrName === 'class') {
-          child.className = attrVal;
-        } else if (attrName === 'id') {
-          child.setAttribute('id', attrVal);
-        } else {
-          child.setAttribute(attrName, attrVal);
+    while ((match = tokenRegex.exec(html)) !== null) {
+      if (match[1]) {
+        const closeTag = match[1].toLowerCase();
+        for (let i = stack.length - 1; i > 0; i -= 1) {
+          if (stack[i].tagName.toLowerCase() === closeTag) {
+            stack.length = i;
+            break;
+          }
         }
-      }
-      if (innerContent) {
-        if (innerContent.includes('<')) {
-          child.innerHTML = innerContent;
-        } else {
-          child.textContent = innerContent;
+      } else if (match[2]) {
+        const tagName = match[2];
+        const attrStr = match[3] || '';
+        const selfClosing = match[4] === '/' || voidTags.has(tagName.toLowerCase());
+        const child = new MockElement(tagName);
+        const attrRegex = /([a-zA-Z0-9_:-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^>\s]+)))?/g;
+        let aMatch;
+        while ((aMatch = attrRegex.exec(attrStr)) !== null) {
+          const attrName = aMatch[1];
+          const attrVal = aMatch[2] !== undefined ? aMatch[2] : aMatch[3] !== undefined ? aMatch[3] : aMatch[4] !== undefined ? aMatch[4] : '';
+          if (attrName === 'class') {
+            child.className = attrVal;
+          } else if (attrName === 'id') {
+            child.setAttribute('id', attrVal);
+          } else {
+            child.setAttribute(attrName, attrVal);
+          }
         }
+        stack[stack.length - 1].appendChild(child);
+        if (!selfClosing) {
+          stack.push(child);
+        }
+      } else if (match[5]) {
+        const current = stack[stack.length - 1];
+        current._textContent = (current._textContent || '') + match[5];
       }
-      this.appendChild(child);
     }
   }
   appendChild(child) {
@@ -896,6 +907,8 @@ class MockElement {
     }
     return !evt.defaultPrevented;
   }
+  focus() {}
+  select() {}
 }
 global.Element = MockElement;
 if (!global.document.createElement) {
@@ -3188,6 +3201,213 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     global.document.querySelector = origDocQuerySelector;
 
     console.log('✓ 卡片右鍵選單「移動至其他 Sprint」功能、候選衝刺篩選 (進行中與未開始) 與儲存移動檢查通過！');
+  }
+
+  console.log('--- 測試 29: 卡片編輯模式下新增與編輯留言 (JiraApiService 與 IssueModalComponent) 檢查 ---');
+  {
+    const { JiraApiService, IssueModalComponent } = BetterJira;
+
+    assert.strictEqual(typeof JiraApiService.addIssueComment, 'function', 'JiraApiService 應匯出 addIssueComment');
+    assert.strictEqual(typeof JiraApiService.updateIssueComment, 'function', 'JiraApiService 應匯出 updateIssueComment');
+
+    const origFetch = global.fetch;
+    const origGetElementById = global.document.getElementById;
+    const origDocBody = global.document.body;
+    global.document.body = new MockElement('body');
+    global.document.getElementById = (id) => {
+      for (const child of global.document.body.children) {
+        if (child.id === id) return child;
+      }
+      return null;
+    };
+
+    // 1. 測試 JiraApiService.addIssueComment (v2 成功)
+    let apiCalls = [];
+    global.fetch = async (url, opts) => {
+      apiCalls.push({ url, method: opts && opts.method, body: opts && opts.body ? JSON.parse(opts.body) : null });
+      if (url.includes('/rest/api/2/issue/WMC-555/comment') && opts.method === 'POST') {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: '9001',
+            body: '新測試留言',
+            created: '2026-11-13T10:00:00.000+0800',
+            author: { displayName: 'Tester' }
+          })
+        };
+      }
+      if (url.includes('/rest/api/2/issue/WMC-555/comment/9001') && opts.method === 'PUT') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: '9001',
+            body: '修改後的留言',
+            created: '2026-11-13T10:00:00.000+0800',
+            updated: '2026-11-13T10:05:00.000+0800',
+            author: { displayName: 'Tester' }
+          })
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    const addRes = await JiraApiService.addIssueComment('WMC-555', '新測試留言');
+    assert.strictEqual(addRes.success, true, 'addIssueComment 應回傳 success: true');
+    assert.strictEqual(addRes.comment.id, '9001', 'addIssueComment 應回傳建立的留言 ID');
+    assert.strictEqual(apiCalls[0].body.body, '新測試留言', 'addIssueComment v2 payload 應為純文字 body');
+
+    // 2. 測試 JiraApiService.updateIssueComment (v2 失敗 400 時自動回退 v3 ADF)
+    apiCalls = [];
+    global.fetch = async (url, opts) => {
+      apiCalls.push({ url, method: opts && opts.method, body: opts && opts.body ? JSON.parse(opts.body) : null });
+      if (url.includes('/rest/api/2/issue/WMC-555/comment/9001') && opts.method === 'PUT') {
+        return { ok: false, status: 400, json: async () => ({ errorMessages: ['ADF required'] }) };
+      }
+      if (url.includes('/rest/api/3/issue/WMC-555/comment/9001') && opts.method === 'PUT') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: '9001',
+            body: opts.body ? JSON.parse(opts.body).body : null,
+            created: '2026-11-13T10:00:00.000+0800',
+            updated: '2026-11-13T10:06:00.000+0800',
+            author: { displayName: 'Tester' }
+          })
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    const editRes = await JiraApiService.updateIssueComment('WMC-555', '9001', '回退至 v3 ADF 留言');
+    assert.strictEqual(editRes.success, true, 'updateIssueComment 回退至 v3 ADF 應成功');
+    assert.strictEqual(apiCalls.length, 2, '應先嘗試 v2 再回退至 v3');
+    assert.strictEqual(apiCalls[1].body.body.type, 'doc', 'v3 回退 payload 應為 ADF doc 格式');
+
+    // 3. 測試 IssueModalComponent 編輯模式下的留言新增與既有留言編輯互動
+    apiCalls = [];
+    global.fetch = async (url, opts) => {
+      apiCalls.push({ url, method: (opts && opts.method) || 'GET', body: opts && opts.body ? JSON.parse(opts.body) : null });
+      if (url.includes('/rest/api/2/issue/WMC-555?expand=renderedFields')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            key: 'WMC-555',
+            fields: {
+              summary: '測試留言互動卡片',
+              description: '原始說明',
+              status: { name: 'In Progress', statusCategory: { key: 'indeterminate' } },
+              comment: {
+                comments: [
+                  {
+                    id: '101',
+                    body: '既有留言內容',
+                    created: '2026-11-12T09:00:00.000+0800',
+                    author: { displayName: 'Alice' }
+                  }
+                ]
+              }
+            },
+            renderedFields: {}
+          })
+        };
+      }
+      if (url.includes('/transitions')) {
+        return { ok: true, status: 200, json: async () => ({ transitions: [] }) };
+      }
+      if (url.includes('/rest/api/2/issue/WMC-555/comment/101') && opts && opts.method === 'PUT') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: '101',
+            body: apiCalls[apiCalls.length - 1].body.body,
+            created: '2026-11-12T09:00:00.000+0800',
+            updated: '2026-11-13T11:00:00.000+0800',
+            author: { displayName: 'Alice' }
+          })
+        };
+      }
+      if (url.includes('/rest/api/2/issue/WMC-555/comment') && opts && opts.method === 'POST') {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: '102',
+            body: apiCalls[apiCalls.length - 1].body.body,
+            created: '2026-11-13T11:05:00.000+0800',
+            author: { displayName: 'Bob' }
+          })
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    IssueModalComponent.openHistoricalIssueDetailModal('WMC-555', {
+      key: 'WMC-555',
+      summary: '測試留言互動卡片',
+      statusName: 'In Progress',
+      statusCategory: 'indeterminate'
+    });
+
+    const modalEl = global.document.getElementById(BetterJira.Constants.HISTORY_ISSUE_MODAL_ID);
+    assert(modalEl, '應成功開啟卡片 Modal');
+    modalEl.isConnected = true;
+
+    // 等待非同步載入詳情完成
+    await new Promise((r) => setTimeout(r, 20));
+
+    const editBtn = modalEl.querySelector('.bjwt-history-modal-edit-btn');
+    assert(editBtn, 'Modal 應包含編輯按鈕');
+    await editBtn.dispatchEvent({ type: 'click' });
+    assert.strictEqual(modalEl.getAttribute('data-bjwt-edit-mode'), 'true', '點擊編輯後應進入編輯模式');
+
+    // 3a. 點擊既有留言的編輯按鈕並儲存
+    const commEditBtn = modalEl.querySelector('.bjwt-comment-edit-btn');
+    assert(commEditBtn, '編輯模式下既有留言應顯示編輯按鈕');
+    await commEditBtn.dispatchEvent({ type: 'click' });
+
+    const commEditTextarea = modalEl.querySelector('.bjwt-comment-edit-textarea');
+    const commEditSaveBtn = modalEl.querySelector('.bjwt-comment-edit-save-btn');
+    assert(commEditTextarea && commEditSaveBtn, '應展開留言編輯輸入框與儲存按鈕');
+    commEditTextarea.value = '更新後的既有留言';
+    await commEditSaveBtn.dispatchEvent({ type: 'click' });
+    assert(apiCalls.some((c) => c.method === 'PUT' && c.url.includes('/comment/101') && c.body.body === '更新後的既有留言'), '應發送 PUT 請求更新留言 101');
+
+    // 3b. 使用新增留言輸入框並透過「新增留言」按鈕送出
+    const addCommField = modalEl.querySelector('#bjwt-add-comment-field');
+    const addCommBtn = modalEl.querySelector('#bjwt-add-comment-btn');
+    assert(addCommField && addCommBtn, '編輯模式下應顯示新增留言輸入框與送出按鈕');
+    addCommField.value = '直接送出的新留言';
+    await addCommBtn.dispatchEvent({ type: 'click' });
+    assert(apiCalls.some((c) => c.method === 'POST' && c.url.includes('/comment') && c.body.body === '直接送出的新留言'), '應發送 POST 請求新增留言');
+    assert.strictEqual(modalEl.querySelector('#bjwt-detail-comments-count').textContent, '2', '新增留言後留言數應更新為 2');
+
+    // 3c. 若在新增留言輸入框輸入內容後直接按頂部「儲存」按鈕也應一併送出留言
+    addCommField.value = '透過頂部儲存送出的留言';
+    const topSaveBtn = modalEl.querySelector('.bjwt-history-modal-save-btn');
+    await topSaveBtn.dispatchEvent({ type: 'click' });
+    assert(apiCalls.some((c) => c.method === 'POST' && c.url.includes('/comment') && c.body.body === '透過頂部儲存送出的留言'), '點擊頂部儲存按鈕時應一併送出待儲存的新留言');
+    assert.strictEqual(modalEl.querySelector('#bjwt-detail-comments-count').textContent, '3', '留言數應更新為 3');
+
+    // 4. 檢查樣式表包含留言編輯樣式
+    const stylesCssStr = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+    const runtimeStylesStr = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+    [stylesCssStr, runtimeStylesStr].forEach((css) => {
+      assert(css.includes('.bjwt-comment-add-box'), '應包含 .bjwt-comment-add-box 樣式');
+      assert(css.includes('.bjwt-comment-edit-btn'), '應包含 .bjwt-comment-edit-btn 樣式');
+      assert(css.includes('.bjwt-comment-textarea'), '應包含 .bjwt-comment-textarea 樣式');
+    });
+
+    IssueModalComponent.closeIssueDetailModal(modalEl);
+    global.fetch = origFetch;
+    global.document.getElementById = origGetElementById;
+    global.document.body = origDocBody;
+
+    console.log('✓ 卡片編輯模式下新增與編輯留言檢查通過！');
   }
 
   console.log('============================================');

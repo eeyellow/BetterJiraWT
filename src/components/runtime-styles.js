@@ -1252,6 +1252,91 @@
         line-height: 1.5 !important;
         color: var(--ds-text, #cbd5e1) !important;
       }
+      #bjwt-history-issue-modal[data-bjwt-edit-mode="true"] #bjwt-detail-comments-container {
+        display: block !important;
+      }
+      .bjwt-comment-add-box {
+        margin-bottom: 14px !important;
+        padding: 12px !important;
+        border-radius: 8px !important;
+        background: var(--ds-surface-raised, rgba(255, 255, 255, 0.04)) !important;
+        border: 1px solid var(--ds-border, #2c333a) !important;
+      }
+      .bjwt-comment-edit-box {
+        margin-top: 8px !important;
+      }
+      .bjwt-comment-textarea {
+        width: 100% !important;
+        box-sizing: border-box !important;
+        padding: 8px 10px !important;
+        border-radius: 6px !important;
+        border: 1px solid var(--ds-border, #38414a) !important;
+        background: var(--ds-surface-sunken, rgba(0, 0, 0, 0.25)) !important;
+        color: var(--ds-text, #dee4ea) !important;
+        font-size: 13px !important;
+        line-height: 1.5 !important;
+        font-family: inherit !important;
+        resize: vertical !important;
+      }
+      .bjwt-comment-textarea:focus {
+        outline: none !important;
+        border-color: #388bfd !important;
+      }
+      .bjwt-comment-actions {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        margin-top: 8px !important;
+      }
+      .bjwt-comment-submit-btn {
+        padding: 5px 12px !important;
+        border-radius: 5px !important;
+        border: 1px solid #0c66e4 !important;
+        background: #0c66e4 !important;
+        color: #ffffff !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+      }
+      .bjwt-comment-submit-btn:hover {
+        background: #0055cc !important;
+      }
+      .bjwt-comment-submit-btn:disabled {
+        opacity: 0.6 !important;
+        cursor: not-allowed !important;
+      }
+      .bjwt-comment-cancel-btn {
+        padding: 5px 10px !important;
+        border-radius: 5px !important;
+        border: 1px solid var(--ds-border, #38414a) !important;
+        background: transparent !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+        font-size: 12px !important;
+        cursor: pointer !important;
+      }
+      .bjwt-comment-cancel-btn:hover {
+        background: rgba(255, 255, 255, 0.08) !important;
+        color: var(--ds-text, #ffffff) !important;
+      }
+      .bjwt-comment-edit-btn {
+        margin-left: auto !important;
+        padding: 2px 8px !important;
+        border-radius: 4px !important;
+        border: 1px solid var(--ds-border, #38414a) !important;
+        background: transparent !important;
+        color: var(--ds-text-subtle, #9fadbc) !important;
+        font-size: 11px !important;
+        cursor: pointer !important;
+      }
+      .bjwt-comment-edit-btn:hover {
+        background: rgba(255, 255, 255, 0.08) !important;
+        color: var(--ds-text, #ffffff) !important;
+      }
+      .bjwt-comment-empty {
+        font-size: 12px !important;
+        color: var(--ds-text-subtle, #8c9bab) !important;
+        padding: 6px 2px !important;
+      }
       .bjwt-subtask-list {
         display: flex !important;
         flex-direction: column !important;
