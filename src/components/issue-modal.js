@@ -373,7 +373,7 @@
           <div class="bjwt-detail-section">
             <div class="bjwt-detail-section-title">
               說明
-              <span class="bjwt-edit-only bjwt-edit-tip">(支援純文字與 Markdown)</span>
+              <span class="bjwt-edit-only bjwt-edit-tip">(支援 Markdown 語法編輯與預覽)</span>
             </div>
             <div class="bjwt-view-only">
               <div class="bjwt-detail-description-content" id="bjwt-detail-description-body">
@@ -381,12 +381,21 @@
               </div>
             </div>
             <div class="bjwt-edit-only">
+              <div class="bjwt-md-toolbar" id="bjwt-desc-md-toolbar">
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="bold" title="粗體 (**文字**)"><strong>B</strong></button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="italic" title="斜體 (*文字*)"><em>I</em></button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="code" title="行內程式碼 (&#96;code&#96;)">&lt;/&gt;</button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="list" title="項目清單 (- 項目)">• 清單</button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="link" title="超連結 ([標題](網址))">🔗 連結</button>
+                <button type="button" class="bjwt-md-preview-toggle" data-md-action="preview" title="切換 Markdown 預覽">👁 預覽</button>
+              </div>
               <textarea
                 class="bjwt-edit-desc-textarea"
                 id="bjwt-edit-desc-field"
                 rows="12"
-                placeholder="請輸入工作項目詳細說明..."
+                placeholder="請輸入工作項目詳細說明 (支援 Markdown：# 標題、**粗體**、*斜體*、&#96;程式碼&#96;、- 清單、[連結](url))..."
               ></textarea>
+              <div class="bjwt-md-preview-box bjwt-detail-description-content" id="bjwt-edit-desc-preview" style="display: none;"></div>
             </div>
           </div>
 
@@ -395,19 +404,39 @@
             <div class="bjwt-subtask-list" id="bjwt-detail-subtasks-list"></div>
           </div>
 
+          <div class="bjwt-detail-section" id="bjwt-detail-attachments-container" style="display: none;">
+            <div class="bjwt-detail-section-title">
+              附件 (<span id="bjwt-detail-attachments-count">0</span>)
+              <label class="bjwt-attachment-upload-btn bjwt-edit-only" for="bjwt-attachment-file-input" title="上傳新附件至此卡片">
+                + 上傳附件
+                <input type="file" id="bjwt-attachment-file-input" multiple style="display: none;" />
+              </label>
+            </div>
+            <div class="bjwt-attachment-list" id="bjwt-detail-attachments-list"></div>
+          </div>
+
           <div class="bjwt-detail-section" id="bjwt-detail-comments-container" style="display: none;">
             <div class="bjwt-detail-section-title">
               活動與留言 (<span id="bjwt-detail-comments-count">0</span>)
-              <span class="bjwt-edit-only bjwt-edit-tip">(編輯模式下可新增或修改留言)</span>
+              <span class="bjwt-edit-only bjwt-edit-tip">(編輯模式下支援 Markdown 新增、編輯與刪除留言)</span>
             </div>
             <div class="bjwt-comment-list" id="bjwt-detail-comments-list"></div>
             <div class="bjwt-comment-add-box bjwt-edit-only" id="bjwt-comment-add-box">
+              <div class="bjwt-md-toolbar" id="bjwt-comment-md-toolbar">
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="bold" title="粗體 (**文字**)"><strong>B</strong></button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="italic" title="斜體 (*文字*)"><em>I</em></button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="code" title="行內程式碼 (&#96;code&#96;)">&lt;/&gt;</button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="list" title="項目清單 (- 項目)">• 清單</button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="link" title="超連結 ([標題](網址))">🔗 連結</button>
+                <button type="button" class="bjwt-md-preview-toggle" data-md-action="preview" title="切換 Markdown 預覽">👁 預覽</button>
+              </div>
               <textarea
                 class="bjwt-comment-textarea"
                 id="bjwt-add-comment-field"
                 rows="3"
-                placeholder="輸入新留言..."
+                placeholder="輸入新留言 (支援 Markdown 語法)..."
               ></textarea>
+              <div class="bjwt-md-preview-box bjwt-comment-body" id="bjwt-add-comment-preview" style="display: none;"></div>
               <div class="bjwt-comment-actions">
                 <button type="button" class="bjwt-comment-submit-btn" id="bjwt-add-comment-btn">新增留言</button>
               </div>
@@ -527,6 +556,7 @@
     let currentRawPoints = initialPoints !== '-' ? initialPoints : '';
     let currentStatusName = initialStatusName;
     let currentComments = [];
+    let currentAttachments = [];
     const renderedCommentsMap = new Map();
 
     const editBtn = modalEl.querySelector('.bjwt-history-modal-edit-btn');
@@ -535,6 +565,7 @@
     const msgBanner = modalEl.querySelector('#bjwt-modal-msg-banner');
     const addCommentField = modalEl.querySelector('#bjwt-add-comment-field');
     const addCommentBtn = modalEl.querySelector('#bjwt-add-comment-btn');
+    const attachmentInput = modalEl.querySelector('#bjwt-attachment-file-input');
 
     function showModalBanner(type, text, autoHideMs = 0) {
       if (!msgBanner) return;
@@ -554,6 +585,172 @@
         }, autoHideMs);
       }
     }
+
+    function formatFileSize(bytes) {
+      const size = Number(bytes);
+      if (!size || isNaN(size) || size < 0) return '';
+      if (size < 1024) return `${size} B`;
+      if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+      return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function getAttachmentTypeBadge(att) {
+      const mime = String((att && att.mimeType) || '').toLowerCase();
+      const name = String((att && att.filename) || '').toLowerCase();
+      if (mime.includes('pdf') || name.endsWith('.pdf')) return 'PDF';
+      if (mime.includes('zip') || mime.includes('compressed') || /\.(zip|rar|7z|tar|gz)$/.test(name)) return 'ZIP';
+      if (mime.includes('sheet') || mime.includes('excel') || /\.(xlsx?|csv)$/.test(name)) return 'XLS';
+      if (mime.includes('word') || /\.(docx?|rtf)$/.test(name)) return 'DOC';
+      if (mime.includes('text') || /\.(txt|md|log|json|xml)$/.test(name)) return 'TXT';
+      return 'FILE';
+    }
+
+    function renderAttachmentsList() {
+      const attContainer = modalEl.querySelector('#bjwt-detail-attachments-container');
+      const attList = modalEl.querySelector('#bjwt-detail-attachments-list');
+      const attCount = modalEl.querySelector('#bjwt-detail-attachments-count');
+      const isEditMode = modalEl.hasAttribute('data-bjwt-edit-mode');
+
+      if (attCount) attCount.textContent = String(currentAttachments.length);
+      if (attContainer) {
+        attContainer.style.display = currentAttachments.length > 0 || isEditMode ? 'block' : 'none';
+      }
+      if (!attList) return;
+
+      if (currentAttachments.length === 0) {
+        attList.innerHTML = isEditMode
+          ? '<div class="bjwt-comment-empty">目前尚無附件，可點擊上方「+ 上傳附件」新增。</div>'
+          : '';
+        return;
+      }
+
+      attList.innerHTML = currentAttachments
+        .map((att) => {
+          const filename = att.filename || '未命名附件';
+          const downloadUrl = att.content || '#';
+          const thumbUrl = att.thumbnail || '';
+          const mime = String(att.mimeType || '').toLowerCase();
+          const isImage = mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(filename);
+          const sizeStr = formatFileSize(att.size);
+          const dateStr = att.created ? formatShortDateTime(att.created) : '';
+          const metaText = [sizeStr, dateStr].filter(Boolean).join(' · ');
+          const badgeLabel = getAttachmentTypeBadge(att);
+
+          const previewHtml =
+            thumbUrl || (isImage && downloadUrl !== '#')
+              ? `<img class="bjwt-attachment-thumb" src="${escapeHtml(thumbUrl || downloadUrl)}" alt="${escapeHtml(filename)}" />`
+              : `<span class="bjwt-attachment-badge">${escapeHtml(badgeLabel)}</span>`;
+
+          return `
+            <a
+              class="bjwt-attachment-item"
+              href="${escapeHtml(downloadUrl)}"
+              download="${escapeHtml(filename)}"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-bjwt-attachment-id="${escapeHtml(String(att.id || ''))}"
+              title="點擊下載 ${escapeHtml(filename)}"
+            >
+              <div class="bjwt-attachment-preview">${previewHtml}</div>
+              <div class="bjwt-attachment-info">
+                <div class="bjwt-attachment-name">${escapeHtml(filename)}</div>
+                ${metaText ? `<div class="bjwt-attachment-meta">${escapeHtml(metaText)}</div>` : ''}
+              </div>
+              <span class="bjwt-attachment-download-label">⬇ 下載</span>
+            </a>
+          `;
+        })
+        .join('');
+    }
+
+    if (attachmentInput) {
+      attachmentInput.addEventListener('change', async () => {
+        const files = attachmentInput.files ? Array.from(attachmentInput.files) : [];
+        if (files.length === 0) return;
+        for (const file of files) {
+          try {
+            const res = await JiraApiService.addIssueAttachment(issueKey, file);
+            if (!res || !res.success) {
+              throw new Error((res && res.error) || '附件上傳失敗');
+            }
+            if (Array.isArray(res.attachments) && res.attachments.length > 0) {
+              currentAttachments.push(...res.attachments);
+            }
+            renderAttachmentsList();
+            showModalBanner('success', `✓ 附件「${file.name}」上傳成功！`, 3000);
+          } catch (err) {
+            showModalBanner('error', `附件「${file.name}」上傳失敗：${err && err.message ? err.message : '未知錯誤'}`);
+          }
+        }
+        attachmentInput.value = '';
+      });
+    }
+
+    function bindMarkdownEditorToolbar(toolbarEl, textareaEl, previewEl) {
+      if (!toolbarEl || !textareaEl) return;
+      const previewBtn = toolbarEl.querySelector('[data-md-action="preview"]');
+
+      const applySnippet = (action) => {
+        const val = textareaEl.value || '';
+        const start = typeof textareaEl.selectionStart === 'number' ? textareaEl.selectionStart : val.length;
+        const end = typeof textareaEl.selectionEnd === 'number' ? textareaEl.selectionEnd : val.length;
+        const selected = val.slice(start, end);
+        let replacement = '';
+
+        if (action === 'bold') replacement = `**${selected || '粗體文字'}**`;
+        else if (action === 'italic') replacement = `*${selected || '斜體文字'}*`;
+        else if (action === 'code') replacement = `\`${selected || '程式碼'}\``;
+        else if (action === 'list') replacement = `${start > 0 && val[start - 1] !== '\n' ? '\n' : ''}- ${selected || '清單項目'}`;
+        else if (action === 'link') replacement = `[${selected || '連結文字'}](https://)`;
+
+        textareaEl.value = val.slice(0, start) + replacement + val.slice(end);
+        textareaEl.focus();
+      };
+
+      toolbarEl.querySelectorAll('.bjwt-md-tool-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const action = btn.getAttribute('data-md-action');
+          if (previewEl && previewEl.style.display === 'block') {
+            previewEl.style.display = 'none';
+            textareaEl.style.display = 'block';
+            if (previewBtn) previewBtn.textContent = '👁 預覽';
+          }
+          applySnippet(action);
+        });
+      });
+
+      if (previewBtn && previewEl) {
+        previewBtn.addEventListener('click', () => {
+          const showingPreview = previewEl.style.display === 'block';
+          if (showingPreview) {
+            previewEl.style.display = 'none';
+            textareaEl.style.display = 'block';
+            previewBtn.textContent = '👁 預覽';
+            previewBtn.classList.remove('is-active');
+          } else {
+            const mdText = textareaEl.value || '';
+            previewEl.innerHTML = mdText.trim()
+              ? AdfParser.markdownToHtml(mdText)
+              : '<div class="bjwt-detail-empty-desc">尚無內容可預覽</div>';
+            textareaEl.style.display = 'none';
+            previewEl.style.display = 'block';
+            previewBtn.textContent = '✎ 繼續編輯';
+            previewBtn.classList.add('is-active');
+          }
+        });
+      }
+    }
+
+    bindMarkdownEditorToolbar(
+      modalEl.querySelector('#bjwt-desc-md-toolbar'),
+      modalEl.querySelector('#bjwt-edit-desc-field'),
+      modalEl.querySelector('#bjwt-edit-desc-preview')
+    );
+    bindMarkdownEditorToolbar(
+      modalEl.querySelector('#bjwt-comment-md-toolbar'),
+      addCommentField,
+      modalEl.querySelector('#bjwt-add-comment-preview')
+    );
 
     function getCommentPlainText(comm) {
       if (!comm) return '';
@@ -612,13 +809,16 @@
                 <span class="bjwt-comment-date">${escapeHtml(dateStr)}${isEdited ? ' (已編輯)' : ''}</span>
                 ${
                   commId
-                    ? `<button type="button" class="bjwt-comment-edit-btn bjwt-edit-only" data-bjwt-comment-edit-id="${escapeHtml(commId)}">編輯</button>`
+                    ? `<div class="bjwt-comment-header-actions bjwt-edit-only">
+                        <button type="button" class="bjwt-comment-edit-btn" data-bjwt-comment-edit-id="${escapeHtml(commId)}">編輯</button>
+                        <button type="button" class="bjwt-comment-delete-btn" data-bjwt-comment-delete-id="${escapeHtml(commId)}">刪除</button>
+                      </div>`
                     : ''
                 }
               </div>
               <div class="bjwt-comment-body">${bodyHtml}</div>
               <div class="bjwt-comment-edit-box" style="display: none;">
-                <textarea class="bjwt-comment-textarea bjwt-comment-edit-textarea" rows="3">${escapeHtml(rawText)}</textarea>
+                <textarea class="bjwt-comment-textarea bjwt-comment-edit-textarea" rows="3" placeholder="支援 Markdown 語法...">${escapeHtml(rawText)}</textarea>
                 <div class="bjwt-comment-actions">
                   <button type="button" class="bjwt-comment-submit-btn bjwt-comment-edit-save-btn">儲存留言</button>
                   <button type="button" class="bjwt-comment-cancel-btn bjwt-comment-edit-cancel-btn">取消</button>
@@ -632,6 +832,7 @@
       commentsList.querySelectorAll('.bjwt-comment-item').forEach((itemEl) => {
         const commId = itemEl.getAttribute('data-bjwt-comment-id');
         const editCommBtn = itemEl.querySelector('.bjwt-comment-edit-btn');
+        const deleteCommBtn = itemEl.querySelector('.bjwt-comment-delete-btn');
         const bodyEl = itemEl.querySelector('.bjwt-comment-body');
         const editBoxEl = itemEl.querySelector('.bjwt-comment-edit-box');
         const editTextarea = itemEl.querySelector('.bjwt-comment-edit-textarea');
@@ -648,6 +849,33 @@
             bodyEl.style.display = 'none';
             editBoxEl.style.display = 'block';
             if (editTextarea) editTextarea.focus();
+          });
+        }
+
+        if (deleteCommBtn) {
+          deleteCommBtn.addEventListener('click', async () => {
+            const confirmed =
+              typeof window !== 'undefined' && typeof window.confirm === 'function'
+                ? window.confirm('確定要刪除此則留言嗎？')
+                : true;
+            if (!confirmed) return;
+
+            deleteCommBtn.disabled = true;
+            deleteCommBtn.textContent = '刪除中...';
+            try {
+              const delRes = await JiraApiService.deleteIssueComment(issueKey, commId);
+              if (!delRes || !delRes.success) {
+                throw new Error((delRes && delRes.error) || '刪除留言失敗');
+              }
+              currentComments = currentComments.filter((c) => String(c.id || '') !== commId);
+              renderedCommentsMap.delete(String(commId));
+              renderCommentsList();
+              showModalBanner('success', '✓ 留言已成功刪除！', 3000);
+            } catch (err) {
+              showModalBanner('error', `刪除留言失敗：${err && err.message ? err.message : '未知錯誤'}`);
+              deleteCommBtn.disabled = false;
+              deleteCommBtn.textContent = '刪除';
+            }
           });
         }
 
@@ -754,20 +982,37 @@
     }
 
     function setEditMode(active) {
+      const descPreview = modalEl.querySelector('#bjwt-edit-desc-preview');
+      const descTextarea = modalEl.querySelector('#bjwt-edit-desc-field');
+      const commentPreview = modalEl.querySelector('#bjwt-add-comment-preview');
+      if (descPreview && descTextarea) {
+        descPreview.style.display = 'none';
+        descTextarea.style.display = 'block';
+      }
+      if (commentPreview && addCommentField) {
+        commentPreview.style.display = 'none';
+        addCommentField.style.display = 'block';
+      }
+      modalEl.querySelectorAll('.bjwt-md-preview-toggle').forEach((btn) => {
+        btn.textContent = '👁 預覽';
+        btn.classList.remove('is-active');
+      });
+
       if (active) {
         modalEl.setAttribute('data-bjwt-edit-mode', 'true');
         const summaryInput = modalEl.querySelector('#bjwt-edit-summary-field');
-        const descTextarea = modalEl.querySelector('#bjwt-edit-desc-field');
         const pointsInput = modalEl.querySelector('#bjwt-edit-points-field');
         if (summaryInput) summaryInput.value = currentRawSummary;
         if (descTextarea) descTextarea.value = currentRawDesc;
         if (pointsInput) pointsInput.value = currentRawPoints !== null && currentRawPoints !== undefined && currentRawPoints !== '-' ? currentRawPoints : '';
+        renderAttachmentsList();
         renderCommentsList();
         if (summaryInput) summaryInput.focus();
       } else {
         modalEl.removeAttribute('data-bjwt-edit-mode');
         if (addCommentField) addCommentField.value = '';
         if (msgBanner) msgBanner.style.display = 'none';
+        renderAttachmentsList();
         renderCommentsList();
       }
     }
@@ -1039,6 +1284,10 @@
             }
           });
         }
+
+        // 3.5 附件清單 (檢視與編輯模式皆顯示並提供點擊下載)
+        currentAttachments = Array.isArray(fields.attachment) ? [...fields.attachment] : [];
+        renderAttachmentsList();
 
         // 4. 留言清單 (使用 renderedCommentsMap 避免雙重 escapeHtml 造成顯示 HTML 原始碼)
         renderedCommentsMap.clear();

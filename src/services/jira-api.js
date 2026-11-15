@@ -1777,12 +1777,15 @@
   }
 
   /**
-   * 將純文字轉換為 Jira v3 API 所需的 Atlassian Document Format (ADF) 結構
+   * 將純文字或 Markdown 轉換為 Jira v3 API 所需的 Atlassian Document Format (ADF) 結構
    *
-   * @param {string} text - 純文字內容
+   * @param {string} text - 純文字或 Markdown 內容
    * @returns {Object} ADF document 物件
    */
   function plainTextToAdf(text) {
+    if (BetterJira.AdfParser && typeof BetterJira.AdfParser.markdownToAdf === 'function') {
+      return BetterJira.AdfParser.markdownToAdf(text);
+    }
     const lines = String(text || '').split('\n');
     const content = lines.map((line) => ({
       type: 'paragraph',
@@ -1796,49 +1799,71 @@
   }
 
   /**
+   * 解析 Jira API 錯誤回應文字
+   *
+   * @param {Response} res - Fetch Response 物件
+   * @param {string} fallbackMsg - 預設錯誤訊息
+   * @returns {Promise<string>}
+   */
+  async function parseJiraErrorMessage(res, fallbackMsg) {
+    const errJson = await res.json().catch(() => null);
+    if (errJson) {
+      if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
+        return errJson.errorMessages.join(', ');
+      }
+      if (errJson.errors && typeof errJson.errors === 'object') {
+        const entries = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`);
+        if (entries.length > 0) return entries.join(', ');
+      }
+    }
+    return fallbackMsg || `HTTP ${res.status}`;
+  }
+
+  /**
    * 共用留言 API 請求輔助函式：優先嘗試 REST API v2 (支援純文字/Wiki 語法)，若遇到格式不相容則自動回退至 v3 ADF 格式
    *
-   * @param {string} method - HTTP 方法 ('POST' | 'PUT')
+   * @param {string} method - HTTP 方法 ('POST' | 'PUT' | 'DELETE')
    * @param {string} issuePath - 留言端點相對路徑 (例如 'issue/WMC-1/comment')
-   * @param {string} bodyText - 留言文字內容
+   * @param {string|null} [bodyText=null] - 留言文字內容 (DELETE 時可為 null)
    * @returns {Promise<{success: boolean, comment?: Object|null, error?: string}>}
    */
-  async function sendCommentRequest(method, issuePath, bodyText) {
-    const attempts = [
-      { url: `${window.location.origin}/rest/api/2/${issuePath}`, payload: { body: bodyText } },
-      { url: `${window.location.origin}/rest/api/3/${issuePath}`, payload: { body: plainTextToAdf(bodyText) } }
-    ];
+  async function sendCommentRequest(method, issuePath, bodyText = null) {
+    const isDelete = method === 'DELETE';
+    const attempts = isDelete
+      ? [
+          { url: `${window.location.origin}/rest/api/2/${issuePath}`, payload: null },
+          { url: `${window.location.origin}/rest/api/3/${issuePath}`, payload: null }
+        ]
+      : [
+          { url: `${window.location.origin}/rest/api/2/${issuePath}`, payload: { body: bodyText } },
+          { url: `${window.location.origin}/rest/api/3/${issuePath}`, payload: { body: plainTextToAdf(bodyText) } }
+        ];
 
-    let lastError = '留言送出失敗';
+    let lastError = isDelete ? '留言刪除失敗' : '留言送出失敗';
     for (let i = 0; i < attempts.length; i += 1) {
       const { url, payload } = attempts[i];
       try {
-        const res = await fetch(url, {
+        const fetchOpts = {
           method,
           credentials: 'include',
           headers: {
-            'Content-Type': 'application/json',
             Accept: 'application/json',
             'X-Atlassian-Token': 'no-check'
-          },
-          body: JSON.stringify(payload)
-        });
+          }
+        };
+        if (payload !== null) {
+          fetchOpts.headers['Content-Type'] = 'application/json';
+          fetchOpts.body = JSON.stringify(payload);
+        }
 
-        if (res.ok) {
-          const comment = await res.json().catch(() => null);
+        const res = await fetch(url, fetchOpts);
+
+        if (res.ok || res.status === 204) {
+          const comment = res.status === 204 ? null : await res.json().catch(() => null);
           return { success: true, comment };
         }
 
-        const errJson = await res.json().catch(() => null);
-        if (errJson) {
-          if (Array.isArray(errJson.errorMessages) && errJson.errorMessages.length > 0) {
-            lastError = errJson.errorMessages.join(', ');
-          } else if (errJson.errors && typeof errJson.errors === 'object') {
-            lastError = Object.entries(errJson.errors).map(([k, v]) => `${k}: ${v}`).join(', ');
-          }
-        } else {
-          lastError = `HTTP ${res.status}`;
-        }
+        lastError = await parseJiraErrorMessage(res, `HTTP ${res.status}`);
 
         // 僅在格式/端點不支援時回退至下一個版本，權限或驗證錯誤不重試
         if (res.status !== 400 && res.status !== 404 && res.status !== 415) {
@@ -1886,6 +1911,61 @@
     );
   }
 
+  /**
+   * 刪除指定卡片留言
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string|number} commentId - 留言 ID
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async function deleteIssueComment(issueKey, commentId) {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+    if (!commentId) return { success: false, error: '缺少 commentId' };
+    return sendCommentRequest(
+      'DELETE',
+      `issue/${encodeURIComponent(issueKey)}/comment/${encodeURIComponent(commentId)}`,
+      null
+    );
+  }
+
+  /**
+   * 上傳附件至指定 Jira 卡片
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {File} file - 欲上傳之檔案物件
+   * @returns {Promise<{success: boolean, attachments?: Array<Object>, error?: string}>}
+   */
+  async function addIssueAttachment(issueKey, file) {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+    if (!file) return { success: false, error: '缺少檔案' };
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch(
+        `${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}/attachments`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'X-Atlassian-Token': 'no-check'
+          },
+          body: formData
+        }
+      );
+
+      if (res.ok) {
+        const attachments = await res.json().catch(() => []);
+        return { success: true, attachments: Array.isArray(attachments) ? attachments : [] };
+      }
+      const errMsg = await parseJiraErrorMessage(res, `HTTP ${res.status}`);
+      return { success: false, error: errMsg };
+    } catch (e) {
+      return { success: false, error: e && e.message ? e.message : '附件上傳網路錯誤' };
+    }
+  }
+
   BetterJira.JiraApiService = {
     detectJiraContext,
     detectStoryPointsCustomField,
@@ -1914,6 +1994,8 @@
     createIssueInSprint,
     addIssueComment,
     updateIssueComment,
+    deleteIssueComment,
+    addIssueAttachment,
     syncExtensionIcon
   };
 })();
