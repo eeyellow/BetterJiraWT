@@ -3414,6 +3414,170 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     console.log('✓ 卡片編輯模式下新增與編輯留言檢查通過！');
   }
 
+  console.log('--- 測試 30: 留言刪除、Markdown 編輯與呈現、附件清單顯示與下載檢查 ---');
+  {
+    const { AdfParser, JiraApiService, IssueModalComponent } = BetterJira;
+
+    // 1. 測試 Markdown 轉換 (markdownToHtml, markdownToAdf, adfToPlainText)
+    assert.strictEqual(typeof AdfParser.markdownToHtml, 'function', 'AdfParser 應匯出 markdownToHtml');
+    assert.strictEqual(typeof AdfParser.markdownToAdf, 'function', 'AdfParser 應匯出 markdownToAdf');
+
+    const mdSample = '# 標題一\n\n這是 **粗體** 與 *斜體* 及 `inline_code`\n\n- 項目 A\n- [文件連結](https://example.com)\n\n```js\nconst a = 1;\n```';
+    const mdHtml = AdfParser.markdownToHtml(mdSample);
+    assert(mdHtml.includes('<h1>標題一</h1>'), 'Markdown 標題應正確轉為 h1');
+    assert(mdHtml.includes('<strong>粗體</strong>'), 'Markdown 粗體應正確轉為 strong');
+    assert(mdHtml.includes('<em>斜體</em>'), 'Markdown 斜體應正確轉為 em');
+    assert(mdHtml.includes('<code>inline_code</code>'), 'Markdown 行內程式碼應正確轉為 code');
+    assert(mdHtml.includes('<ul><li>項目 A</li>'), 'Markdown 清單應正確轉為 ul/li');
+    assert(mdHtml.includes('<a href="https://example.com"'), 'Markdown 連結應正確轉為 a');
+    assert(mdHtml.includes('<pre><code class="language-js">const a = 1;</code></pre>'), 'Markdown 程式碼區塊應正確轉為 pre/code');
+
+    const adfDoc = AdfParser.markdownToAdf('## 副標\n**重點**\n- 條目');
+    assert.strictEqual(adfDoc.type, 'doc', 'markdownToAdf 應回傳 ADF doc');
+    assert(adfDoc.content.some((n) => n.type === 'heading' && n.attrs.level === 2), 'ADF 應包含 heading level 2');
+    assert(adfDoc.content.some((n) => n.type === 'bulletList'), 'ADF 應包含 bulletList');
+
+    const roundTripMd = AdfParser.adfToPlainText(adfDoc);
+    assert(roundTripMd.includes('## 副標') && roundTripMd.includes('**重點**') && roundTripMd.includes('- 條目'), 'adfToPlainText 應保留 Markdown 語法以便編輯');
+
+    // 2. 測試 JiraApiService.deleteIssueComment
+    assert.strictEqual(typeof JiraApiService.deleteIssueComment, 'function', 'JiraApiService 應匯出 deleteIssueComment');
+    assert.strictEqual(typeof JiraApiService.addIssueAttachment, 'function', 'JiraApiService 應匯出 addIssueAttachment');
+
+    const origFetch = global.fetch;
+    const origGetElementById = global.document.getElementById;
+    const origDocBody = global.document.body;
+    const origConfirm = global.window.confirm;
+    global.window.confirm = () => true;
+    global.document.body = new MockElement('body');
+    global.document.getElementById = (id) => {
+      for (const child of global.document.body.children) {
+        if (child.id === id) return child;
+      }
+      return null;
+    };
+
+    const apiCalls = [];
+    global.fetch = async (url, opts) => {
+      const method = (opts && opts.method) || 'GET';
+      apiCalls.push({ url, method });
+      if (url.includes('/rest/api/2/issue/WMC-777?expand=renderedFields')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            key: 'WMC-777',
+            fields: {
+              summary: '附件與 Markdown 測試卡片',
+              description: '# 說明標題\n**重點內容**',
+              status: { name: 'To Do', statusCategory: { key: 'new' } },
+              attachment: [
+                {
+                  id: '501',
+                  filename: 'design-spec.pdf',
+                  size: 204800,
+                  mimeType: 'application/pdf',
+                  created: '2026-11-13T09:00:00.000+0800',
+                  content: 'https://jira.example.com/rest/api/2/attachment/content/501'
+                },
+                {
+                  id: '502',
+                  filename: 'screenshot.png',
+                  size: 51200,
+                  mimeType: 'image/png',
+                  created: '2026-11-13T09:05:00.000+0800',
+                  thumbnail: 'https://jira.example.com/rest/api/2/attachment/thumbnail/502',
+                  content: 'https://jira.example.com/rest/api/2/attachment/content/502'
+                }
+              ],
+              comment: {
+                comments: [
+                  {
+                    id: '201',
+                    body: '**待刪除留言** 與 `code`',
+                    created: '2026-11-13T10:00:00.000+0800',
+                    author: { displayName: 'Alice' }
+                  }
+                ]
+              }
+            },
+            renderedFields: {}
+          })
+        };
+      }
+      if (url.includes('/transitions')) {
+        return { ok: true, status: 200, json: async () => ({ transitions: [] }) };
+      }
+      if (url.includes('/rest/api/2/issue/WMC-777/comment/201') && method === 'DELETE') {
+        return { ok: true, status: 204, json: async () => null };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    IssueModalComponent.openHistoricalIssueDetailModal('WMC-777', {
+      key: 'WMC-777',
+      summary: '附件與 Markdown 測試卡片',
+      statusName: 'To Do',
+      statusCategory: 'new'
+    });
+
+    const modalEl = global.document.getElementById(BetterJira.Constants.HISTORY_ISSUE_MODAL_ID);
+    assert(modalEl, '應成功開啟卡片 Modal');
+    modalEl.isConnected = true;
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    // 3. 驗證檢視模式下的 Markdown 呈現與附件清單顯示及下載連結
+    const descBody = modalEl.querySelector('#bjwt-detail-description-body');
+    assert(descBody.innerHTML.includes('<h1>說明標題</h1>') && descBody.innerHTML.includes('<strong>重點內容</strong>'), '檢視模式說明應渲染 Markdown HTML');
+
+    const attContainer = modalEl.querySelector('#bjwt-detail-attachments-container');
+    assert.strictEqual(attContainer.style.display, 'block', '檢視模式下有附件時應顯示附件區塊');
+    assert.strictEqual(modalEl.querySelector('#bjwt-detail-attachments-count').textContent, '2', '附件數量應為 2');
+
+    const attItems = modalEl.querySelectorAll('.bjwt-attachment-item');
+    assert.strictEqual(attItems.length, 2, '應渲染出 2 個可點擊下載的附件項目');
+    assert.strictEqual(attItems[0].getAttribute('href'), 'https://jira.example.com/rest/api/2/attachment/content/501', 'PDF 附件應具有正確下載 href');
+    assert.strictEqual(attItems[0].getAttribute('download'), 'design-spec.pdf', 'PDF 附件應具有 download 屬性');
+    assert(attItems[0].textContent.includes('design-spec.pdf') && attItems[0].textContent.includes('200.0 KB'), '附件項目應顯示檔名與格式化大小');
+
+    // 4. 進入編輯模式：驗證附件依然可見、Markdown 預覽與留言刪除功能
+    const editBtn = modalEl.querySelector('.bjwt-history-modal-edit-btn');
+    await editBtn.dispatchEvent({ type: 'click' });
+    assert.strictEqual(attContainer.style.display, 'block', '編輯模式下也應繼續顯示附件區塊');
+
+    const descToolbarEl = modalEl.querySelector('#bjwt-desc-md-toolbar');
+    const descPreviewToggle = descToolbarEl ? descToolbarEl.querySelector('[data-md-action="preview"]') : null;
+    const descPreviewBox = modalEl.querySelector('#bjwt-edit-desc-preview');
+    assert(descPreviewToggle && descPreviewBox, '編輯說明區應包含 Markdown 預覽按鈕與預覽框');
+    await descPreviewToggle.dispatchEvent({ type: 'click' });
+    assert.strictEqual(descPreviewBox.style.display, 'block', '點擊預覽應顯示 Markdown 預覽框');
+    assert(descPreviewBox.innerHTML.includes('<h1>說明標題</h1>'), '預覽框應即時渲染 Markdown HTML');
+
+    const delCommentBtn = modalEl.querySelector('.bjwt-comment-delete-btn');
+    assert(delCommentBtn, '編輯模式下既有留言應顯示刪除按鈕');
+    await delCommentBtn.dispatchEvent({ type: 'click' });
+    assert(apiCalls.some((c) => c.method === 'DELETE' && c.url.includes('/comment/201')), '點擊刪除應發送 DELETE API 請求刪除留言 201');
+    assert.strictEqual(modalEl.querySelector('#bjwt-detail-comments-count').textContent, '0', '刪除後留言數應更新為 0');
+
+    // 5. 檢查樣式表包含附件與 Markdown 工具列樣式
+    const stylesCssStr = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+    const runtimeStylesStr = fs.readFileSync(path.resolve(__dirname, '..', 'src/components/runtime-styles.js'), 'utf8');
+    [stylesCssStr, runtimeStylesStr].forEach((css) => {
+      assert(css.includes('.bjwt-attachment-item'), '應包含 .bjwt-attachment-item 樣式');
+      assert(css.includes('.bjwt-comment-delete-btn'), '應包含 .bjwt-comment-delete-btn 樣式');
+      assert(css.includes('.bjwt-md-toolbar'), '應包含 .bjwt-md-toolbar 樣式');
+    });
+
+    IssueModalComponent.closeIssueDetailModal(modalEl);
+    global.fetch = origFetch;
+    global.document.getElementById = origGetElementById;
+    global.document.body = origDocBody;
+    global.window.confirm = origConfirm;
+
+    console.log('✓ 留言刪除、Markdown 編輯與呈現、附件清單顯示與下載檢查通過！');
+  }
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');

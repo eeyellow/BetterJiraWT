@@ -2353,8 +2353,14 @@ html[data-betterjira-layout="two-column"] #bjwt-history-issue-modal,
   color: var(--ds-text, #ffffff) !important;
 }
 
-.bjwt-comment-edit-btn {
+.bjwt-comment-header-actions {
   margin-left: auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.bjwt-comment-edit-btn {
   padding: 2px 8px !important;
   border-radius: 4px !important;
   border: 1px solid var(--ds-border, #38414a) !important;
@@ -2369,10 +2375,184 @@ html[data-betterjira-layout="two-column"] #bjwt-history-issue-modal,
   color: var(--ds-text, #ffffff) !important;
 }
 
+.bjwt-comment-delete-btn {
+  padding: 2px 8px !important;
+  border-radius: 4px !important;
+  border: 1px solid rgba(248, 81, 73, 0.45) !important;
+  background: transparent !important;
+  color: #f87171 !important;
+  font-size: 11px !important;
+  cursor: pointer !important;
+}
+
+.bjwt-comment-delete-btn:hover {
+  background: rgba(248, 81, 73, 0.16) !important;
+  color: #fca5a5 !important;
+}
+
+.bjwt-comment-delete-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
 .bjwt-comment-empty {
   font-size: 12px !important;
   color: var(--ds-text-subtle, #8c9bab) !important;
   padding: 6px 2px !important;
+}
+
+/* Markdown 編輯工具列與預覽 */
+.bjwt-md-toolbar {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 4px !important;
+  margin-bottom: 6px !important;
+  padding: 4px 6px !important;
+  border-radius: 6px !important;
+  background: var(--ds-surface-raised, rgba(255, 255, 255, 0.05)) !important;
+  border: 1px solid var(--ds-border, #38414a) !important;
+}
+
+.bjwt-md-tool-btn,
+.bjwt-md-preview-toggle {
+  padding: 2px 8px !important;
+  border-radius: 4px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--ds-text-subtle, #b6c2cf) !important;
+  font-size: 11px !important;
+  cursor: pointer !important;
+}
+
+.bjwt-md-tool-btn:hover,
+.bjwt-md-preview-toggle:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--ds-text, #ffffff) !important;
+}
+
+.bjwt-md-preview-toggle {
+  margin-left: auto !important;
+  border-color: var(--ds-border, #38414a) !important;
+}
+
+.bjwt-md-preview-toggle.is-active {
+  background: rgba(56, 139, 253, 0.2) !important;
+  border-color: #388bfd !important;
+  color: #79c0ff !important;
+}
+
+.bjwt-md-preview-box {
+  padding: 10px 12px !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--ds-border, #38414a) !important;
+  background: var(--ds-surface-sunken, rgba(0, 0, 0, 0.2)) !important;
+  min-height: 72px !important;
+}
+
+.bjwt-md-image {
+  max-width: 100% !important;
+  border-radius: 6px !important;
+  margin: 4px 0 !important;
+}
+
+/* 附件清單與下載 */
+#bjwt-history-issue-modal[data-bjwt-edit-mode="true"] #bjwt-detail-attachments-container {
+  display: block !important;
+}
+
+.bjwt-attachment-upload-btn {
+  margin-left: auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 2px 10px !important;
+  border-radius: 5px !important;
+  border: 1px solid #0c66e4 !important;
+  background: rgba(12, 102, 228, 0.15) !important;
+  color: #579dff !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.bjwt-attachment-upload-btn:hover {
+  background: rgba(12, 102, 228, 0.28) !important;
+}
+
+.bjwt-attachment-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.bjwt-attachment-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 8px 10px !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--ds-border, #38414a) !important;
+  background: var(--ds-surface-raised, rgba(255, 255, 255, 0.04)) !important;
+  text-decoration: none !important;
+  color: var(--ds-text, #dee4ea) !important;
+  transition: background 0.15s ease, border-color 0.15s ease !important;
+}
+
+.bjwt-attachment-item:hover {
+  background: var(--ds-surface-hovered, rgba(255, 255, 255, 0.09)) !important;
+  border-color: #388bfd !important;
+}
+
+.bjwt-attachment-preview {
+  width: 38px !important;
+  height: 38px !important;
+  border-radius: 6px !important;
+  overflow: hidden !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  flex-shrink: 0 !important;
+}
+
+.bjwt-attachment-thumb {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+.bjwt-attachment-badge {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #79c0ff !important;
+  letter-spacing: 0.4px !important;
+}
+
+.bjwt-attachment-info {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.bjwt-attachment-name {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--ds-text, #dee4ea) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.bjwt-attachment-meta {
+  font-size: 11px !important;
+  color: var(--ds-text-subtle, #8c9bab) !important;
+  margin-top: 2px !important;
+}
+
+.bjwt-attachment-download-label {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #579dff !important;
+  flex-shrink: 0 !important;
 }
 
 .bjwt-subtask-list {
