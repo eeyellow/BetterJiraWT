@@ -5,8 +5,13 @@
  */
 
 (() => {
-  const BetterJira = (typeof window !== 'undefined' ? window : global).BetterJira =
-    (typeof window !== 'undefined' ? window : global).BetterJira || {};
+  const rootScope =
+    typeof window !== 'undefined'
+      ? window
+      : typeof global !== 'undefined'
+      ? global
+      : globalThis;
+  const BetterJira = (rootScope.BetterJira = rootScope.BetterJira || {});
 
   /**
    * 判斷 shortStr 是否為 fullStr 的截斷重複合併版 (以 "..." 或 "…" 結尾，且前半段與完整標題一致)

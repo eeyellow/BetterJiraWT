@@ -190,6 +190,18 @@ const BetterJiraDB = (() => {
       await idbSet('enabled', enabled);
     }
 
+    // 確保 chrome.storage.local 與目前設定保持同步 (供 Background Service Worker 讀取)
+    const storageBackfill = {};
+    if (extStorage.backlogUrl === undefined && backlogUrl) {
+      storageBackfill.backlogUrl = backlogUrl;
+    }
+    if (extStorage.enabled === undefined) {
+      storageBackfill.enabled = enabled;
+    }
+    if (Object.keys(storageBackfill).length > 0) {
+      await storageSet(storageBackfill);
+    }
+
     return { backlogUrl, defaultSprint, customAssignees, themeStyle, enabled };
   }
 

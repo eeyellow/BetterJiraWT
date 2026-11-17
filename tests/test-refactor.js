@@ -3578,6 +3578,150 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     console.log('✓ 留言刪除、Markdown 編輯與呈現、附件清單顯示與下載檢查通過！');
   }
 
+  console.log('--- 測試 31: 依網址匹配結果動態切換擴充功能藍/灰 Icon 與 OFF 徽章檢查 ---');
+  {
+    const manifestJson = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, '..', 'manifest.json'), 'utf8')
+    );
+    assert.strictEqual(manifestJson.action.default_icon['16'], 'icons/icon_gray_16.png');
+    assert.strictEqual(manifestJson.action.default_icon['48'], 'icons/icon_gray_48.png');
+    assert.strictEqual(manifestJson.action.default_icon['128'], 'icons/icon_gray_128.png');
+    ['icon_gray_16.png', 'icon_gray_48.png', 'icon_gray_128.png'].forEach((fileName) => {
+      const p = path.resolve(__dirname, '..', 'icons', fileName);
+      assert(fs.existsSync(p) && fs.statSync(p).size > 0, `灰色圖示檔案 ${fileName} 應存在`);
+    });
+
+    const popupSource = fs.readFileSync(path.resolve(__dirname, '..', 'popup.js'), 'utf8');
+    assert(
+      !/chrome\.action\.setIcon/.test(popupSource),
+      'popup.js 不應直接呼叫全域 chrome.action.setIcon 覆蓋分頁個別圖示'
+    );
+
+    const origChrome = global.chrome;
+    const actionState = new Map();
+    const listeners = {
+      onInstalled: [],
+      onStartup: [],
+      onMessage: [],
+      storageChanged: [],
+      tabsUpdated: [],
+      tabsActivated: [],
+      windowFocusChanged: []
+    };
+    const mockTabs = [
+      { id: 101, url: 'https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog' },
+      { id: 102, url: 'https://www.google.com/' }
+    ];
+    const mockStorage = { enabled: true, backlogUrl: '' };
+
+    function ensureTabState(tabId) {
+      if (!actionState.has(tabId)) {
+        actionState.set(tabId, { path: null, badge: null, title: null });
+      }
+      return actionState.get(tabId);
+    }
+
+    global.chrome = {
+      runtime: {
+        lastError: null,
+        onInstalled: { addListener: (fn) => listeners.onInstalled.push(fn) },
+        onStartup: { addListener: (fn) => listeners.onStartup.push(fn) },
+        onMessage: { addListener: (fn) => listeners.onMessage.push(fn) }
+      },
+      storage: {
+        local: {
+          get: (_keys, cb) => cb({ ...mockStorage }),
+          set: (obj, cb) => {
+            Object.assign(mockStorage, obj);
+            if (cb) cb();
+          }
+        },
+        onChanged: { addListener: (fn) => listeners.storageChanged.push(fn) }
+      },
+      tabs: {
+        query: (_q, cb) => cb([...mockTabs]),
+        get: (id, cb) => cb(mockTabs.find((t) => t.id === id) || null),
+        onUpdated: { addListener: (fn) => listeners.tabsUpdated.push(fn) },
+        onActivated: { addListener: (fn) => listeners.tabsActivated.push(fn) }
+      },
+      windows: {
+        WINDOW_ID_NONE: -1,
+        onFocusChanged: { addListener: (fn) => listeners.windowFocusChanged.push(fn) }
+      },
+      action: {
+        setIcon: ({ tabId, path }, cb) => {
+          ensureTabState(tabId).path = path;
+          if (cb) cb();
+        },
+        setBadgeText: ({ tabId, text }, cb) => {
+          ensureTabState(tabId).badge = text;
+          if (cb) cb();
+        },
+        setBadgeBackgroundColor: (_opts, cb) => {
+          if (cb) cb();
+        },
+        setTitle: ({ tabId, title }, cb) => {
+          ensureTabState(tabId).title = title;
+          if (cb) cb();
+        }
+      }
+    };
+
+    const bg = require(path.resolve(__dirname, '..', 'background.js'));
+
+    // 情境 1: backlogUrl 尚未設定（空值）時，所有分頁皆應顯示灰色圖示且無 OFF 徽章
+    await bg.syncIconFromStorage();
+    assert.deepStrictEqual(actionState.get(101).path, bg.GRAY_ICON, '未設定 backlogUrl 時 Jira 分頁應為灰色');
+    assert.strictEqual(actionState.get(101).badge, '');
+    assert.deepStrictEqual(actionState.get(102).path, bg.GRAY_ICON, '未設定 backlogUrl 時其他分頁應為灰色');
+    assert.strictEqual(actionState.get(102).badge, '');
+
+    // 情境 2: 設定 backlogUrl 且啟用中，符合網址顯示藍色、不符合顯示灰色
+    mockStorage.backlogUrl = 'https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog';
+    mockStorage.enabled = true;
+    listeners.storageChanged.forEach((fn) => fn({ backlogUrl: { newValue: mockStorage.backlogUrl } }, 'local'));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepStrictEqual(actionState.get(101).path, bg.BLUE_ICON, '網址符合且啟用時應顯示藍色圖示');
+    assert.strictEqual(actionState.get(101).badge, '', '網址符合且啟用時不應顯示 OFF 徽章');
+    assert.deepStrictEqual(actionState.get(102).path, bg.GRAY_ICON, '網址不符合時應顯示灰色圖示');
+    assert.strictEqual(actionState.get(102).badge, '', '網址不符合時不應顯示 OFF 徽章');
+
+    // 情境 3: 在網址相符的頁面關閉擴充功能時，應顯示藍色圖示 + OFF 徽章；未相符頁面仍為灰色且無 OFF 徽章
+    mockStorage.enabled = false;
+    listeners.storageChanged.forEach((fn) => fn({ enabled: { newValue: false } }, 'local'));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepStrictEqual(actionState.get(101).path, bg.BLUE_ICON, '網址符合但關閉擴充功能時仍應顯示藍色圖示');
+    assert.strictEqual(actionState.get(101).badge, 'OFF', '網址符合但關閉擴充功能時應顯示 OFF 徽章');
+    assert.deepStrictEqual(actionState.get(102).path, bg.GRAY_ICON, '網址不符合時關閉擴充功能仍應顯示灰色圖示');
+    assert.strictEqual(actionState.get(102).badge, '', '網址不符合時不應顯示 OFF 徽章');
+
+    // 情境 4: 分頁導覽至符合網址時，tabs.onUpdated 應即時更新為藍色 + OFF（目前 enabled=false）
+    mockTabs[1].url = 'https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog?selectedIssue=WMC-1';
+    listeners.tabsUpdated.forEach((fn) => fn(102, { url: mockTabs[1].url }, mockTabs[1]));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepStrictEqual(actionState.get(102).path, bg.BLUE_ICON, '分頁導覽至符合網址應即時轉為藍色圖示');
+    assert.strictEqual(actionState.get(102).badge, 'OFF');
+
+    // 情境 5: 透過 onMessage (Popup 送出更新) 重新啟用
+    mockStorage.enabled = true;
+    await new Promise((resolve) => {
+      listeners.onMessage.forEach((fn) =>
+        fn(
+          { type: 'BETTER_JIRA_WT_UPDATE_ICON', enabled: true, backlogUrl: mockStorage.backlogUrl },
+          {},
+          resolve
+        )
+      );
+    });
+    assert.deepStrictEqual(actionState.get(101).path, bg.BLUE_ICON);
+    assert.strictEqual(actionState.get(101).badge, '');
+    assert.deepStrictEqual(actionState.get(102).path, bg.BLUE_ICON);
+    assert.strictEqual(actionState.get(102).badge, '');
+
+    global.chrome = origChrome;
+    console.log('✓ 依網址匹配結果動態切換擴充功能藍/灰 Icon 與 OFF 徽章檢查通過！');
+  }
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');

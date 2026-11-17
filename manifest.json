@@ -20,9 +20,9 @@
     "default_popup": "popup.html",
     "default_title": "BetterJiraWT 選單",
     "default_icon": {
-      "16": "icons/icon_default_16.png",
-      "48": "icons/icon_default_48.png",
-      "128": "icons/icon_default_128.png"
+      "16": "icons/icon_gray_16.png",
+      "48": "icons/icon_gray_48.png",
+      "128": "icons/icon_gray_128.png"
     }
   },
   "icons": {

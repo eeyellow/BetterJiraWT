@@ -206,7 +206,7 @@
         BetterJira.AssigneeUtils.setCustomAssignees(settings.customAssignees || []);
       }
       await BetterJiraDB.syncFromObject(settings);
-      syncExtensionIcon(settings.enabled);
+      syncExtensionIcon(settings.enabled, settings.backlogUrl);
       evaluateAndApply();
       console.log('[BetterJiraWT] v1.1.1 版面評估完成');
     } catch (err) {
@@ -229,7 +229,7 @@
         if (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.setCustomAssignees === 'function') {
           BetterJira.AssigneeUtils.setCustomAssignees(newSettings.customAssignees || []);
         }
-        syncExtensionIcon(newSettings.enabled);
+        syncExtensionIcon(newSettings.enabled, newSettings.backlogUrl);
         BetterJiraDB.syncFromObject(newSettings).then(() => {
           evaluateAndApply();
           sendResponse({ ok: true });
@@ -262,8 +262,8 @@
         if (changes.enabled) {
           current.enabled = changes.enabled.newValue;
         }
-        if (changes.enabled) {
-          syncExtensionIcon(current.enabled);
+        if (changes.enabled || changes.backlogUrl) {
+          syncExtensionIcon(current.enabled, current.backlogUrl);
         }
         setCurrentSettings(current);
         BetterJiraDB.syncFromObject(current).then(() => {

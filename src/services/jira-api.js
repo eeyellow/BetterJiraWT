@@ -1149,18 +1149,22 @@
   }
 
   /**
-   * 發送訊息通知 Background Service Worker 切換 Chrome Extension 擴充圖示與標題
+   * 發送訊息通知 Background Service Worker 依目前分頁網址與啟用狀態更新 Chrome Extension 擴充圖示與標題
    *
-   * @param {string} themeStyle - 當前樣式名稱 (Default / Bootstrap / MaterialDesign)
    * @param {boolean} [enabled=true] - 擴充功能是否啟用
+   * @param {string} [backlogUrl] - 設定之待辦事項網址
    */
-  function syncExtensionIcon(enabled = true) {
+  function syncExtensionIcon(enabled = true, backlogUrl) {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      const payload = {
+        type: 'BETTER_JIRA_WT_UPDATE_ICON',
+        enabled: enabled !== false
+      };
+      if (backlogUrl !== undefined) {
+        payload.backlogUrl = typeof backlogUrl === 'string' ? backlogUrl : '';
+      }
       chrome.runtime.sendMessage(
-        {
-          type: 'BETTER_JIRA_WT_UPDATE_ICON',
-          enabled: enabled !== false
-        },
+        payload,
         () => {
           void chrome.runtime.lastError;
         }

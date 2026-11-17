@@ -48,12 +48,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const EXAMPLE_URL = 'https://swpc.atlassian.net/jira/software/projects/WMC/boards/391/backlog';
 
-  const DEFAULT_ICON = {
-    16: 'icons/icon_default_16.png',
-    48: 'icons/icon_default_48.png',
-    128: 'icons/icon_default_128.png'
-  };
-
   let currentSettings = await BetterJiraDB.getSettings();
   renderUI(currentSettings);
 
@@ -291,24 +285,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function updateBrowserActionIcon(enabled = true) {
+  function updateBrowserActionIcon(enabled = true, backlogUrl = '') {
     const isEnabled = enabled !== false;
-    if (typeof chrome !== 'undefined' && chrome.action) {
-      if (chrome.action.setIcon) {
-        chrome.action.setIcon({ path: DEFAULT_ICON });
-      }
-      if (chrome.action.setBadgeText) {
-        chrome.action.setBadgeText({ text: isEnabled ? '' : 'OFF' });
-      }
-      if (chrome.action.setBadgeBackgroundColor) {
-        chrome.action.setBadgeBackgroundColor({ color: '#6c757d' });
-      }
-    }
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage(
         {
           type: 'BETTER_JIRA_WT_UPDATE_ICON',
-          enabled: isEnabled
+          enabled: isEnabled,
+          backlogUrl: typeof backlogUrl === 'string' ? backlogUrl : ''
         },
         () => {
           void chrome.runtime.lastError;
@@ -359,7 +343,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    updateBrowserActionIcon(isEnabled);
+    updateBrowserActionIcon(isEnabled, backlogUrl);
   }
 
   function setStatusMessage(msg) {
