@@ -924,7 +924,8 @@
         border-color: #579dff !important;
         box-shadow: 0 0 0 2px rgba(87, 157, 255, 0.25) !important;
       }
-      .bjwt-edit-desc-textarea {
+      .bjwt-edit-desc-textarea,
+      .bjwt-edit-desc-rich {
         width: 100% !important;
         min-height: 220px !important;
         padding: 10px 12px !important;
@@ -940,9 +941,34 @@
         outline: none !important;
         transition: border-color 0.15s ease !important;
       }
-      .bjwt-edit-desc-textarea:focus {
+      .bjwt-edit-desc-rich {
+        max-height: 520px !important;
+        overflow-y: auto !important;
+      }
+      .bjwt-edit-desc-rich:empty::before {
+        content: attr(data-placeholder);
+        color: var(--ds-text-subtle, #8c9bab);
+        pointer-events: none;
+      }
+      .bjwt-edit-desc-textarea:focus,
+      .bjwt-edit-desc-rich:focus {
         border-color: #579dff !important;
         box-shadow: 0 0 0 2px rgba(87, 157, 255, 0.25) !important;
+      }
+      .bjwt-md-source-toggle {
+        margin-left: auto !important;
+        background: transparent !important;
+        color: var(--ds-text-subtle, #8c9bab) !important;
+        border: 1px solid var(--ds-border, #38414a) !important;
+        border-radius: 4px !important;
+        padding: 2px 8px !important;
+        font-size: 12px !important;
+        cursor: pointer !important;
+      }
+      .bjwt-md-source-toggle.is-active {
+        background: rgba(87, 157, 255, 0.18) !important;
+        color: #579dff !important;
+        border-color: #579dff !important;
       }
       .bjwt-edit-points-input {
         width: 80px !important;
@@ -1116,6 +1142,13 @@
       .bjwt-detail-description-content a {
         color: #579dff !important;
         text-decoration: underline !important;
+      }
+      .bjwt-detail-description-content img {
+        max-width: 100% !important;
+        height: auto !important;
+        border-radius: 6px !important;
+        margin: 6px 0 !important;
+        display: inline-block !important;
       }
       .bjwt-detail-empty-desc {
         font-size: 13px !important;

@@ -184,6 +184,49 @@
   }
 
   /**
+   * 判斷 HTML 字串是否已經過 Jira 伺服器端富文字渲染（包含圖片、清單、標題、粗體、底線等標籤）
+   *
+   * @param {string} html - renderedFields 回傳之 HTML 字串
+   * @returns {boolean}
+   */
+  function hasJiraRenderedHtml(html) {
+    if (!html || typeof html !== 'string') return false;
+    return /<(?:img|ul|ol|li|h[1-6]|strong|b|u|em|i|code|pre|blockquote|table|a|span)\b/i.test(html);
+  }
+
+  /**
+   * 從附件清單中依據檔名尋找對應的圖片或檔案下載網址
+   *
+   * @param {string} filename - 附件檔名
+   * @param {Array<Object>|null} attachments - 卡片附件清單
+   * @returns {string|null} 附件 URL
+   */
+  function resolveAttachmentUrl(filename, attachments) {
+    if (!filename || !Array.isArray(attachments) || attachments.length === 0) return null;
+    const target = String(filename).trim();
+    const exact = attachments.find((att) => att && att.filename === target);
+    const match = exact || attachments.find((att) => att && att.filename && att.filename.toLowerCase() === target.toLowerCase());
+    if (!match) return null;
+    return match.content || match.thumbnail || null;
+  }
+
+  /**
+   * 解析 Jira Wiki 圖片屬性字串 (例如 width=565,alt="image.png")
+   *
+   * @param {string} attrStr - 屬性字串
+   * @returns {{width: string|null, alt: string|null}}
+   */
+  function parseJiraWikiImageAttrs(attrStr) {
+    const result = { width: null, alt: null };
+    if (!attrStr || typeof attrStr !== 'string') return result;
+    const widthMatch = attrStr.match(/(?:^|,|\s)width\s*=\s*"?(\d+)"?/i);
+    if (widthMatch) result.width = widthMatch[1];
+    const altMatch = attrStr.match(/(?:^|,|\s)alt\s*=\s*"([^"]*)"/i) || attrStr.match(/(?:^|,|\s)alt\s*=\s*([^,\s]+)/i);
+    if (altMatch) result.alt = altMatch[1];
+    return result;
+  }
+
+  /**
    * 驗證連結 URL 是否為安全協定 (http, https, 相對路徑或錨點)
    *
    * @param {string} url - 網址字串
@@ -198,12 +241,13 @@
   }
 
   /**
-   * 將單行純文字中的行內 Markdown 語法轉換為安全 HTML
+   * 將單行純文字中的行內 Markdown / Jira Wiki 語法轉換為安全 HTML
    *
    * @param {string} text - 原始純文字
+   * @param {Array<Object>|null} [attachments=null] - 卡片附件清單 (供解析 Jira Wiki 圖片語法)
    * @returns {string} HTML 字串
    */
-  function formatInlineMarkdown(text) {
+  function formatInlineMarkdown(text, attachments = null) {
     const { escapeHtml } = BetterJira.TextUtils;
     if (!text) return '';
 
@@ -221,11 +265,30 @@
       pushPlaceholder(`<code>${escapeHtml(code)}</code>`)
     );
 
-    // 2. 圖片 ![alt](url)
+    // 2. Markdown 圖片 ![alt](url)
     processed = processed.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, url) => {
-      const safeUrl = escapeHtml(sanitizeLinkUrl(url));
+      const resolved = resolveAttachmentUrl(url, attachments) || url;
+      const safeUrl = escapeHtml(sanitizeLinkUrl(resolved));
       return pushPlaceholder(`<img class="bjwt-md-image" src="${safeUrl}" alt="${escapeHtml(alt)}" />`);
     });
+
+    // 2.5 Jira Wiki 圖片 !filename.png|width=565,alt="..."! 或 !https://...!
+    processed = processed.replace(
+      /!([^\s!|][^!\n|]*?\.(?:png|jpe?g|gif|webp|svg|bmp)|https?:\/\/[^\s!|]+)(?:\|([^!\n]*))?!/gi,
+      (fullMatch, target, attrStr) => {
+        const resolvedUrl = /^https?:\/\//i.test(target)
+          ? target
+          : resolveAttachmentUrl(target, attachments);
+        if (!resolvedUrl) {
+          return fullMatch;
+        }
+        const parsedAttrs = parseJiraWikiImageAttrs(attrStr);
+        const safeUrl = escapeHtml(sanitizeLinkUrl(resolvedUrl));
+        const altText = escapeHtml(parsedAttrs.alt || target);
+        const widthAttr = parsedAttrs.width ? ` width="${escapeHtml(parsedAttrs.width)}"` : '';
+        return pushPlaceholder(`<img class="bjwt-md-image" src="${safeUrl}" alt="${altText}"${widthAttr} />`);
+      }
+    );
 
     // 3. 超連結 [label](url)
     processed = processed.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, url) => {
@@ -238,7 +301,8 @@
     // 4. HTML 安全跳脫
     processed = escapeHtml(processed);
 
-    // 5. 刪除線、粗體、斜體
+    // 5. Jira Wiki 粗體+底線 (+*text*+)、刪除線、粗體、斜體
+    processed = processed.replace(/\+\*([^*\n]+)\*\+/g, '<u><strong>$1</strong></u>');
     processed = processed.replace(/~~([^~\n]+)~~/g, '<s>$1</s>');
     processed = processed.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
     processed = processed.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
@@ -251,12 +315,13 @@
 
   /**
    * 將完整 Markdown 文字安全轉換為 HTML
-   * 支援標題、粗體、斜體、刪除線、行內程式碼、程式碼區塊、清單、引用、分隔線與超連結
+   * 支援標題、粗體、斜體、刪除線、行內程式碼、程式碼區塊、清單、引用、分隔線、圖片與超連結
    *
    * @param {string} markdownText - Markdown 純文字
+   * @param {Array<Object>|null} [attachments=null] - 卡片附件清單
    * @returns {string} HTML 字串
    */
-  function markdownToHtml(markdownText) {
+  function markdownToHtml(markdownText, attachments = null) {
     const { escapeHtml } = BetterJira.TextUtils;
     if (!markdownText || typeof markdownText !== 'string') return '';
 
@@ -277,7 +342,7 @@
 
     const flushParagraph = () => {
       if (paragraphBuf.length > 0) {
-        out.push(`<p>${paragraphBuf.map((l) => formatInlineMarkdown(l)).join('<br />')}</p>`);
+        out.push(`<p>${paragraphBuf.map((l) => formatInlineMarkdown(l, attachments)).join('<br />')}</p>`);
         paragraphBuf = [];
       }
     };
@@ -289,7 +354,7 @@
     };
     const flushQuote = () => {
       if (quoteBuf.length > 0) {
-        out.push(`<blockquote><p>${quoteBuf.map((l) => formatInlineMarkdown(l)).join('<br />')}</p></blockquote>`);
+        out.push(`<blockquote><p>${quoteBuf.map((l) => formatInlineMarkdown(l, attachments)).join('<br />')}</p></blockquote>`);
         quoteBuf = [];
       }
     };
@@ -320,7 +385,7 @@
         flushList();
         flushQuote();
         const level = headingMatch[1].length;
-        out.push(`<h${level}>${formatInlineMarkdown(headingMatch[2].trim())}</h${level}>`);
+        out.push(`<h${level}>${formatInlineMarkdown(headingMatch[2].trim(), attachments)}</h${level}>`);
         continue;
       }
 
@@ -349,7 +414,7 @@
           listType = 'ul';
           out.push('<ul>');
         }
-        out.push(`<li>${formatInlineMarkdown(ulMatch[1])}</li>`);
+        out.push(`<li>${formatInlineMarkdown(ulMatch[1], attachments)}</li>`);
         continue;
       }
 
@@ -361,7 +426,7 @@
           listType = 'ol';
           out.push('<ol>');
         }
-        out.push(`<li>${formatInlineMarkdown(olMatch[1])}</li>`);
+        out.push(`<li>${formatInlineMarkdown(olMatch[1], attachments)}</li>`);
         continue;
       }
 
@@ -540,13 +605,14 @@
    *
    * @param {Object|string|null} rawDesc - 原始說明資料 (可能是 ADF 物件或純文字/Markdown)
    * @param {string|null} [renderedDesc=null] - Jira API 渲染後之 HTML 說明
+   * @param {Array<Object>|null} [attachments=null] - 卡片附件清單 (供無 renderedDesc 時解析圖片)
    * @returns {string} 最終可用的 HTML 字串
    */
-  function formatDescriptionHtml(rawDesc, renderedDesc) {
-    // 若原始內容為 Markdown 且 Jira v2 renderedDesc 尚未解析該 Markdown 語法，優先以 Markdown 渲染
+  function formatDescriptionHtml(rawDesc, renderedDesc, attachments = null) {
+    // 若原始內容為 Markdown 且 Jira v2 renderedDesc 不存在或尚未被 Jira 渲染為富文字標籤，優先以 Markdown 渲染
     if (typeof rawDesc === 'string' && rawDesc.trim() && hasMarkdownSyntax(rawDesc)) {
-      if (!renderedDesc || hasMarkdownSyntax(renderedDesc.replace(/<[^>]+>/g, ''))) {
-        return markdownToHtml(rawDesc);
+      if (!renderedDesc || (!hasJiraRenderedHtml(renderedDesc) && hasMarkdownSyntax(renderedDesc.replace(/<[^>]+>/g, '')))) {
+        return markdownToHtml(rawDesc, attachments);
       }
     }
     if (renderedDesc && typeof renderedDesc === 'string' && renderedDesc.trim()) {
@@ -564,9 +630,193 @@
       if (!trimmed) {
         return '<div class="bjwt-detail-empty-desc">此工作項目沒有提供詳細說明。</div>';
       }
-      return markdownToHtml(trimmed);
+      return markdownToHtml(trimmed, attachments);
     }
     return '<div class="bjwt-detail-empty-desc">此工作項目沒有提供詳細說明。</div>';
+  }
+
+  /**
+   * 從 img 元素或附件清單推導 Jira Wiki 圖片標記 (!filename|width=...,alt="..."!)
+   *
+   * @param {Element} imgEl - img DOM 元素
+   * @param {Array<Object>|null} attachments - 卡片附件清單
+   * @returns {string} Jira Wiki 圖片語法
+   */
+  function imgElementToJiraWiki(imgEl, attachments = null) {
+    if (!imgEl || typeof imgEl.getAttribute !== 'function') return '';
+    const src = imgEl.getAttribute('src') || '';
+    const altAttr = imgEl.getAttribute('alt') || '';
+    const dataName = imgEl.getAttribute('data-attachment-name') || '';
+    let filename = dataName || altAttr;
+
+    if (!filename && src && Array.isArray(attachments)) {
+      const idMatch = src.match(/\/attachment\/(?:content|thumbnail)\/(\d+)/i);
+      const found = attachments.find(
+        (att) =>
+          att &&
+          (att.content === src ||
+            att.thumbnail === src ||
+            (idMatch && String(att.id) === String(idMatch[1])))
+      );
+      if (found && found.filename) {
+        filename = found.filename;
+      }
+    }
+
+    const target = filename || src;
+    if (!target) return '';
+
+    const widthAttr = imgEl.getAttribute('width');
+    const styleWidth = imgEl.style && imgEl.style.width ? String(imgEl.style.width).replace(/px$/i, '') : '';
+    const widthVal = widthAttr || (/^\d+$/.test(styleWidth) ? styleWidth : '');
+
+    if (widthVal && /^\d+$/.test(String(widthVal))) {
+      const safeAlt = (altAttr || target).replace(/"/g, "'");
+      return `!${target}|width=${widthVal},alt="${safeAlt}"!`;
+    }
+    return `!${target}!`;
+  }
+
+  /**
+   * 將所見即所得編輯器 (contenteditable) 的 HTML DOM 樹轉換回 Jira Wiki Markup 純文字
+   *
+   * @param {Element|null} rootEl - 編輯器根元素
+   * @param {Array<Object>|null} [attachments=null] - 卡片附件清單
+   * @returns {string} Jira Wiki Markup 字串
+   */
+  function htmlToJiraWiki(rootEl, attachments = null) {
+    if (!rootEl) return '';
+
+    const serializeChildren = (parent, listDepth = 0) => {
+      const nodes = parent.childNodes && parent.childNodes.length > 0 ? Array.from(parent.childNodes) : (parent.children || []);
+      if (nodes.length === 0) {
+        return parent.textContent || '';
+      }
+      return nodes.map((child) => serializeNode(child, listDepth)).join('');
+    };
+
+    const serializeNode = (node, listDepth = 0) => {
+      if (!node) return '';
+      // Text node (nodeType === 3)
+      if (node.nodeType === 3) {
+        return String(node.nodeValue || '').replace(/\u00A0/g, ' ');
+      }
+      // Skip non-element nodes other than text
+      if (node.nodeType && node.nodeType !== 1) return '';
+
+      const tag = (node.tagName || '').toLowerCase();
+      if (!tag) {
+        return node.textContent || '';
+      }
+
+      if (tag === 'br') {
+        return '\n';
+      }
+      if (tag === 'hr') {
+        return '\n----\n';
+      }
+      if (tag === 'img') {
+        return imgElementToJiraWiki(node, attachments);
+      }
+
+      if (tag === 'strong' || tag === 'b') {
+        const inner = serializeChildren(node, listDepth);
+        if (!inner) return '';
+        const childEls = node.children || [];
+        if (childEls.length === 1 && (childEls[0].tagName || '').toLowerCase() === 'u') {
+          return inner;
+        }
+        return `*${inner}*`;
+      }
+      if (tag === 'u') {
+        const inner = serializeChildren(node, listDepth);
+        if (!inner) return '';
+        const childEls = node.children || [];
+        if (
+          childEls.length === 1 &&
+          ((childEls[0].tagName || '').toLowerCase() === 'strong' || (childEls[0].tagName || '').toLowerCase() === 'b')
+        ) {
+          const boldInner = serializeChildren(childEls[0], listDepth);
+          return `+*${boldInner}*+`;
+        }
+        return `+${inner}+`;
+      }
+      if (tag === 'em' || tag === 'i') {
+        const inner = serializeChildren(node, listDepth);
+        return inner ? `_${inner}_` : '';
+      }
+      if (tag === 's' || tag === 'del' || tag === 'strike') {
+        const inner = serializeChildren(node, listDepth);
+        return inner ? `-${inner}-` : '';
+      }
+      if (tag === 'code') {
+        const parentTag = node.parentElement ? (node.parentElement.tagName || '').toLowerCase() : '';
+        if (parentTag === 'pre') {
+          return node.textContent || '';
+        }
+        const inner = serializeChildren(node, listDepth);
+        return inner ? `{{${inner}}}` : '';
+      }
+      if (tag === 'pre') {
+        const codeText = (node.textContent || '').replace(/^\n+|\n+$/g, '');
+        return `\n{code}\n${codeText}\n{code}\n`;
+      }
+      if (tag === 'blockquote') {
+        const inner = serializeChildren(node, listDepth).trim();
+        return `\n{quote}\n${inner}\n{quote}\n`;
+      }
+      if (tag === 'a') {
+        const childImgs = typeof node.querySelectorAll === 'function' ? node.querySelectorAll('img') : [];
+        const textOnly = (node.textContent || '').trim();
+        if (childImgs && childImgs.length > 0 && !textOnly) {
+          return Array.from(childImgs).map((im) => imgElementToJiraWiki(im, attachments)).join('');
+        }
+        const href = typeof node.getAttribute === 'function' ? node.getAttribute('href') || '' : '';
+        const inner = serializeChildren(node, listDepth).trim();
+        if (!href) return inner;
+        if (!inner || inner === href) return `[${href}]`;
+        return `[${inner}|${href}]`;
+      }
+      if (/^h([1-6])$/.test(tag)) {
+        const level = tag.slice(1);
+        const inner = serializeChildren(node, listDepth).trim();
+        return inner ? `\nh${level}. ${inner}\n` : '';
+      }
+      if (tag === 'ul' || tag === 'ol') {
+        const markerChar = tag === 'ol' ? '#' : '*';
+        const prefix = markerChar.repeat(listDepth + 1);
+        const items = Array.from(node.children || []).filter((c) => (c.tagName || '').toLowerCase() === 'li');
+        const lines = items.map((li) => {
+          const liNodes = li.childNodes && li.childNodes.length > 0 ? Array.from(li.childNodes) : (li.children || []);
+          let textPart = '';
+          let subListPart = '';
+          if (liNodes.length === 0) {
+            textPart = li.textContent || '';
+          } else {
+            for (const ch of liNodes) {
+              const chTag = ch.tagName ? ch.tagName.toLowerCase() : '';
+              if (chTag === 'ul' || chTag === 'ol') {
+                subListPart += serializeNode(ch, listDepth + 1);
+              } else {
+                textPart += serializeNode(ch, listDepth);
+              }
+            }
+          }
+          const cleanText = textPart.replace(/\n+$/, '').trim();
+          return `${prefix} ${cleanText}\n${subListPart}`;
+        });
+        return (listDepth === 0 ? '\n' : '') + lines.join('');
+      }
+      if (tag === 'p' || tag === 'div') {
+        const inner = serializeChildren(node, listDepth).replace(/\n+$/, '');
+        if (!inner.trim()) return '\n';
+        return `${inner}\n`;
+      }
+      return serializeChildren(node, listDepth);
+    };
+
+    const raw = serializeChildren(rootEl, 0);
+    return raw.replace(/\n{3,}/g, '\n\n').trim();
   }
 
   /**
@@ -586,7 +836,7 @@
     if (typeof body === 'string' && body.trim() && hasMarkdownSyntax(body)) {
       const isHtml = /<\/?(?:p|div|span|a|ul|ol|li|table|tr|td|th|strong|b|em|i|code|pre|blockquote|h[1-6]|br|hr)\b/i.test(body);
       if (!isHtml && !comment.isRendered) {
-        if (!renderedBody || hasMarkdownSyntax(renderedBody.replace(/<[^>]+>/g, ''))) {
+        if (!renderedBody || (!hasJiraRenderedHtml(renderedBody) && hasMarkdownSyntax(renderedBody.replace(/<[^>]+>/g, '')))) {
           return markdownToHtml(body);
         }
       }
@@ -625,6 +875,7 @@
     markdownToHtml,
     markdownToAdf,
     formatDescriptionHtml,
-    formatCommentBody
+    formatCommentBody,
+    htmlToJiraWiki
   };
 })();

@@ -3722,6 +3722,149 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     console.log('✓ 依網址匹配結果動態切換擴充功能藍/灰 Icon 與 OFF 徽章檢查通過！');
   }
 
+  console.log('--- 測試 32: Jira Wiki 圖片渲染 (檢視模式與所見即所得編輯模式) 與 htmlToJiraWiki 雙向轉換檢查 ---');
+  {
+    const { AdfParser, IssueModalComponent } = BetterJira;
+
+    const rawWikiDesc = [
+      '* 需求目的: (Optional)',
+      '1. 左方功能列新增項目',
+      '+*可看到及點擊角色：*+',
+      '!image-20261112-062031.png|width=565,alt="image-20261112-062031.png"!'
+    ].join('\n');
+
+    const jiraRenderedHtml = [
+      '<ul><li>需求目的: (Optional)</li></ul>',
+      '<p>1. 左方功能列新增項目<br/><u><b>可看到及點擊角色：</b></u></p>',
+      '<p><span class="image-wrap"><img src="https://jira.example.com/rest/api/2/attachment/content/901" width="565" alt="image-20261112-062031.png" /></span></p>'
+    ].join('');
+
+    const mockAttachments = [
+      {
+        id: '901',
+        filename: 'image-20261112-062031.png',
+        content: 'https://jira.example.com/rest/api/2/attachment/content/901',
+        thumbnail: 'https://jira.example.com/rest/api/2/attachment/thumbnail/901',
+        mimeType: 'image/png'
+      }
+    ];
+
+    // 1. 有 renderedFields.description 時，不應被誤判為純文字 Markdown 而丟棄 Jira 圖片 HTML
+    const viewHtml = AdfParser.formatDescriptionHtml(rawWikiDesc, jiraRenderedHtml, mockAttachments);
+    assert(
+      viewHtml.includes('<img src="https://jira.example.com/rest/api/2/attachment/content/901"'),
+      '檢視模式應保留 Jira renderedFields 中的 <img> 圖片標籤'
+    );
+    assert(viewHtml.includes('<u><b>可看到及點擊角色：</b></u>'), '檢視模式應保留 Jira renderedFields 的底線粗體標籤');
+
+    // 2. 無 renderedFields.description 時，fallback 仍應透過 attachments 解析 Jira Wiki 圖片與 +*...*+
+    const fallbackHtml = AdfParser.formatDescriptionHtml(rawWikiDesc, null, mockAttachments);
+    assert(
+      fallbackHtml.includes('<img class="bjwt-md-image" src="https://jira.example.com/rest/api/2/attachment/content/901" alt="image-20261112-062031.png" width="565" />'),
+      '無 renderedFields 時應解析 Jira Wiki 圖片語法並帶入附件 URL 與寬度'
+    );
+    assert(fallbackHtml.includes('<u><strong>可看到及點擊角色：</strong></u>'), '無 renderedFields 時應解析 +*...*+ 為底線粗體');
+
+    // 3. htmlToJiraWiki 雙向轉換檢查
+    const mockRichRoot = new MockElement('div');
+    const mockUl = new MockElement('ul');
+    const mockLi = new MockElement('li');
+    mockLi.textContent = '需求目的';
+    mockUl.appendChild(mockLi);
+    const mockP = new MockElement('p');
+    const mockU = new MockElement('u');
+    const mockStrong = new MockElement('strong');
+    mockStrong.textContent = '重要角色';
+    mockU.appendChild(mockStrong);
+    mockP.appendChild(mockU);
+    const mockImg = new MockElement('img');
+    mockImg.setAttribute('src', 'https://jira.example.com/rest/api/2/attachment/content/901');
+    mockImg.setAttribute('width', '565');
+    mockImg.setAttribute('alt', 'image-20261112-062031.png');
+    mockRichRoot.appendChild(mockUl);
+    mockRichRoot.appendChild(mockP);
+    mockRichRoot.appendChild(mockImg);
+
+    const wikiOut = AdfParser.htmlToJiraWiki(mockRichRoot, mockAttachments);
+    assert(wikiOut.includes('* 需求目的'), 'ul/li 應轉回 Jira Wiki 清單語法');
+    assert(wikiOut.includes('+*重要角色*+'), 'u > strong 應轉回 Jira Wiki +*...*+ 語法');
+    assert(
+      wikiOut.includes('!image-20261112-062031.png|width=565,alt="image-20261112-062031.png"!'),
+      'img 元素應轉回 Jira Wiki 圖片標記'
+    );
+
+    // 4. IssueModalComponent 整合驗證：檢視模式與編輯模式皆渲染圖片，而非顯示 raw markdown
+    const origFetch = global.fetch;
+    const origGetElementById = global.document.getElementById;
+    const origDocBody = global.document.body;
+    global.document.body = new MockElement('body');
+    global.document.getElementById = (id) => {
+      for (const child of global.document.body.children) {
+        if (child.id === id) return child;
+      }
+      return null;
+    };
+    global.fetch = async (url) => {
+      if (url.includes('/rest/api/2/issue/WMC-36102?expand=renderedFields')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            key: 'WMC-36102',
+            fields: {
+              summary: 'SDP 通知廠商填寫設計參數狀態查詢',
+              description: rawWikiDesc,
+              status: { name: '待辦事項', statusCategory: { key: 'new' } },
+              attachment: mockAttachments,
+              comment: { comments: [] }
+            },
+            renderedFields: {
+              description: jiraRenderedHtml,
+              comment: { comments: [] }
+            }
+          })
+        };
+      }
+      if (url.includes('/transitions')) {
+        return { ok: true, status: 200, json: async () => ({ transitions: [] }) };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    IssueModalComponent.openHistoricalIssueDetailModal('WMC-36102', {
+      key: 'WMC-36102',
+      summary: 'SDP 通知廠商填寫設計參數狀態查詢',
+      statusName: '待辦事項',
+      statusCategory: 'new'
+    });
+
+    const modalEl = global.document.getElementById(BetterJira.Constants.HISTORY_ISSUE_MODAL_ID);
+    modalEl.isConnected = true;
+    await new Promise((r) => setTimeout(r, 20));
+
+    const descBody = modalEl.querySelector('#bjwt-detail-description-body');
+    assert(
+      descBody.innerHTML.includes('<img src="https://jira.example.com/rest/api/2/attachment/content/901"'),
+      '檢視模式應渲染出 Jira 圖片元素而非 Wiki Markdown 文字'
+    );
+
+    const editBtn = modalEl.querySelector('.bjwt-history-modal-edit-btn');
+    await editBtn.dispatchEvent({ type: 'click' });
+
+    const descRich = modalEl.querySelector('#bjwt-edit-desc-rich');
+    assert(descRich, '編輯模式應包含所見即所得編輯器 #bjwt-edit-desc-rich');
+    assert(descRich.style.display === 'block', '編輯模式預設應顯示所見即所得編輯器');
+    assert(
+      descRich.innerHTML.includes('<img src="https://jira.example.com/rest/api/2/attachment/content/901"'),
+      '編輯模式所見即所得編輯器應同步渲染出圖片元素'
+    );
+
+    global.fetch = origFetch;
+    global.document.getElementById = origGetElementById;
+    global.document.body = origDocBody;
+    console.log('✓ Jira Wiki 圖片渲染 (檢視模式與所見即所得編輯模式) 與 htmlToJiraWiki 雙向轉換檢查通過！');
+  }
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');

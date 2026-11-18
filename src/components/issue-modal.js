@@ -373,7 +373,7 @@
           <div class="bjwt-detail-section">
             <div class="bjwt-detail-section-title">
               說明
-              <span class="bjwt-edit-only bjwt-edit-tip">(支援 Markdown 語法編輯與預覽)</span>
+              <span class="bjwt-edit-only bjwt-edit-tip">(所見即所得編輯，支援圖片與富文字排版)</span>
             </div>
             <div class="bjwt-view-only">
               <div class="bjwt-detail-description-content" id="bjwt-detail-description-body">
@@ -382,18 +382,27 @@
             </div>
             <div class="bjwt-edit-only">
               <div class="bjwt-md-toolbar" id="bjwt-desc-md-toolbar">
-                <button type="button" class="bjwt-md-tool-btn" data-md-action="bold" title="粗體 (**文字**)"><strong>B</strong></button>
-                <button type="button" class="bjwt-md-tool-btn" data-md-action="italic" title="斜體 (*文字*)"><em>I</em></button>
-                <button type="button" class="bjwt-md-tool-btn" data-md-action="code" title="行內程式碼 (&#96;code&#96;)">&lt;/&gt;</button>
-                <button type="button" class="bjwt-md-tool-btn" data-md-action="list" title="項目清單 (- 項目)">• 清單</button>
-                <button type="button" class="bjwt-md-tool-btn" data-md-action="link" title="超連結 ([標題](網址))">🔗 連結</button>
-                <button type="button" class="bjwt-md-preview-toggle" data-md-action="preview" title="切換 Markdown 預覽">👁 預覽</button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="bold" title="粗體"><strong>B</strong></button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="italic" title="斜體"><em>I</em></button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="underline" title="底線"><u>U</u></button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="code" title="行內程式碼">&lt;/&gt;</button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="list" title="項目清單">• 清單</button>
+                <button type="button" class="bjwt-md-tool-btn" data-md-action="link" title="超連結">🔗 連結</button>
+                <button type="button" class="bjwt-md-source-toggle" data-md-action="source" title="切換原始碼 / 所見即所得">{ } 原始碼</button>
+                <button type="button" class="bjwt-md-preview-toggle" data-md-action="preview" title="切換預覽">👁 預覽</button>
               </div>
+              <div
+                class="bjwt-edit-desc-rich bjwt-detail-description-content"
+                id="bjwt-edit-desc-rich"
+                contenteditable="true"
+                data-placeholder="請輸入工作項目詳細說明..."
+              ></div>
               <textarea
                 class="bjwt-edit-desc-textarea"
                 id="bjwt-edit-desc-field"
                 rows="12"
-                placeholder="請輸入工作項目詳細說明 (支援 Markdown：# 標題、**粗體**、*斜體*、&#96;程式碼&#96;、- 清單、[連結](url))..."
+                style="display: none;"
+                placeholder="請輸入工作項目詳細說明 (支援 Markdown / Jira Wiki 語法)..."
               ></textarea>
               <div class="bjwt-md-preview-box bjwt-detail-description-content" id="bjwt-edit-desc-preview" style="display: none;"></div>
             </div>
@@ -553,6 +562,9 @@
 
     let currentRawSummary = displaySummary;
     let currentRawDesc = '';
+    let currentRenderedDescHtml = '';
+    let richDescDirty = false;
+    let isDescSourceMode = false;
     let currentRawPoints = initialPoints !== '-' ? initialPoints : '';
     let currentStatusName = initialStatusName;
     let currentComments = [];
@@ -741,8 +753,148 @@
       }
     }
 
-    bindMarkdownEditorToolbar(
+    function bindDescriptionRichEditor(toolbarEl, richEl, textareaEl, previewEl) {
+      if (!toolbarEl || !richEl || !textareaEl) return;
+      const previewBtn = toolbarEl.querySelector('[data-md-action="preview"]');
+      const sourceBtn = toolbarEl.querySelector('[data-md-action="source"]');
+
+      richEl.addEventListener('input', () => {
+        richDescDirty = true;
+      });
+      textareaEl.addEventListener('input', () => {
+        richDescDirty = true;
+      });
+
+      const applySourceSnippet = (action) => {
+        const val = textareaEl.value || '';
+        const start = typeof textareaEl.selectionStart === 'number' ? textareaEl.selectionStart : val.length;
+        const end = typeof textareaEl.selectionEnd === 'number' ? textareaEl.selectionEnd : val.length;
+        const selected = val.slice(start, end);
+        let replacement = '';
+
+        if (action === 'bold') replacement = `*${selected || '粗體文字'}*`;
+        else if (action === 'italic') replacement = `_${selected || '斜體文字'}_`;
+        else if (action === 'underline') replacement = `+${selected || '底線文字'}+`;
+        else if (action === 'code') replacement = `{{${selected || '程式碼'}}}`;
+        else if (action === 'list') replacement = `${start > 0 && val[start - 1] !== '\n' ? '\n' : ''}* ${selected || '清單項目'}`;
+        else if (action === 'link') replacement = `[${selected || '連結文字'}|https://]`;
+
+        textareaEl.value = val.slice(0, start) + replacement + val.slice(end);
+        textareaEl.focus();
+        richDescDirty = true;
+      };
+
+      const applyRichCommand = (action) => {
+        richEl.focus();
+        if (typeof document.execCommand === 'function') {
+          if (action === 'bold') document.execCommand('bold', false, null);
+          else if (action === 'italic') document.execCommand('italic', false, null);
+          else if (action === 'underline') document.execCommand('underline', false, null);
+          else if (action === 'list') document.execCommand('insertUnorderedList', false, null);
+          else if (action === 'code') {
+            const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+            const selectedText = sel ? sel.toString() : '';
+            document.execCommand('insertHTML', false, `<code>${escapeHtml(selectedText || '程式碼')}</code>`);
+          } else if (action === 'link') {
+            const url = typeof window.prompt === 'function' ? window.prompt('請輸入連結網址:', 'https://') : '';
+            if (url && /^https?:\/\//i.test(url.trim())) {
+              const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+              const selectedText = sel && sel.toString() ? sel.toString() : url.trim();
+              document.execCommand(
+                'insertHTML',
+                false,
+                `<a href="${escapeHtml(url.trim())}" target="_blank" rel="noopener noreferrer">${escapeHtml(selectedText)}</a>`
+              );
+            }
+          }
+        }
+        richDescDirty = true;
+      };
+
+      toolbarEl.querySelectorAll('.bjwt-md-tool-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const action = btn.getAttribute('data-md-action');
+          if (previewEl && previewEl.style.display === 'block') {
+            previewEl.style.display = 'none';
+            if (isDescSourceMode) textareaEl.style.display = 'block';
+            else richEl.style.display = 'block';
+            if (previewBtn) {
+              previewBtn.textContent = '👁 預覽';
+              previewBtn.classList.remove('is-active');
+            }
+          }
+          if (isDescSourceMode) {
+            applySourceSnippet(action);
+          } else {
+            applyRichCommand(action);
+          }
+        });
+      });
+
+      if (sourceBtn) {
+        sourceBtn.addEventListener('click', () => {
+          if (previewEl && previewEl.style.display === 'block') {
+            previewEl.style.display = 'none';
+            if (previewBtn) {
+              previewBtn.textContent = '👁 預覽';
+              previewBtn.classList.remove('is-active');
+            }
+          }
+          if (!isDescSourceMode) {
+            if (richDescDirty && typeof AdfParser.htmlToJiraWiki === 'function') {
+              textareaEl.value = AdfParser.htmlToJiraWiki(richEl, currentAttachments);
+            }
+            isDescSourceMode = true;
+            richEl.style.display = 'none';
+            textareaEl.style.display = 'block';
+            sourceBtn.classList.add('is-active');
+            sourceBtn.textContent = '✎ 所見即所得';
+          } else {
+            const srcText = textareaEl.value || '';
+            richEl.innerHTML = srcText.trim()
+              ? formatDescriptionHtml(srcText, null, currentAttachments)
+              : '';
+            isDescSourceMode = false;
+            textareaEl.style.display = 'none';
+            richEl.style.display = 'block';
+            sourceBtn.classList.remove('is-active');
+            sourceBtn.textContent = '{ } 原始碼';
+          }
+        });
+      }
+
+      if (previewBtn && previewEl) {
+        previewBtn.addEventListener('click', () => {
+          const showingPreview = previewEl.style.display === 'block';
+          if (showingPreview) {
+            previewEl.style.display = 'none';
+            if (isDescSourceMode) textareaEl.style.display = 'block';
+            else richEl.style.display = 'block';
+            previewBtn.textContent = '👁 預覽';
+            previewBtn.classList.remove('is-active');
+          } else {
+            if (isDescSourceMode || (!richDescDirty && (textareaEl.value || '').trim())) {
+              const mdText = textareaEl.value || '';
+              previewEl.innerHTML = mdText.trim()
+                ? AdfParser.markdownToHtml(mdText, currentAttachments)
+                : '<div class="bjwt-detail-empty-desc">尚無內容可預覽</div>';
+            } else {
+              const richHtml = (richEl.innerHTML || '').trim();
+              previewEl.innerHTML = richHtml || '<div class="bjwt-detail-empty-desc">尚無內容可預覽</div>';
+            }
+            richEl.style.display = 'none';
+            textareaEl.style.display = 'none';
+            previewEl.style.display = 'block';
+            previewBtn.textContent = '✎ 繼續編輯';
+            previewBtn.classList.add('is-active');
+          }
+        });
+      }
+    }
+
+    bindDescriptionRichEditor(
       modalEl.querySelector('#bjwt-desc-md-toolbar'),
+      modalEl.querySelector('#bjwt-edit-desc-rich'),
       modalEl.querySelector('#bjwt-edit-desc-field'),
       modalEl.querySelector('#bjwt-edit-desc-preview')
     );
@@ -983,11 +1135,19 @@
 
     function setEditMode(active) {
       const descPreview = modalEl.querySelector('#bjwt-edit-desc-preview');
+      const descRich = modalEl.querySelector('#bjwt-edit-desc-rich');
       const descTextarea = modalEl.querySelector('#bjwt-edit-desc-field');
+      const descSourceBtn = modalEl.querySelector('#bjwt-desc-md-toolbar [data-md-action="source"]');
       const commentPreview = modalEl.querySelector('#bjwt-add-comment-preview');
-      if (descPreview && descTextarea) {
+      isDescSourceMode = false;
+      if (descSourceBtn) {
+        descSourceBtn.classList.remove('is-active');
+        descSourceBtn.textContent = '{ } 原始碼';
+      }
+      if (descPreview && descRich && descTextarea) {
         descPreview.style.display = 'none';
-        descTextarea.style.display = 'block';
+        descTextarea.style.display = 'none';
+        descRich.style.display = 'block';
       }
       if (commentPreview && addCommentField) {
         commentPreview.style.display = 'none';
@@ -1004,12 +1164,15 @@
         const pointsInput = modalEl.querySelector('#bjwt-edit-points-field');
         if (summaryInput) summaryInput.value = currentRawSummary;
         if (descTextarea) descTextarea.value = currentRawDesc;
+        if (descRich) descRich.innerHTML = currentRawDesc ? currentRenderedDescHtml : '';
+        richDescDirty = false;
         if (pointsInput) pointsInput.value = currentRawPoints !== null && currentRawPoints !== undefined && currentRawPoints !== '-' ? currentRawPoints : '';
         renderAttachmentsList();
         renderCommentsList();
         if (summaryInput) summaryInput.focus();
       } else {
         modalEl.removeAttribute('data-bjwt-edit-mode');
+        richDescDirty = false;
         if (addCommentField) addCommentField.value = '';
         if (msgBanner) msgBanner.style.display = 'none';
         renderAttachmentsList();
@@ -1036,7 +1199,13 @@
           return;
         }
 
-        const newDesc = descTextarea ? descTextarea.value : currentRawDesc;
+        const descRich = modalEl.querySelector('#bjwt-edit-desc-rich');
+        let newDesc = currentRawDesc;
+        if (isDescSourceMode) {
+          newDesc = descTextarea ? descTextarea.value : currentRawDesc;
+        } else if (richDescDirty && descRich && typeof AdfParser.htmlToJiraWiki === 'function') {
+          newDesc = AdfParser.htmlToJiraWiki(descRich, currentAttachments);
+        }
         const newPointsStr = pointsInput ? pointsInput.value.trim() : '';
         const newPoints = newPointsStr === '' ? null : Number(newPointsStr);
         const transitionId = statusSelect ? statusSelect.value : '';
@@ -1116,8 +1285,13 @@
           if (mainTitle) mainTitle.textContent = newSummary;
 
           const descBody = modalEl.querySelector('#bjwt-detail-description-body');
-          if (descBody) {
-            descBody.innerHTML = formatDescriptionHtml(newDesc, null);
+          if (descBody && descChanged) {
+            if (!isDescSourceMode && descRich && (descRich.innerHTML || '').trim()) {
+              currentRenderedDescHtml = descRich.innerHTML;
+            } else {
+              currentRenderedDescHtml = formatDescriptionHtml(newDesc, null, currentAttachments);
+            }
+            descBody.innerHTML = currentRenderedDescHtml;
           }
 
           const pointsBadge = modalEl.querySelector('#bjwt-points-badge-val');
@@ -1221,7 +1395,8 @@
           }
         }
 
-        // 2. 說明欄位
+        // 2. 附件與說明欄位 (先讀取附件清單，以便無 renderedFields 時可解析 Jira Wiki 圖片)
+        currentAttachments = Array.isArray(fields.attachment) ? [...fields.attachment] : [];
         if (fields.description) {
           currentRawDesc =
             typeof fields.description === 'object'
@@ -1230,13 +1405,17 @@
         } else {
           currentRawDesc = '';
         }
+        currentRenderedDescHtml = formatDescriptionHtml(fields.description, renderedFields.description, currentAttachments);
         const descTextarea = modalEl.querySelector('#bjwt-edit-desc-field');
-        if (descTextarea && !modalEl.hasAttribute('data-bjwt-edit-mode')) {
-          descTextarea.value = currentRawDesc;
+        const descRich = modalEl.querySelector('#bjwt-edit-desc-rich');
+        if (!modalEl.hasAttribute('data-bjwt-edit-mode')) {
+          if (descTextarea) descTextarea.value = currentRawDesc;
+          if (descRich) descRich.innerHTML = currentRawDesc ? currentRenderedDescHtml : '';
+          richDescDirty = false;
         }
         const descEl = modalEl.querySelector('#bjwt-detail-description-body');
         if (descEl) {
-          descEl.innerHTML = formatDescriptionHtml(fields.description, renderedFields.description);
+          descEl.innerHTML = currentRenderedDescHtml;
         }
 
         // 3. 子任務清單
@@ -1285,8 +1464,7 @@
           });
         }
 
-        // 3.5 附件清單 (檢視與編輯模式皆顯示並提供點擊下載)
-        currentAttachments = Array.isArray(fields.attachment) ? [...fields.attachment] : [];
+        // 3.5 渲染附件清單 (檢視與編輯模式皆顯示並提供點擊下載)
         renderAttachmentsList();
 
         // 4. 留言清單 (使用 renderedCommentsMap 避免雙重 escapeHtml 造成顯示 HTML 原始碼)
