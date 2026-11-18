@@ -1970,6 +1970,307 @@
     }
   }
 
+  /**
+   * 透過 Jira REST API PUT /rest/api/2/issue/{issueKey} 更新指定 fields 欄位
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {Object} fieldsPayload - 要更新的 fields 物件
+   * @param {string} [defaultErrMsg='欄位更新失敗'] - 預設錯誤訊息
+   * @returns {Promise<{success: boolean, error?: string}>} 更新結果
+   */
+  async function putIssueFields(issueKey, fieldsPayload, defaultErrMsg = '欄位更新失敗') {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+    try {
+      const res = await fetch(`${window.location.origin}/rest/api/2/issue/${encodeURIComponent(issueKey)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Atlassian-Token': 'no-check'
+        },
+        body: JSON.stringify({ fields: fieldsPayload })
+      });
+      if (res.ok || res.status === 204) {
+        return { success: true };
+      }
+      const errMsg = await parseJiraErrorMessage(res, defaultErrMsg);
+      return { success: false, error: errMsg };
+    } catch (e) {
+      return { success: false, error: e && e.message ? e.message : '網路請求失敗' };
+    }
+  }
+
+  /**
+   * 更新 Jira Issue 報告者 (Reporter)
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string} reporterName - 報告者名稱
+   * @param {string|null} [accountId=null] - Jira Cloud 帳號 ID
+   * @param {Object|null} [memberHint=null] - 成員資訊線索
+   * @returns {Promise<{success: boolean, resolvedUser?: Object|null, error?: string}>}
+   */
+  async function updateIssueReporter(issueKey, reporterName, accountId = null, memberHint = null) {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+    if (!reporterName) return { success: false, error: '請選擇報告者' };
+
+    let finalAccountId = accountId ? String(accountId).trim() : '';
+    let finalUsername = reporterName ? String(reporterName).trim() : '';
+
+    const resolvedUser = await resolveJiraUser(issueKey, {
+      ...(memberHint || {}),
+      name: reporterName,
+      accountId: finalAccountId || (memberHint && memberHint.accountId) || ''
+    });
+    if (resolvedUser) {
+      if (resolvedUser.accountId) finalAccountId = resolvedUser.accountId;
+      if (resolvedUser.username) finalUsername = resolvedUser.username;
+    }
+
+    const payloads = [];
+    if (finalAccountId) {
+      payloads.push({ accountId: finalAccountId });
+      if (finalUsername) payloads.push({ name: finalUsername });
+    } else {
+      payloads.push({ name: finalUsername });
+      if (memberHint && memberHint.email && memberHint.email !== finalUsername) {
+        payloads.push({ name: memberHint.email });
+      }
+    }
+
+    let lastErr = '報告者更新失敗';
+    for (const bodyPayload of payloads) {
+      const res = await putIssueFields(issueKey, { reporter: bodyPayload }, lastErr);
+      if (res.success) {
+        return { success: true, resolvedUser };
+      }
+      if (res.error) lastErr = res.error;
+    }
+
+    return { success: false, error: lastErr };
+  }
+
+  /**
+   * 更新 Jira Issue 到期日 (Due Date)
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string|null} dueDate - YYYY-MM-DD 格式字串，或 null/空字串代表清空
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async function updateIssueDueDate(issueKey, dueDate) {
+    const cleanVal = dueDate ? String(dueDate).trim() : '';
+    return putIssueFields(issueKey, { duedate: cleanVal || null }, '到期日更新失敗');
+  }
+
+  /**
+   * 更新 Jira Issue 標籤 (Labels)
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {Array<string>} labels - 標籤陣列
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async function updateIssueLabels(issueKey, labels = []) {
+    const normalized = Array.isArray(labels)
+      ? Array.from(new Set(labels.map((l) => String(l || '').trim()).filter(Boolean)))
+      : [];
+    return putIssueFields(issueKey, { labels: normalized }, '標籤更新失敗');
+  }
+
+  /**
+   * 向 Jira 查詢標籤建議清單
+   *
+   * @param {string} [query=''] - 搜尋關鍵字
+   * @returns {Promise<Array<string>>} 建議標籤陣列
+   */
+  async function fetchLabelSuggestions(query = '') {
+    if (typeof window === 'undefined' || typeof fetch !== 'function') return [];
+    try {
+      const res = await fetch(
+        `${window.location.origin}/rest/api/1.0/labels/suggest?query=${encodeURIComponent(query || '')}`,
+        {
+          credentials: 'include',
+          headers: { Accept: 'application/json' }
+        }
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (data && Array.isArray(data.suggestions)) {
+        return data.suggestions
+          .map((s) => (typeof s === 'string' ? s : (s && (s.label || s.text)) || ''))
+          .filter(Boolean);
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  }
+
+  /**
+   * 搜尋可作為上層項目 (Parent / Epic) 的候選卡片
+   *
+   * @param {string} issueKey - 目前卡片編號
+   * @param {string} [query=''] - 搜尋關鍵字
+   * @returns {Promise<Array<{key: string, summary: string, issueTypeName?: string}>>}
+   */
+  async function searchParentCandidates(issueKey, query = '') {
+    const candidates = [];
+    const seen = new Set();
+    const { IssueStore } = BetterJira;
+    const kw = String(query || '').trim().toLowerCase();
+
+    const addCandidate = (key, summary, issueTypeName = '') => {
+      const k = String(key || '').trim().toUpperCase();
+      if (!k || k === String(issueKey || '').toUpperCase() || seen.has(k)) return;
+      seen.add(k);
+      candidates.push({
+        key: k,
+        summary: String(summary || '').trim(),
+        issueTypeName: String(issueTypeName || '').trim()
+      });
+    };
+
+    // 1. 優先從 Jira issue picker API 搜尋
+    if (typeof window !== 'undefined' && typeof fetch === 'function') {
+      try {
+        const res = await fetch(
+          `${window.location.origin}/rest/api/2/issue/picker?currentIssueKey=${encodeURIComponent(issueKey || '')}&query=${encodeURIComponent(query || '')}`,
+          {
+            credentials: 'include',
+            headers: { Accept: 'application/json' }
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.sections)) {
+            data.sections.forEach((sec) => {
+              if (sec && Array.isArray(sec.issues)) {
+                sec.issues.forEach((item) => {
+                  if (item && item.key) {
+                    addCandidate(item.key, item.summaryText || item.summary || '');
+                  }
+                });
+              }
+            });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. 補充本地 IssueStore 快取中的 Epic 與既有上層項目
+    if (IssueStore && typeof IssueStore.getAllIssues === 'function') {
+      const all = IssueStore.getAllIssues() || [];
+      all.forEach((iss) => {
+        if (!iss) return;
+        if (iss.issueTypeName && iss.issueTypeName.toLowerCase() === 'epic') {
+          if (!kw || iss.key.toLowerCase().includes(kw) || (iss.summary || '').toLowerCase().includes(kw)) {
+            addCandidate(iss.key, iss.summary, 'Epic');
+          }
+        }
+        if (iss.parentKey) {
+          if (!kw || iss.parentKey.toLowerCase().includes(kw) || (iss.parentSummary || '').toLowerCase().includes(kw)) {
+            addCandidate(iss.parentKey, iss.parentSummary || '');
+          }
+        }
+      });
+    }
+
+    return candidates.slice(0, 25);
+  }
+
+  /**
+   * 更新 Jira Issue 上層項目 (Parent / Epic)
+   * 優先使用標準 fields.parent，若專案使用傳統 Epic Link 自訂欄位則自動偵測並回退更新
+   *
+   * @param {string} issueKey - 卡片編號
+   * @param {string|null} parentKey - 上層項目編號 (空字串或 null 代表清除)
+   * @returns {Promise<{success: boolean, parentKey?: string, parentSummary?: string, error?: string}>}
+   */
+  async function updateIssueParent(issueKey, parentKey) {
+    if (!issueKey) return { success: false, error: '缺少 issueKey' };
+    const cleanParent = parentKey ? String(parentKey).trim().toUpperCase() : '';
+
+    // 1. 嘗試標準 fields.parent
+    const directRes = await putIssueFields(
+      issueKey,
+      { parent: cleanParent ? { key: cleanParent } : null },
+      '上層項目更新失敗'
+    );
+
+    let succeeded = directRes.success;
+    let lastErr = directRes.error || '上層項目更新失敗';
+
+    // 2. 若標準 parent 失敗，嘗試透過 editmeta 尋找 Epic Link 自訂欄位
+    if (!succeeded) {
+      const editMeta = await fetchIssueEditMeta(issueKey);
+      if (editMeta && typeof editMeta === 'object') {
+        const epicFieldEntry = Object.entries(editMeta).find(([, meta]) => {
+          if (!meta) return false;
+          const name = String(meta.name || '').toLowerCase();
+          const custom = String((meta.schema && meta.schema.custom) || '').toLowerCase();
+          return (
+            custom.includes('gh-epic-link') ||
+            name === 'epic link' ||
+            name === '史詩連結' ||
+            name === 'parent link'
+          );
+        });
+        if (epicFieldEntry) {
+          const [epicFieldId] = epicFieldEntry;
+          const epicRes = await putIssueFields(
+            issueKey,
+            { [epicFieldId]: cleanParent || null },
+            lastErr
+          );
+          if (epicRes.success) {
+            succeeded = true;
+          } else if (epicRes.error) {
+            lastErr = epicRes.error;
+          }
+        }
+      }
+    }
+
+    if (!succeeded) {
+      return { success: false, error: lastErr };
+    }
+
+    // 3. 若有設定上層項目，嘗試解析其 Summary 以便即時顯示
+    let parentSummary = '';
+    if (cleanParent) {
+      const { IssueStore } = BetterJira;
+      const cached = IssueStore && typeof IssueStore.getIssue === 'function' ? IssueStore.getIssue(cleanParent) : null;
+      if (cached && cached.summary) {
+        parentSummary = cached.summary;
+      } else if (typeof window !== 'undefined' && typeof fetch === 'function') {
+        try {
+          const pRes = await fetch(
+            `${window.location.origin}/rest/api/2/issue/${encodeURIComponent(cleanParent)}?fields=summary`,
+            {
+              credentials: 'include',
+              headers: { Accept: 'application/json' }
+            }
+          );
+          if (pRes.ok) {
+            const pData = await pRes.json();
+            if (pData && pData.fields && pData.fields.summary) {
+              parentSummary = pData.fields.summary;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return {
+      success: true,
+      parentKey: cleanParent,
+      parentSummary
+    };
+  }
+
   BetterJira.JiraApiService = {
     detectJiraContext,
     detectStoryPointsCustomField,
@@ -1993,6 +2294,12 @@
     fetchAssignableUsers,
     resolveJiraUser,
     updateIssueAssignee,
+    updateIssueReporter,
+    updateIssueDueDate,
+    updateIssueLabels,
+    fetchLabelSuggestions,
+    searchParentCandidates,
+    updateIssueParent,
     resolveSprintId,
     moveIssuesToSprint,
     createIssueInSprint,

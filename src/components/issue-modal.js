@@ -129,8 +129,12 @@
    * @param {Element|null} [modalPane=null] - 欲關閉的 Modal 節點
    */
   function closeIssueDetailModal(modalPane) {
-    const { Constants } = BetterJira;
+    const { Constants, QuickEditPopoverComponent } = BetterJira;
     const { HISTORY_ISSUE_MODAL_ID, MODAL_BACKDROP_ID } = Constants;
+
+    if (QuickEditPopoverComponent && typeof QuickEditPopoverComponent.close === 'function') {
+      QuickEditPopoverComponent.close();
+    }
 
     const historyModal = document.getElementById(HISTORY_ISSUE_MODAL_ID);
     if (historyModal && (!modalPane || modalPane === historyModal)) {
@@ -286,11 +290,13 @@
     modalEl.innerHTML = `
       <div class="bjwt-history-issue-modal-header">
         <div class="bjwt-history-issue-modal-title">
-          ${
-            initialTypeIcon
-              ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(initialTypeIcon)}" alt="${escapeHtml(initialTypeName)}" title="${escapeHtml(initialTypeName)}" style="width: 16px; height: 16px;" />`
-              : ''
-          }
+          <span class="bjwt-detail-type-trigger" id="bjwt-detail-type-trigger" data-bjwt-detail-edit="type" title="${escapeHtml(initialTypeName)}">
+            ${
+              initialTypeIcon
+                ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(initialTypeIcon)}" alt="${escapeHtml(initialTypeName)}" title="${escapeHtml(initialTypeName)}" style="width: 16px; height: 16px;" />`
+                : `<span class="bjwt-detail-type-fallback" title="${escapeHtml(initialTypeName)}">📌</span>`
+            }
+          </span>
           <span class="bjwt-history-modal-key-badge">${escapeHtml(issueKey)}</span>
           <span class="bjwt-history-modal-summary-text" id="bjwt-history-modal-header-summary" title="${escapeHtml(displaySummary)}">${escapeHtml(displaySummary)}</span>
         </div>
@@ -455,23 +461,21 @@
 
         <!-- 右欄 320px：卡片欄位屬性 (狀態、經辦人、報告者、優先順序、Story Points、Epic、到期日、標籤、日期) -->
         <div class="bjwt-detail-side-col">
-          <div class="bjwt-detail-section-title">詳細資訊</div>
+          <div class="bjwt-detail-section-title">
+            詳細資訊
+            <span class="bjwt-edit-only bjwt-edit-tip" style="margin-left: 6px;">(點擊欄位即可修改)</span>
+          </div>
           <div class="bjwt-detail-field-group">
             <div class="bjwt-detail-field">
               <div class="bjwt-detail-field-label">狀態</div>
-              <div class="bjwt-detail-field-value" id="bjwt-detail-val-status">
-                <div class="bjwt-view-only">
-                  <span class="bjwt-history-status-badge ${initialStatusClass}" id="bjwt-status-badge-val">${escapeHtml(initialStatusName)}</span>
-                </div>
-                <div class="bjwt-edit-only" id="bjwt-edit-status-container">
-                  <span class="bjwt-history-status-badge ${initialStatusClass}">${escapeHtml(initialStatusName)}</span>
-                </div>
+              <div class="bjwt-detail-field-value bjwt-detail-editable-trigger" id="bjwt-detail-val-status" data-bjwt-detail-edit="status" title="狀態">
+                <span class="bjwt-history-status-badge ${initialStatusClass}" id="bjwt-status-badge-val">${escapeHtml(initialStatusName)}</span>
               </div>
             </div>
 
             <div class="bjwt-detail-field">
               <div class="bjwt-detail-field-label">經辦人</div>
-              <div class="bjwt-detail-field-value" id="bjwt-detail-val-assignee">
+              <div class="bjwt-detail-field-value bjwt-detail-editable-trigger" id="bjwt-detail-val-assignee" data-bjwt-detail-edit="assignee" title="經辦人">
                 <div class="bjwt-user-cell">
                   ${
                     initialAssigneeAvatar
@@ -483,14 +487,16 @@
               </div>
             </div>
 
-            <div class="bjwt-detail-field" id="bjwt-detail-row-reporter" style="display: none;">
+            <div class="bjwt-detail-field bjwt-detail-field--editable" id="bjwt-detail-row-reporter" style="display: none;">
               <div class="bjwt-detail-field-label">報告者</div>
-              <div class="bjwt-detail-field-value" id="bjwt-detail-val-reporter">-</div>
+              <div class="bjwt-detail-field-value bjwt-detail-editable-trigger" id="bjwt-detail-val-reporter" data-bjwt-detail-edit="reporter" title="報告者">
+                <span class="bjwt-detail-placeholder-text">未指定</span>
+              </div>
             </div>
 
             <div class="bjwt-detail-field">
               <div class="bjwt-detail-field-label">優先順序</div>
-              <div class="bjwt-detail-field-value" id="bjwt-detail-val-priority">
+              <div class="bjwt-detail-field-value bjwt-detail-editable-trigger" id="bjwt-detail-val-priority" data-bjwt-detail-edit="priority" title="優先順序">
                 ${
                   initialPriorityIcon
                     ? `<img src="${escapeHtml(initialPriorityIcon)}" width="16" height="16" alt="" />`
@@ -502,45 +508,38 @@
 
             <div class="bjwt-detail-field">
               <div class="bjwt-detail-field-label">Story Points</div>
-              <div class="bjwt-detail-field-value" id="bjwt-detail-val-points">
-                <div class="bjwt-view-only">
-                  <span class="bjwt-history-points-badge" id="bjwt-points-badge-val">${escapeHtml(String(initialPoints))}</span>
-                </div>
-                <div class="bjwt-edit-only">
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    class="bjwt-edit-points-input"
-                    id="bjwt-edit-points-field"
-                    value="${initialPoints !== '-' && initialPoints !== null && initialPoints !== undefined ? initialPoints : ''}"
-                    placeholder="點數"
-                  />
-                </div>
+              <div class="bjwt-detail-field-value bjwt-detail-editable-trigger" id="bjwt-detail-val-points" data-bjwt-detail-edit="points" title="Story Points">
+                <span class="bjwt-history-points-badge" id="bjwt-points-badge-val">${escapeHtml(String(initialPoints))}</span>
               </div>
             </div>
 
-            <div class="bjwt-detail-field" id="bjwt-detail-row-parent" style="${initialParentText ? '' : 'display: none;'}">
+            <div class="bjwt-detail-field bjwt-detail-field--editable" id="bjwt-detail-row-parent" style="${initialParentText ? '' : 'display: none;'}">
               <div class="bjwt-detail-field-label">上層項目</div>
-              <div class="bjwt-detail-field-value" id="bjwt-detail-val-parent">
+              <div class="bjwt-detail-field-value bjwt-detail-editable-trigger" id="bjwt-detail-val-parent" data-bjwt-detail-edit="parent" title="上層項目">
                 ${
                   initialParentText
                     ? `<span class="bjwt-history-parent-badge"><span class="bjwt-parent-dot"></span>${escapeHtml(initialParentText)}</span>`
-                    : '-'
+                    : '<span class="bjwt-detail-placeholder-text">無上層項目</span>'
                 }
               </div>
             </div>
 
-            <div class="bjwt-detail-field" id="bjwt-detail-row-due" style="${initialDueDate ? '' : 'display: none;'}">
+            <div class="bjwt-detail-field bjwt-detail-field--editable" id="bjwt-detail-row-due" style="${initialDueDate ? '' : 'display: none;'}">
               <div class="bjwt-detail-field-label">到期日</div>
-              <div class="bjwt-detail-field-value" id="bjwt-detail-val-due">
-                <span class="bjwt-history-duedate-badge">${escapeHtml(initialDueDate)}</span>
+              <div class="bjwt-detail-field-value bjwt-detail-editable-trigger" id="bjwt-detail-val-due" data-bjwt-detail-edit="duedate" title="到期日">
+                ${
+                  initialDueDate
+                    ? `<span class="bjwt-history-duedate-badge">${escapeHtml(initialDueDate)}</span>`
+                    : '<span class="bjwt-detail-placeholder-text">未設定</span>'
+                }
               </div>
             </div>
 
-            <div class="bjwt-detail-field" id="bjwt-detail-row-labels" style="display: none;">
+            <div class="bjwt-detail-field bjwt-detail-field--editable" id="bjwt-detail-row-labels" style="display: none;">
               <div class="bjwt-detail-field-label">標籤</div>
-              <div class="bjwt-detail-field-value bjwt-detail-labels-container" id="bjwt-detail-val-labels"></div>
+              <div class="bjwt-detail-field-value bjwt-detail-labels-container bjwt-detail-editable-trigger" id="bjwt-detail-val-labels" data-bjwt-detail-edit="labels" title="標籤">
+                <span class="bjwt-detail-placeholder-text">無標籤</span>
+              </div>
             </div>
 
             <div class="bjwt-detail-field" id="bjwt-detail-row-dates" style="display: none;">
@@ -565,8 +564,30 @@
     let currentRenderedDescHtml = '';
     let richDescDirty = false;
     let isDescSourceMode = false;
+    let currentIssueTypeName = initialTypeName;
+    let currentIssueTypeIcon = initialTypeIcon;
     let currentRawPoints = initialPoints !== '-' ? initialPoints : '';
     let currentStatusName = initialStatusName;
+    let currentStatusCategory = (fallbackIssue && fallbackIssue.statusCategory) || 'new';
+    let currentIsUnassigned = (fallbackIssue && fallbackIssue.isUnassigned) !== undefined ? Boolean(fallbackIssue.isUnassigned) : initialAssigneeName === '未指派';
+    let currentAssigneeName = initialAssigneeName;
+    let currentAssigneeAvatar = initialAssigneeAvatar;
+    let currentAssigneeAccountId = (fallbackIssue && fallbackIssue.assigneeAccountId) || '';
+    let currentAssigneeEmail = (fallbackIssue && fallbackIssue.assigneeEmail) || '';
+    let currentAssigneeUsername = (fallbackIssue && fallbackIssue.assigneeUsername) || '';
+    let currentAssigneeInitials = (fallbackIssue && fallbackIssue.assigneeInitials) || '';
+    let currentReporterName = '';
+    let currentReporterAvatar = '';
+    let currentReporterAccountId = '';
+    let currentReporterEmail = '';
+    let currentReporterUsername = '';
+    let currentPriorityName = initialPriorityName;
+    let currentPriorityIcon = initialPriorityIcon;
+    let currentPrioritySvg = initialPrioritySvg;
+    let currentParentKey = (fallbackIssue && fallbackIssue.parentKey) || '';
+    let currentParentSummary = (fallbackIssue && fallbackIssue.parentSummary) || '';
+    let currentDueDate = initialDueDate;
+    let currentLabels = Array.isArray(fallbackIssue && fallbackIssue.labels) ? [...fallbackIssue.labels] : [];
     let currentComments = [];
     let currentAttachments = [];
     const renderedCommentsMap = new Map();
@@ -1133,6 +1154,199 @@
       });
     }
 
+    function getCurrentIssueSnapshot() {
+      return {
+        key: issueKey,
+        summary: currentRawSummary,
+        issueTypeName: currentIssueTypeName,
+        issueTypeIcon: currentIssueTypeIcon,
+        statusName: currentStatusName,
+        statusCategory: currentStatusCategory,
+        isUnassigned: currentIsUnassigned,
+        assigneeName: currentAssigneeName,
+        assigneeAvatar: currentAssigneeAvatar,
+        assigneeAccountId: currentAssigneeAccountId,
+        assigneeEmail: currentAssigneeEmail,
+        assigneeUsername: currentAssigneeUsername,
+        assigneeInitials: currentAssigneeInitials,
+        reporterName: currentReporterName,
+        reporterAvatar: currentReporterAvatar,
+        reporterAccountId: currentReporterAccountId,
+        reporterEmail: currentReporterEmail,
+        reporterUsername: currentReporterUsername,
+        priorityName: currentPriorityName,
+        priorityIcon: currentPriorityIcon,
+        prioritySvg: currentPrioritySvg,
+        storyPoints: currentRawPoints !== '' && currentRawPoints !== '-' ? currentRawPoints : null,
+        parentKey: currentParentKey,
+        parentSummary: currentParentSummary,
+        dueDate: currentDueDate,
+        labels: [...currentLabels]
+      };
+    }
+
+    function renderDetailSideFields() {
+      const typeTrigger = modalEl.querySelector('#bjwt-detail-type-trigger');
+      if (typeTrigger) {
+        typeTrigger.title = currentIssueTypeName || '問題類型';
+        typeTrigger.innerHTML = currentIssueTypeIcon
+          ? `<img class="bjwt-history-issuetype-icon" src="${escapeHtml(currentIssueTypeIcon)}" alt="${escapeHtml(currentIssueTypeName)}" title="${escapeHtml(currentIssueTypeName)}" style="width: 16px; height: 16px;" />`
+          : `<span class="bjwt-detail-type-fallback" title="${escapeHtml(currentIssueTypeName)}">📌</span>`;
+      }
+
+      const statusVal = modalEl.querySelector('#bjwt-status-badge-val');
+      if (statusVal) {
+        const isNormDone = currentStatusCategory === 'done';
+        const normStatusClass = isNormDone
+          ? 'status-done'
+          : currentStatusCategory === 'indeterminate'
+          ? 'status-inprogress'
+          : '';
+        statusVal.className = `bjwt-history-status-badge ${normStatusClass}`;
+        statusVal.textContent = currentStatusName || '未指定';
+      }
+
+      const assigneeVal = modalEl.querySelector('#bjwt-detail-val-assignee');
+      if (assigneeVal) {
+        const displayAss = currentIsUnassigned ? '未指派' : currentAssigneeName || '未指派';
+        assigneeVal.innerHTML = `
+          <div class="bjwt-user-cell">
+            ${
+              !currentIsUnassigned && currentAssigneeAvatar
+                ? `<img src="${escapeHtml(currentAssigneeAvatar)}" alt="" />`
+                : `<span class="bjwt-user-avatar-placeholder">👤</span>`
+            }
+            <span>${escapeHtml(displayAss)}</span>
+          </div>
+        `;
+      }
+
+      const repRow = modalEl.querySelector('#bjwt-detail-row-reporter');
+      const repVal = modalEl.querySelector('#bjwt-detail-val-reporter');
+      if (repRow && repVal) {
+        if (currentReporterName) {
+          repRow.style.display = 'flex';
+          repVal.innerHTML = `
+            <div class="bjwt-user-cell">
+              ${
+                currentReporterAvatar
+                  ? `<img src="${escapeHtml(currentReporterAvatar)}" alt="" />`
+                  : `<span class="bjwt-user-avatar-placeholder">👤</span>`
+              }
+              <span>${escapeHtml(currentReporterName)}</span>
+            </div>
+          `;
+        } else {
+          repRow.style.display = 'none';
+          repVal.innerHTML = '<span class="bjwt-detail-placeholder-text">未指定</span>';
+        }
+      }
+
+      const priVal = modalEl.querySelector('#bjwt-detail-val-priority');
+      if (priVal) {
+        priVal.innerHTML = `
+          ${
+            currentPriorityIcon
+              ? `<img src="${escapeHtml(currentPriorityIcon)}" width="16" height="16" alt="" />`
+              : currentPrioritySvg || ''
+          }
+          <span>${escapeHtml(currentPriorityName || '未指定')}</span>
+        `;
+      }
+
+      const pointsBadge = modalEl.querySelector('#bjwt-points-badge-val');
+      if (pointsBadge) {
+        const ptsText =
+          currentRawPoints !== null && currentRawPoints !== undefined && currentRawPoints !== ''
+            ? String(currentRawPoints)
+            : '-';
+        pointsBadge.textContent = ptsText;
+      }
+
+      const parentRow = modalEl.querySelector('#bjwt-detail-row-parent');
+      const parentVal = modalEl.querySelector('#bjwt-detail-val-parent');
+      if (parentRow && parentVal) {
+        const parentDisplay = currentParentSummary || currentParentKey;
+        if (parentDisplay) {
+          parentRow.style.display = 'flex';
+          parentVal.innerHTML = `<span class="bjwt-history-parent-badge"><span class="bjwt-parent-dot"></span>${escapeHtml(parentDisplay)}</span>`;
+        } else {
+          parentRow.style.display = 'none';
+          parentVal.innerHTML = '<span class="bjwt-detail-placeholder-text">無上層項目</span>';
+        }
+      }
+
+      const dueRow = modalEl.querySelector('#bjwt-detail-row-due');
+      const dueVal = modalEl.querySelector('#bjwt-detail-val-due');
+      if (dueRow && dueVal) {
+        if (currentDueDate) {
+          dueRow.style.display = 'flex';
+          dueVal.innerHTML = `<span class="bjwt-history-duedate-badge">${escapeHtml(currentDueDate)}</span>`;
+        } else {
+          dueRow.style.display = 'none';
+          dueVal.innerHTML = '<span class="bjwt-detail-placeholder-text">未設定</span>';
+        }
+      }
+
+      const labelsRow = modalEl.querySelector('#bjwt-detail-row-labels');
+      const labelsVal = modalEl.querySelector('#bjwt-detail-val-labels');
+      if (labelsRow && labelsVal) {
+        if (Array.isArray(currentLabels) && currentLabels.length > 0) {
+          labelsRow.style.display = 'flex';
+          labelsVal.innerHTML = currentLabels
+            .map((lbl) => `<span class="bjwt-detail-label-tag">${escapeHtml(lbl)}</span>`)
+            .join('');
+        } else {
+          labelsRow.style.display = 'none';
+          labelsVal.innerHTML = '<span class="bjwt-detail-placeholder-text">無標籤</span>';
+        }
+      }
+    }
+
+    modalEl.querySelectorAll('[data-bjwt-detail-edit]').forEach((triggerEl) => {
+      triggerEl.addEventListener('click', (e) => {
+        if (!modalEl.hasAttribute('data-bjwt-edit-mode')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const editType = triggerEl.getAttribute('data-bjwt-detail-edit');
+        const { QuickEditPopoverComponent } = BetterJira;
+        if (!editType || !QuickEditPopoverComponent || typeof QuickEditPopoverComponent.open !== 'function') return;
+
+        QuickEditPopoverComponent.open(triggerEl, issueKey, editType, getCurrentIssueSnapshot(), {
+          onSuccess: (updated) => {
+            if (!updated || !modalEl.isConnected) return;
+            if ('issueTypeName' in updated) currentIssueTypeName = updated.issueTypeName || '';
+            if ('issueTypeIcon' in updated) currentIssueTypeIcon = updated.issueTypeIcon || '';
+            if ('statusName' in updated) currentStatusName = updated.statusName || '';
+            if ('statusCategory' in updated) currentStatusCategory = updated.statusCategory || 'new';
+            if ('isUnassigned' in updated) currentIsUnassigned = Boolean(updated.isUnassigned);
+            if ('assigneeName' in updated) currentAssigneeName = updated.assigneeName || '未指派';
+            if ('assigneeAvatar' in updated) currentAssigneeAvatar = updated.assigneeAvatar || '';
+            if ('assigneeAccountId' in updated) currentAssigneeAccountId = updated.assigneeAccountId || '';
+            if ('assigneeEmail' in updated) currentAssigneeEmail = updated.assigneeEmail || '';
+            if ('assigneeUsername' in updated) currentAssigneeUsername = updated.assigneeUsername || '';
+            if ('assigneeInitials' in updated) currentAssigneeInitials = updated.assigneeInitials || '';
+            if ('reporterName' in updated) currentReporterName = updated.reporterName || '';
+            if ('reporterAvatar' in updated) currentReporterAvatar = updated.reporterAvatar || '';
+            if ('reporterAccountId' in updated) currentReporterAccountId = updated.reporterAccountId || '';
+            if ('reporterEmail' in updated) currentReporterEmail = updated.reporterEmail || '';
+            if ('reporterUsername' in updated) currentReporterUsername = updated.reporterUsername || '';
+            if ('priorityName' in updated) currentPriorityName = updated.priorityName || '';
+            if ('priorityIcon' in updated) currentPriorityIcon = updated.priorityIcon || '';
+            if ('prioritySvg' in updated) currentPrioritySvg = updated.prioritySvg || '';
+            if ('storyPoints' in updated) {
+              currentRawPoints = updated.storyPoints !== null && updated.storyPoints !== undefined ? updated.storyPoints : '';
+            }
+            if ('parentKey' in updated) currentParentKey = updated.parentKey || '';
+            if ('parentSummary' in updated) currentParentSummary = updated.parentSummary || '';
+            if ('dueDate' in updated) currentDueDate = updated.dueDate || '';
+            if ('labels' in updated && Array.isArray(updated.labels)) currentLabels = [...updated.labels];
+            renderDetailSideFields();
+          }
+        });
+      });
+    });
+
     function setEditMode(active) {
       const descPreview = modalEl.querySelector('#bjwt-edit-desc-preview');
       const descRich = modalEl.querySelector('#bjwt-edit-desc-rich');
@@ -1161,17 +1375,19 @@
       if (active) {
         modalEl.setAttribute('data-bjwt-edit-mode', 'true');
         const summaryInput = modalEl.querySelector('#bjwt-edit-summary-field');
-        const pointsInput = modalEl.querySelector('#bjwt-edit-points-field');
         if (summaryInput) summaryInput.value = currentRawSummary;
         if (descTextarea) descTextarea.value = currentRawDesc;
         if (descRich) descRich.innerHTML = currentRawDesc ? currentRenderedDescHtml : '';
         richDescDirty = false;
-        if (pointsInput) pointsInput.value = currentRawPoints !== null && currentRawPoints !== undefined && currentRawPoints !== '-' ? currentRawPoints : '';
         renderAttachmentsList();
         renderCommentsList();
         if (summaryInput) summaryInput.focus();
       } else {
         modalEl.removeAttribute('data-bjwt-edit-mode');
+        const { QuickEditPopoverComponent } = BetterJira;
+        if (QuickEditPopoverComponent && typeof QuickEditPopoverComponent.close === 'function') {
+          QuickEditPopoverComponent.close();
+        }
         richDescDirty = false;
         if (addCommentField) addCommentField.value = '';
         if (msgBanner) msgBanner.style.display = 'none';
@@ -1190,8 +1406,6 @@
       saveBtn.addEventListener('click', async () => {
         const summaryInput = modalEl.querySelector('#bjwt-edit-summary-field');
         const descTextarea = modalEl.querySelector('#bjwt-edit-desc-field');
-        const pointsInput = modalEl.querySelector('#bjwt-edit-points-field');
-        const statusSelect = modalEl.querySelector('#bjwt-edit-status-select');
 
         const newSummary = summaryInput ? summaryInput.value.trim() : currentRawSummary;
         if (!newSummary) {
@@ -1206,9 +1420,6 @@
         } else if (richDescDirty && descRich && typeof AdfParser.htmlToJiraWiki === 'function') {
           newDesc = AdfParser.htmlToJiraWiki(descRich, currentAttachments);
         }
-        const newPointsStr = pointsInput ? pointsInput.value.trim() : '';
-        const newPoints = newPointsStr === '' ? null : Number(newPointsStr);
-        const transitionId = statusSelect ? statusSelect.value : '';
         const pendingNewComment = addCommentField ? addCommentField.value.trim() : '';
         const editingCommentItems = Array.from(
           modalEl.querySelectorAll('.bjwt-comment-item[data-bjwt-comment-editing="true"]')
@@ -1217,15 +1428,9 @@
         // 檢查是否有實質修改 (Dirty Check)
         const summaryChanged = newSummary !== currentRawSummary;
         const descChanged = newDesc !== currentRawDesc;
-        const origPointsStr =
-          currentRawPoints !== null && currentRawPoints !== undefined && currentRawPoints !== '-'
-            ? String(currentRawPoints).trim()
-            : '';
-        const pointsChanged = newPointsStr !== origPointsStr;
-        const statusChanged = Boolean(transitionId);
         const commentsChanged = Boolean(pendingNewComment) || editingCommentItems.length > 0;
 
-        if (!summaryChanged && !descChanged && !pointsChanged && !statusChanged && !commentsChanged) {
+        if (!summaryChanged && !descChanged && !commentsChanged) {
           setEditMode(false);
           return;
         }
@@ -1238,22 +1443,12 @@
           const updates = {};
           if (summaryChanged) updates.summary = newSummary;
           if (descChanged) updates.description = newDesc;
-          if (pointsChanged) {
-            updates.storyPoints = newPoints !== null && !isNaN(newPoints) ? newPoints : null;
-          }
 
           let updateRes = { success: true };
           if (Object.keys(updates).length > 0) {
             updateRes = await JiraApiService.updateIssue(issueKey, updates);
             if (!updateRes.success) {
               throw new Error(updateRes.error || '儲存失敗');
-            }
-          }
-
-          if (statusChanged && transitionId) {
-            const transRes = await JiraApiService.transitionIssue(issueKey, transitionId);
-            if (!transRes.success) {
-              console.warn('狀態轉換未成功:', transRes.error);
             }
           }
 
@@ -1272,9 +1467,6 @@
 
           currentRawSummary = newSummary;
           currentRawDesc = newDesc;
-          if (pointsChanged) {
-            currentRawPoints = newPoints !== null ? newPoints : '';
-          }
 
           const headerSummary = modalEl.querySelector('#bjwt-history-modal-header-summary');
           if (headerSummary) {
@@ -1294,19 +1486,11 @@
             descBody.innerHTML = currentRenderedDescHtml;
           }
 
-          const pointsBadge = modalEl.querySelector('#bjwt-points-badge-val');
-          if (pointsBadge && pointsChanged) {
-            pointsBadge.textContent = String(newPoints !== null && newPoints !== undefined ? newPoints : '-');
-          }
-
           const cacheUpdate = {
             key: issueKey,
             summary: newSummary,
             isUserEdit: true
           };
-          if (pointsChanged) {
-            cacheUpdate.storyPoints = newPoints;
-          }
           IssueStore.mergeAndCacheIssue(cacheUpdate);
 
           const { LayoutManager, QuickEditPopoverComponent } = BetterJira;
@@ -1487,35 +1671,17 @@
         // 5. 報告者
         if (fields.reporter) {
           const rep = fields.reporter;
-          const repRow = modalEl.querySelector('#bjwt-detail-row-reporter');
-          const repVal = modalEl.querySelector('#bjwt-detail-val-reporter');
-          if (repRow && repVal) {
-            repRow.style.display = 'flex';
-            const repAvatar =
-              rep.avatarUrls && (rep.avatarUrls['24x24'] || rep.avatarUrls['48x48']);
-            repVal.innerHTML = `
-              <div class="bjwt-user-cell">
-                ${
-                  repAvatar
-                    ? `<img src="${escapeHtml(repAvatar)}" alt="" />`
-                    : `<span class="bjwt-user-avatar-placeholder">👤</span>`
-                }
-                <span>${escapeHtml(rep.displayName || rep.name || '未指定')}</span>
-              </div>
-            `;
-          }
+          currentReporterName = rep.displayName || rep.name || '';
+          currentReporterAvatar =
+            (rep.avatarUrls && (rep.avatarUrls['24x24'] || rep.avatarUrls['48x48'])) || '';
+          currentReporterAccountId = rep.accountId || '';
+          currentReporterEmail = rep.emailAddress || '';
+          currentReporterUsername = rep.name || rep.key || '';
         }
 
         // 6. 標籤
-        if (Array.isArray(fields.labels) && fields.labels.length > 0) {
-          const labelsRow = modalEl.querySelector('#bjwt-detail-row-labels');
-          const labelsVal = modalEl.querySelector('#bjwt-detail-val-labels');
-          if (labelsRow && labelsVal) {
-            labelsRow.style.display = 'flex';
-            labelsVal.innerHTML = fields.labels
-              .map((lbl) => `<span class="bjwt-detail-label-tag">${escapeHtml(lbl)}</span>`)
-              .join('');
-          }
+        if (Array.isArray(fields.labels)) {
+          currentLabels = [...fields.labels];
         }
 
         // 7. 建立與更新日期
@@ -1533,51 +1699,31 @@
           }
         }
 
-        // 8. 重新校準精確狀態與 Story Points (透過 normalizeJiraIssue)
+        // 8. 重新校準精確狀態、經辦人、優先順序、Story Points、上層項目、到期日 (透過 normalizeJiraIssue)
         const normalized = normalizeJiraIssue(issueData);
         if (normalized) {
-          const statusVal = modalEl.querySelector('#bjwt-status-badge-val') || modalEl.querySelector('#bjwt-detail-val-status');
-          if (statusVal && normalized.statusName) {
-            currentStatusName = normalized.statusName;
-            const isNormDone = normalized.statusCategory === 'done';
-            const normStatusClass = isNormDone
-              ? 'status-done'
-              : normalized.statusCategory === 'indeterminate'
-              ? 'status-inprogress'
-              : '';
-            statusVal.className = `bjwt-history-status-badge ${normStatusClass}`;
-            statusVal.textContent = normalized.statusName;
-          }
+          if (normalized.issueTypeName) currentIssueTypeName = normalized.issueTypeName;
+          if (normalized.issueTypeIcon) currentIssueTypeIcon = normalized.issueTypeIcon;
+          if (normalized.statusName) currentStatusName = normalized.statusName;
+          if (normalized.statusCategory) currentStatusCategory = normalized.statusCategory;
+          currentIsUnassigned = Boolean(normalized.isUnassigned);
+          currentAssigneeName = normalized.assigneeName || '未指派';
+          currentAssigneeAvatar = normalized.assigneeAvatar || '';
+          currentAssigneeAccountId = normalized.assigneeAccountId || '';
+          currentAssigneeEmail = normalized.assigneeEmail || '';
+          currentAssigneeUsername = normalized.assigneeUsername || '';
+          currentAssigneeInitials = normalized.assigneeInitials || '';
+          if (normalized.priorityName) currentPriorityName = normalized.priorityName;
+          if (normalized.priorityIcon) currentPriorityIcon = normalized.priorityIcon;
+          if (normalized.prioritySvg) currentPrioritySvg = normalized.prioritySvg;
           if (normalized.storyPoints !== null && normalized.storyPoints !== undefined) {
             currentRawPoints = normalized.storyPoints;
-            const pointsBadge = modalEl.querySelector('#bjwt-points-badge-val');
-            if (pointsBadge) {
-              pointsBadge.textContent = String(normalized.storyPoints);
-            }
-            const pointsInput = modalEl.querySelector('#bjwt-edit-points-field');
-            if (pointsInput && !modalEl.hasAttribute('data-bjwt-edit-mode')) {
-              pointsInput.value = normalized.storyPoints;
-            }
           }
+          if (normalized.parentKey !== undefined) currentParentKey = normalized.parentKey || '';
+          if (normalized.parentSummary !== undefined) currentParentSummary = normalized.parentSummary || '';
+          if (normalized.dueDate !== undefined) currentDueDate = normalized.dueDate || '';
         }
-
-        // 9. 載入狀態轉換選項 (Transitions)
-        try {
-          const transitions = await JiraApiService.fetchIssueTransitions(issueKey);
-          if (Array.isArray(transitions) && transitions.length > 0 && modalEl.isConnected) {
-            const statusBox = modalEl.querySelector('#bjwt-edit-status-container');
-            if (statusBox) {
-              statusBox.innerHTML = `
-                <select class="bjwt-edit-status-select" id="bjwt-edit-status-select">
-                  <option value="">${escapeHtml(currentStatusName)} (保持現狀)</option>
-                  ${transitions.map((t) => `<option value="${escapeHtml(t.id)}">→ ${escapeHtml(t.name)}</option>`).join('')}
-                </select>
-              `;
-            }
-          }
-        } catch {
-          // ignore
-        }
+        renderDetailSideFields();
       } catch {
         if (!modalEl.isConnected) return;
         const descEl = modalEl.querySelector('#bjwt-detail-description-body');

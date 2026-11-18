@@ -257,11 +257,22 @@
    *
    * @param {HTMLElement} triggerEl - 觸發元素 (狀態 badge、StoryPoint slot、優先度 slot 或經辦人 slot)
    * @param {string} issueKey - 卡片編號 (例如 "WMC-123")
-   * @param {'status'|'points'|'priority'|'assignee'} editType - 編輯欄位類型
+   * @param {'type'|'status'|'points'|'priority'|'assignee'|'reporter'|'duedate'|'labels'|'parent'} editType - 編輯欄位類型
    * @param {Object} [currentIssue={}] - 卡片目前資料物件
+   * @param {Object} [options={}] - 額外選項 ({ onSuccess?: Function })
    */
-  async function open(triggerEl, issueKey, editType, currentIssue = {}) {
+  async function open(triggerEl, issueKey, editType, currentIssue = {}, options = {}) {
     close();
+
+    const notifySuccess = (updatedFields) => {
+      if (options && typeof options.onSuccess === 'function') {
+        try {
+          options.onSuccess(updatedFields);
+        } catch {
+          // ignore
+        }
+      }
+    };
 
     const { TextUtils, JiraApiService, IssueStore, LayoutManager } = BetterJira;
     const { escapeHtml, cleanStatusText } = TextUtils || {
@@ -286,7 +297,11 @@
       status: { icon: '⚡', label: '切換狀態' },
       points: { icon: '🔢', label: '修改 Story Points' },
       priority: { icon: '🎯', label: '修改優先順序' },
-      assignee: { icon: '👤', label: '指派經辦人' }
+      assignee: { icon: '👤', label: '指派經辦人' },
+      reporter: { icon: '📝', label: '修改報告者' },
+      duedate: { icon: '📅', label: '修改到期日' },
+      labels: { icon: '🏷️', label: '編輯標籤' },
+      parent: { icon: '🔗', label: '修改上層項目' }
     };
     const currentMeta = titles[editType] || { icon: '✏️', label: '編輯欄位' };
 
@@ -420,6 +435,7 @@
                   });
                 }
                 triggerImmediateUiRefresh();
+                notifySuccess({ issueTypeName: typeName, issueTypeIcon: matchedT.iconUrl || '' });
                 close();
               } else {
                 btn.disabled = false;
@@ -491,6 +507,7 @@
                   });
                 }
                 triggerImmediateUiRefresh();
+                notifySuccess({ statusName: targetName, statusCategory: targetCategory });
                 close();
               } else {
                 btn.disabled = false;
@@ -578,14 +595,16 @@
 
           const res = await JiraApiService.updateIssueEstimation(issueKey, newPts);
           if (res.success) {
+            const resolvedPts = newPts !== null && !isNaN(newPts) ? newPts : null;
             if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
               IssueStore.mergeAndCacheIssue({
                 key: issueKey,
-                storyPoints: newPts !== null && !isNaN(newPts) ? newPts : null,
+                storyPoints: resolvedPts,
                 isUserEdit: true
               });
             }
             triggerImmediateUiRefresh();
+            notifySuccess({ storyPoints: resolvedPts });
             close();
           } else {
             if (saveBtn) {
@@ -646,6 +665,7 @@
                 });
               }
               triggerImmediateUiRefresh();
+              notifySuccess({ priorityName: pName, priorityIcon: matchedP.iconUrl || '', prioritySvg: '' });
               close();
             } else {
               btn.disabled = false;
@@ -654,10 +674,15 @@
             }
           });
         });
-      } else if (editType === 'assignee') {
-        // --- 經辦人修改 ---
+      } else if (editType === 'assignee' || editType === 'reporter') {
+        // --- 經辦人 / 報告者修改 (共用人員搜尋與選擇邏輯) ---
+        const isReporter = editType === 'reporter';
         let candidates = collectCandidateAssignees(currentIssue);
-        const currentAssignee = currentIssue.isUnassigned ? '未指派' : (currentIssue.assigneeName || '未指派');
+        const currentUserLabel = isReporter
+          ? currentIssue.reporterName || '未指定'
+          : currentIssue.isUnassigned
+          ? '未指派'
+          : currentIssue.assigneeName || '未指派';
 
         // 在背景預先查詢此卡片在 Jira 中的可指派成員，自動補齊自訂成員的 accountId 與頭像
         if (JiraApiService && typeof JiraApiService.fetchAssignableUsers === 'function') {
@@ -669,7 +694,7 @@
             .catch(() => {});
         }
 
-        function renderAssigneeList(filterKw = '') {
+        function renderUserList(filterKw = '') {
           const kw = filterKw.trim().toLowerCase();
           const filtered = candidates.filter((c) => {
             if (!kw) return true;
@@ -692,16 +717,22 @@
               />
             </div>
             <div class="bjwt-popover-list bjwt-assignee-scroll-list">
-              <!-- 未指派選項 -->
-              <button type="button" class="bjwt-popover-item bjwt-popover-item-assignee ${currentAssignee === '未指派' ? 'is-selected' : ''}" data-assignee-name="__UNASSIGNED__">
-                <span class="bjwt-avatar-placeholder unassigned">?</span>
-                <span class="bjwt-popover-item-text" style="font-weight: 600;">未指派</span>
-                ${currentAssignee === '未指派' ? `<span class="bjwt-popover-check">✓</span>` : ''}
-              </button>
+              ${
+                !isReporter
+                  ? `
+                    <!-- 未指派選項 -->
+                    <button type="button" class="bjwt-popover-item bjwt-popover-item-assignee ${currentUserLabel === '未指派' ? 'is-selected' : ''}" data-assignee-name="__UNASSIGNED__">
+                      <span class="bjwt-avatar-placeholder unassigned">?</span>
+                      <span class="bjwt-popover-item-text" style="font-weight: 600;">未指派</span>
+                      ${currentUserLabel === '未指派' ? `<span class="bjwt-popover-check">✓</span>` : ''}
+                    </button>
+                  `
+                  : ''
+              }
 
               ${filtered
                 .map((c) => {
-                  const isSelected = currentAssignee === c.name;
+                  const isSelected = currentUserLabel === c.name;
                   return `
                     <button type="button" class="bjwt-popover-item bjwt-popover-item-assignee ${isSelected ? 'is-selected' : ''}" data-assignee-name="${escapeHtml(c.name)}">
                       ${
@@ -725,7 +756,7 @@
                     <button type="button" class="bjwt-popover-item bjwt-popover-item-assignee bjwt-item-custom-name" data-assignee-name="${escapeHtml(filterKw.trim())}">
                       <span class="bjwt-avatar-placeholder">+</span>
                       <div class="bjwt-popover-assignee-info">
-                        <span class="bjwt-popover-item-text">直接指派為：「${escapeHtml(filterKw.trim())}」</span>
+                        <span class="bjwt-popover-item-text">直接${isReporter ? '設為報告者' : '指派為'}：「${escapeHtml(filterKw.trim())}」</span>
                       </div>
                     </button>
                   `
@@ -735,21 +766,21 @@
           `;
         }
 
-        bodyEl.innerHTML = renderAssigneeList('');
+        bodyEl.innerHTML = renderUserList('');
 
-        function bindAssigneeEvents() {
+        function bindUserPickerEvents() {
           const searchInput = bodyEl.querySelector('#bjwt-assignee-search-input');
           if (searchInput) {
             searchInput.focus();
             searchInput.addEventListener('input', (e) => {
               const kw = e.target.value;
-              bodyEl.innerHTML = renderAssigneeList(kw);
+              bodyEl.innerHTML = renderUserList(kw);
               const newSearchInput = bodyEl.querySelector('#bjwt-assignee-search-input');
               if (newSearchInput) {
                 newSearchInput.focus();
                 newSearchInput.selectionStart = newSearchInput.selectionEnd = kw.length;
               }
-              bindAssigneeEvents();
+              bindUserPickerEvents();
               positionPopover(popoverEl, triggerEl);
             });
           }
@@ -758,21 +789,30 @@
             btn.addEventListener('click', async (e) => {
               e.stopPropagation();
               const targetName = btn.getAttribute('data-assignee-name');
-              const isUnassign = !targetName || targetName === '__UNASSIGNED__';
+              const isUnassign = !isReporter && (!targetName || targetName === '__UNASSIGNED__');
               const matchedMember = candidates.find((c) => c.name === targetName);
 
               btn.disabled = true;
               const textSpan = btn.querySelector('.bjwt-popover-item-text');
-              if (textSpan) textSpan.textContent = '指派中...';
+              if (textSpan) textSpan.textContent = isReporter ? '更新中...' : '指派中...';
 
-              const res = await JiraApiService.updateIssueAssignee(
-                issueKey,
-                isUnassign ? null : targetName,
-                matchedMember ? matchedMember.accountId : null,
-                matchedMember || { name: targetName }
-              );
+              const res = isReporter
+                ? await JiraApiService.updateIssueReporter(
+                    issueKey,
+                    targetName,
+                    matchedMember ? matchedMember.accountId : null,
+                    matchedMember || { name: targetName }
+                  )
+                : await JiraApiService.updateIssueAssignee(
+                    issueKey,
+                    isUnassign ? null : targetName,
+                    matchedMember ? matchedMember.accountId : null,
+                    matchedMember || { name: targetName }
+                  );
+
               if (res.success) {
                 const resolved = res.resolvedUser || null;
+                const finalName = isUnassign ? '未指派' : (resolved && resolved.name) || targetName;
                 const finalAvatar = isUnassign
                   ? ''
                   : (resolved && resolved.avatar) || (matchedMember ? matchedMember.avatar : '');
@@ -789,13 +829,21 @@
                   ? ''
                   : (matchedMember && matchedMember.initials) ||
                     (BetterJira.AssigneeUtils && typeof BetterJira.AssigneeUtils.getDisplayInitialsForIssue === 'function'
-                      ? BetterJira.AssigneeUtils.getDisplayInitialsForIssue({ assigneeName: targetName, isUnassigned: false })
-                      : targetName.slice(0, 2).toUpperCase());
+                      ? BetterJira.AssigneeUtils.getDisplayInitialsForIssue({ assigneeName: finalName, isUnassigned: false })
+                      : finalName.slice(0, 2).toUpperCase());
 
-                if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
-                  IssueStore.mergeAndCacheIssue({
+                if (isReporter) {
+                  notifySuccess({
+                    reporterName: finalName,
+                    reporterAvatar: finalAvatar,
+                    reporterEmail: finalEmail,
+                    reporterAccountId: finalAccountId,
+                    reporterUsername: finalUsername
+                  });
+                } else {
+                  const assigneeUpdate = {
                     key: issueKey,
-                    assigneeName: isUnassign ? '未指派' : targetName,
+                    assigneeName: finalName,
                     isUnassigned: isUnassign,
                     assigneeAvatar: finalAvatar,
                     assigneeInitials: finalInitials,
@@ -804,20 +852,418 @@
                     assigneeAccountId: finalAccountId,
                     assigneeUsername: finalUsername,
                     isUserEdit: true
-                  });
+                  };
+                  if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
+                    IssueStore.mergeAndCacheIssue(assigneeUpdate);
+                  }
+                  triggerImmediateUiRefresh();
+                  notifySuccess(assigneeUpdate);
                 }
-                triggerImmediateUiRefresh();
                 close();
               } else {
                 btn.disabled = false;
                 if (textSpan) textSpan.textContent = isUnassign ? '未指派' : targetName;
-                alert(`經辦人指派失敗：${res.error || '請重試'}`);
+                alert(`${isReporter ? '報告者更新' : '經辦人指派'}失敗：${res.error || '請重試'}`);
               }
             });
           });
         }
 
-        bindAssigneeEvents();
+        bindUserPickerEvents();
+      } else if (editType === 'duedate') {
+        // --- 到期日修改 ---
+        const formatDateOffset = (days) => {
+          const d = new Date();
+          d.setDate(d.getDate() + days);
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          return `${yyyy}-${mm}-${dd}`;
+        };
+        const rawDue = String(currentIssue.dueDate || '').trim();
+        const initialDateVal = /^\d{4}-\d{2}-\d{2}$/.test(rawDue) ? rawDue : '';
+
+        bodyEl.innerHTML = `
+          <form class="bjwt-popover-form-points" onsubmit="return false;">
+            <div class="bjwt-popover-input-group">
+              <label for="bjwt-quick-duedate-input" class="bjwt-popover-input-label">到期日 (YYYY-MM-DD)：</label>
+              <input
+                type="date"
+                id="bjwt-quick-duedate-input"
+                class="bjwt-popover-input"
+                value="${escapeHtml(initialDateVal)}"
+              />
+            </div>
+            <div class="bjwt-popover-quick-chips">
+              <span class="bjwt-popover-chip" data-due="${escapeHtml(formatDateOffset(0))}">今天</span>
+              <span class="bjwt-popover-chip" data-due="${escapeHtml(formatDateOffset(1))}">明天</span>
+              <span class="bjwt-popover-chip" data-due="${escapeHtml(formatDateOffset(7))}">+7 天</span>
+              <span class="bjwt-popover-chip bjwt-chip-clear" data-due="">清空</span>
+            </div>
+            <div class="bjwt-popover-actions">
+              <button type="button" class="bjwt-popover-btn bjwt-popover-cancel-btn">取消</button>
+              <button type="submit" class="bjwt-popover-btn bjwt-popover-save-btn">儲存</button>
+            </div>
+          </form>
+        `;
+
+        const dateInput = bodyEl.querySelector('#bjwt-quick-duedate-input');
+        if (dateInput) dateInput.focus();
+
+        bodyEl.querySelectorAll('.bjwt-popover-chip').forEach((chip) => {
+          chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (dateInput) {
+              dateInput.value = chip.getAttribute('data-due') || '';
+              dateInput.focus();
+            }
+          });
+        });
+
+        const cancelBtn = bodyEl.querySelector('.bjwt-popover-cancel-btn');
+        if (cancelBtn) {
+          cancelBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            close();
+          });
+        }
+
+        const formEl = bodyEl.querySelector('.bjwt-popover-form-points');
+        const saveBtn = bodyEl.querySelector('.bjwt-popover-save-btn');
+        formEl.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const newDue = dateInput ? dateInput.value.trim() : '';
+
+          if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = '儲存中...';
+          }
+
+          const res = await JiraApiService.updateIssueDueDate(issueKey, newDue || null);
+          if (res.success) {
+            if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
+              IssueStore.mergeAndCacheIssue({
+                key: issueKey,
+                dueDate: newDue,
+                isUserEdit: true
+              });
+            }
+            triggerImmediateUiRefresh();
+            notifySuccess({ dueDate: newDue });
+            close();
+          } else {
+            if (saveBtn) {
+              saveBtn.disabled = false;
+              saveBtn.textContent = '儲存';
+            }
+            alert(`到期日更新失敗：${res.error || '請重試'}`);
+          }
+        });
+      } else if (editType === 'labels') {
+        // --- 標籤編輯 ---
+        let workingLabels = Array.isArray(currentIssue.labels) ? [...currentIssue.labels] : [];
+        let suggestedLabels = [];
+
+        if (JiraApiService && typeof JiraApiService.fetchLabelSuggestions === 'function') {
+          JiraApiService.fetchLabelSuggestions('')
+            .then((suggestions) => {
+              if (!popoverEl.isConnected || !Array.isArray(suggestions)) return;
+              suggestedLabels = suggestions.slice(0, 12);
+              renderLabelsBody();
+            })
+            .catch(() => {});
+        }
+
+        function renderLabelsBody(inputVal = '') {
+          const availableSuggestions = suggestedLabels.filter((s) => !workingLabels.includes(s)).slice(0, 8);
+          bodyEl.innerHTML = `
+            <div class="bjwt-popover-input-group">
+              <label for="bjwt-quick-label-input" class="bjwt-popover-input-label">目前標籤：</label>
+              <div class="bjwt-popover-label-chips">
+                ${
+                  workingLabels.length > 0
+                    ? workingLabels
+                        .map(
+                          (lbl) => `
+                            <span class="bjwt-popover-label-chip">
+                              <span>${escapeHtml(lbl)}</span>
+                              <button type="button" class="bjwt-popover-label-remove" data-label="${escapeHtml(lbl)}" title="移除標籤">×</button>
+                            </span>
+                          `
+                        )
+                        .join('')
+                    : '<span class="bjwt-popover-label-empty">尚無標籤</span>'
+                }
+              </div>
+              <div class="bjwt-popover-label-add-row">
+                <input
+                  type="text"
+                  id="bjwt-quick-label-input"
+                  class="bjwt-popover-input"
+                  placeholder="輸入標籤名稱 (空白將底線化)..."
+                  value="${escapeHtml(inputVal)}"
+                />
+                <button type="button" class="bjwt-popover-btn bjwt-popover-add-label-btn">新增</button>
+              </div>
+            </div>
+            ${
+              availableSuggestions.length > 0
+                ? `
+                  <div class="bjwt-popover-quick-chips" style="margin-top: 8px;">
+                    ${availableSuggestions
+                      .map((s) => `<span class="bjwt-popover-chip bjwt-popover-suggest-label" data-label="${escapeHtml(s)}">+ ${escapeHtml(s)}</span>`)
+                      .join('')}
+                  </div>
+                `
+                : ''
+            }
+            <div class="bjwt-popover-actions">
+              <button type="button" class="bjwt-popover-btn bjwt-popover-cancel-btn">取消</button>
+              <button type="button" class="bjwt-popover-btn bjwt-popover-save-btn">儲存</button>
+            </div>
+          `;
+
+          const labelInput = bodyEl.querySelector('#bjwt-quick-label-input');
+          const addBtn = bodyEl.querySelector('.bjwt-popover-add-label-btn');
+
+          const addLabel = (raw) => {
+            const clean = String(raw || '').trim().replace(/\s+/g, '_');
+            if (!clean) return;
+            if (!workingLabels.includes(clean)) {
+              workingLabels.push(clean);
+            }
+            renderLabelsBody('');
+            const nextInput = bodyEl.querySelector('#bjwt-quick-label-input');
+            if (nextInput) nextInput.focus();
+            positionPopover(popoverEl, triggerEl);
+          };
+
+          if (labelInput) {
+            labelInput.focus();
+            labelInput.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                addLabel(labelInput.value);
+              }
+            });
+          }
+
+          if (addBtn) {
+            addBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (labelInput) addLabel(labelInput.value);
+            });
+          }
+
+          bodyEl.querySelectorAll('.bjwt-popover-label-remove').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const target = btn.getAttribute('data-label');
+              workingLabels = workingLabels.filter((l) => l !== target);
+              renderLabelsBody(labelInput ? labelInput.value : '');
+              positionPopover(popoverEl, triggerEl);
+            });
+          });
+
+          bodyEl.querySelectorAll('.bjwt-popover-suggest-label').forEach((chip) => {
+            chip.addEventListener('click', (e) => {
+              e.stopPropagation();
+              addLabel(chip.getAttribute('data-label'));
+            });
+          });
+
+          const cancelBtn = bodyEl.querySelector('.bjwt-popover-cancel-btn');
+          if (cancelBtn) {
+            cancelBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              close();
+            });
+          }
+
+          const saveBtn = bodyEl.querySelector('.bjwt-popover-save-btn');
+          if (saveBtn) {
+            saveBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              if (labelInput && labelInput.value.trim()) {
+                const pending = labelInput.value.trim().replace(/\s+/g, '_');
+                if (pending && !workingLabels.includes(pending)) {
+                  workingLabels.push(pending);
+                }
+              }
+              saveBtn.disabled = true;
+              saveBtn.textContent = '儲存中...';
+
+              const res = await JiraApiService.updateIssueLabels(issueKey, workingLabels);
+              if (res.success) {
+                if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
+                  IssueStore.mergeAndCacheIssue({
+                    key: issueKey,
+                    labels: [...workingLabels],
+                    isUserEdit: true
+                  });
+                }
+                notifySuccess({ labels: [...workingLabels] });
+                close();
+              } else {
+                saveBtn.disabled = false;
+                saveBtn.textContent = '儲存';
+                alert(`標籤更新失敗：${res.error || '請重試'}`);
+              }
+            });
+          }
+        }
+
+        renderLabelsBody('');
+      } else if (editType === 'parent') {
+        // --- 上層項目 (Parent / Epic) 修改 ---
+        const currentParentKey = String(currentIssue.parentKey || '').trim();
+        let candidates = await JiraApiService.searchParentCandidates(issueKey, '');
+        if (!popoverEl.isConnected) return;
+
+        let searchTimer = null;
+
+        function renderParentList(filterKw = '') {
+          const kw = filterKw.trim();
+          const kwLower = kw.toLowerCase();
+          const filtered = candidates.filter((c) => {
+            if (!kwLower) return true;
+            return (
+              c.key.toLowerCase().includes(kwLower) ||
+              (c.summary && c.summary.toLowerCase().includes(kwLower))
+            );
+          });
+
+          return `
+            <div class="bjwt-popover-search-box">
+              <input
+                type="text"
+                class="bjwt-popover-search-input"
+                id="bjwt-parent-search-input"
+                placeholder="搜尋卡片編號或標題 (如 PROJ-10)..."
+                value="${escapeHtml(filterKw)}"
+                autofocus
+              />
+            </div>
+            <div class="bjwt-popover-list bjwt-assignee-scroll-list">
+              <button type="button" class="bjwt-popover-item bjwt-popover-item-parent ${!currentParentKey ? 'is-selected' : ''}" data-parent-key="">
+                <span class="bjwt-avatar-placeholder unassigned">×</span>
+                <span class="bjwt-popover-item-text" style="font-weight: 600;">無上層項目 (清除)</span>
+                ${!currentParentKey ? `<span class="bjwt-popover-check">✓</span>` : ''}
+              </button>
+
+              ${filtered
+                .map((c) => {
+                  const isSelected = currentParentKey && currentParentKey.toUpperCase() === c.key.toUpperCase();
+                  return `
+                    <button type="button" class="bjwt-popover-item bjwt-popover-item-parent ${isSelected ? 'is-selected' : ''}" data-parent-key="${escapeHtml(c.key)}" data-parent-summary="${escapeHtml(c.summary || '')}">
+                      <span class="bjwt-popover-item-icon-fallback">🔗</span>
+                      <div class="bjwt-popover-assignee-info">
+                        <span class="bjwt-popover-item-text">${escapeHtml(c.key)}</span>
+                        ${c.summary ? `<small class="bjwt-popover-item-sub">${escapeHtml(c.summary)}</small>` : ''}
+                      </div>
+                      ${isSelected ? `<span class="bjwt-popover-check">✓</span>` : ''}
+                    </button>
+                  `;
+                })
+                .join('')}
+
+              ${
+                kw && !filtered.some((c) => c.key.toLowerCase() === kwLower)
+                  ? `
+                    <button type="button" class="bjwt-popover-item bjwt-popover-item-parent bjwt-item-custom-name" data-parent-key="${escapeHtml(kw.toUpperCase())}">
+                      <span class="bjwt-avatar-placeholder">+</span>
+                      <div class="bjwt-popover-assignee-info">
+                        <span class="bjwt-popover-item-text">設定上層項目為：「${escapeHtml(kw.toUpperCase())}」</span>
+                      </div>
+                    </button>
+                  `
+                  : ''
+              }
+            </div>
+          `;
+        }
+
+        bodyEl.innerHTML = renderParentList('');
+
+        function bindParentEvents() {
+          const searchInput = bodyEl.querySelector('#bjwt-parent-search-input');
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.addEventListener('input', (e) => {
+              const kw = e.target.value;
+              bodyEl.innerHTML = renderParentList(kw);
+              const newInput = bodyEl.querySelector('#bjwt-parent-search-input');
+              if (newInput) {
+                newInput.focus();
+                newInput.selectionStart = newInput.selectionEnd = kw.length;
+              }
+              bindParentEvents();
+              positionPopover(popoverEl, triggerEl);
+
+              if (searchTimer) clearTimeout(searchTimer);
+              searchTimer = setTimeout(async () => {
+                const remote = await JiraApiService.searchParentCandidates(issueKey, kw);
+                if (!popoverEl.isConnected) return;
+                if (Array.isArray(remote) && remote.length > 0) {
+                  const existingKeys = new Set(candidates.map((c) => c.key));
+                  remote.forEach((r) => {
+                    if (!existingKeys.has(r.key)) {
+                      candidates.push(r);
+                      existingKeys.add(r.key);
+                    }
+                  });
+                  const activeInput = bodyEl.querySelector('#bjwt-parent-search-input');
+                  const currentVal = activeInput ? activeInput.value : kw;
+                  bodyEl.innerHTML = renderParentList(currentVal);
+                  const restoredInput = bodyEl.querySelector('#bjwt-parent-search-input');
+                  if (restoredInput) {
+                    restoredInput.focus();
+                    restoredInput.selectionStart = restoredInput.selectionEnd = currentVal.length;
+                  }
+                  bindParentEvents();
+                  positionPopover(popoverEl, triggerEl);
+                }
+              }, 260);
+            });
+          }
+
+          bodyEl.querySelectorAll('.bjwt-popover-item-parent').forEach((btn) => {
+            btn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const targetKey = btn.getAttribute('data-parent-key') || '';
+              const fallbackSummary = btn.getAttribute('data-parent-summary') || '';
+
+              btn.disabled = true;
+              const textSpan = btn.querySelector('.bjwt-popover-item-text');
+              if (textSpan) textSpan.textContent = '更新中...';
+
+              const res = await JiraApiService.updateIssueParent(issueKey, targetKey || null);
+              if (res.success) {
+                const finalKey = res.parentKey || targetKey;
+                const finalSummary = finalKey ? (res.parentSummary || fallbackSummary || finalKey) : '';
+                if (IssueStore && typeof IssueStore.mergeAndCacheIssue === 'function') {
+                  IssueStore.mergeAndCacheIssue({
+                    key: issueKey,
+                    parentKey: finalKey,
+                    parentSummary: finalSummary,
+                    isUserEdit: true
+                  });
+                }
+                triggerImmediateUiRefresh();
+                notifySuccess({ parentKey: finalKey, parentSummary: finalSummary });
+                close();
+              } else {
+                btn.disabled = false;
+                if (textSpan) textSpan.textContent = targetKey || '無上層項目 (清除)';
+                alert(`上層項目更新失敗：${res.error || '請重試'}`);
+              }
+            });
+          });
+        }
+
+        bindParentEvents();
       }
 
       // 載入完成後重新校準一次座標

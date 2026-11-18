@@ -3865,6 +3865,135 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     console.log('✓ Jira Wiki 圖片渲染 (檢視模式與所見即所得編輯模式) 與 htmlToJiraWiki 雙向轉換檢查通過！');
   }
 
+  // ==========================================
+  // 測試 33: 卡片編輯模式詳細資訊區全欄位 QuickEditPopover 編輯與 API 更新檢查
+  // ==========================================
+  console.log('--- 測試 33: 卡片編輯模式詳細資訊區全欄位 QuickEditPopover 編輯與 API 更新檢查 ---');
+  {
+    const { IssueModalComponent, QuickEditPopoverComponent, JiraApiService } = window.BetterJira;
+    const prevFetch = global.fetch;
+    const prevOpen = QuickEditPopoverComponent.open;
+    const origGetElementById = global.document.getElementById;
+    const origDocBody = global.document.body;
+    global.document.body = new MockElement('body');
+    global.document.getElementById = (id) => {
+      for (const child of global.document.body.children) {
+        if (child.id === id) return child;
+      }
+      return null;
+    };
+    const putCalls = [];
+
+    global.fetch = async (url, opts = {}) => {
+      if (opts && opts.method === 'PUT' && String(url).includes('/rest/api/2/issue/WMC-888')) {
+        putCalls.push({ url, body: JSON.parse(opts.body) });
+        return { ok: true, status: 204, json: async () => ({}) };
+      }
+      if (String(url).includes('/rest/api/2/issue/WMC-888')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            key: 'WMC-888',
+            fields: {
+              summary: '詳細資訊全欄位編輯測試',
+              status: { name: 'To Do', statusCategory: { key: 'new' } },
+              issuetype: { name: 'Story', iconUrl: '' },
+              priority: { name: 'Medium', iconUrl: '' },
+              assignee: { displayName: 'Alice', accountId: 'acc-alice' },
+              reporter: { displayName: 'Bob', accountId: 'acc-bob' },
+              labels: ['frontend'],
+              duedate: '2026-12-01',
+              parent: { key: 'WMC-100', fields: { summary: 'Epic 100' } }
+            },
+            renderedFields: {}
+          })
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    // 1. 驗證 JiraApiService 新方法
+    const repRes = await JiraApiService.updateIssueReporter('WMC-888', 'Alice', 'acc-alice');
+    assert.strictEqual(repRes.success, true, 'updateIssueReporter 應回傳成功');
+    const dueRes = await JiraApiService.updateIssueDueDate('WMC-888', '2026-12-15');
+    assert.strictEqual(dueRes.success, true, 'updateIssueDueDate 應回傳成功');
+    const lblRes = await JiraApiService.updateIssueLabels('WMC-888', ['frontend', 'urgent']);
+    assert.strictEqual(lblRes.success, true, 'updateIssueLabels 應回傳成功');
+    const parRes = await JiraApiService.updateIssueParent('WMC-888', 'WMC-200');
+    assert.strictEqual(parRes.success, true, 'updateIssueParent 應回傳成功');
+
+    assert(putCalls.some((c) => c.body.fields && c.body.fields.reporter && c.body.fields.reporter.accountId === 'acc-alice'), 'updateIssueReporter 應發送 reporter accountId');
+    assert(putCalls.some((c) => c.body.fields && c.body.fields.duedate === '2026-12-15'), 'updateIssueDueDate 應發送 duedate');
+    assert(putCalls.some((c) => c.body.fields && Array.isArray(c.body.fields.labels) && c.body.fields.labels.includes('urgent')), 'updateIssueLabels 應發送 labels');
+    assert(putCalls.some((c) => c.body.fields && c.body.fields.parent && c.body.fields.parent.key === 'WMC-200'), 'updateIssueParent 應發送 parent.key');
+
+    // 2. 驗證 Modal 檢視模式不觸發 QuickEditPopover，編輯模式點擊各欄位會觸發並同步回 Modal DOM
+    const openedCalls = [];
+    QuickEditPopoverComponent.open = async (triggerEl, key, editType, issueSnap, options) => {
+      openedCalls.push({ key, editType, issueSnap, options });
+      if (options && typeof options.onSuccess === 'function') {
+        if (editType === 'duedate') options.onSuccess({ dueDate: '2026-12-31' });
+        if (editType === 'labels') options.onSuccess({ labels: ['qa', 'ready'] });
+        if (editType === 'reporter') options.onSuccess({ reporterName: 'Charlie' });
+        if (editType === 'parent') options.onSuccess({ parentKey: 'WMC-300', parentSummary: 'New Epic' });
+        if (editType === 'points') options.onSuccess({ storyPoints: 8 });
+      }
+    };
+
+    IssueModalComponent.openHistoricalIssueDetailModal('WMC-888', {
+      summary: '詳細資訊全欄位編輯測試',
+      statusName: 'To Do',
+      statusCategory: 'new',
+      assigneeName: 'Alice',
+      priorityName: 'Medium',
+      storyPoints: 3
+    });
+
+    const modalEl = global.document.getElementById(window.BetterJira.Constants.HISTORY_ISSUE_MODAL_ID);
+    assert(modalEl, '應建立 WMC-888 Modal');
+    modalEl.isConnected = true;
+    await new Promise((r) => setTimeout(r, 30));
+
+    const expectedEditTypes = ['type', 'status', 'assignee', 'reporter', 'priority', 'points', 'parent', 'duedate', 'labels'];
+    expectedEditTypes.forEach((et) => {
+      const el = modalEl.querySelector(`[data-bjwt-detail-edit="${et}"]`);
+      assert(el, `Modal 應包含 data-bjwt-detail-edit="${et}" 觸發元素`);
+    });
+
+    const clickEv = () => ({ type: 'click', preventDefault() {}, stopPropagation() {} });
+
+    // 檢視模式點擊不應觸發 QuickEditPopover
+    await modalEl.querySelector('[data-bjwt-detail-edit="status"]').dispatchEvent(clickEv());
+    assert.strictEqual(openedCalls.length, 0, '檢視模式下點擊詳細欄位不應開啟 QuickEditPopover');
+
+    // 進入編輯模式後點擊各欄位應觸發對應的 QuickEditPopover
+    await modalEl.querySelector('.bjwt-history-modal-edit-btn').dispatchEvent(clickEv());
+    assert.strictEqual(modalEl.getAttribute('data-bjwt-edit-mode'), 'true', '應進入編輯模式');
+
+    for (const et of expectedEditTypes) {
+      await modalEl.querySelector(`[data-bjwt-detail-edit="${et}"]`).dispatchEvent(clickEv());
+    }
+    assert.deepStrictEqual(
+      openedCalls.map((c) => c.editType),
+      expectedEditTypes,
+      '編輯模式下點擊詳細資訊區與類型欄位應開啟對應的 QuickEditPopover'
+    );
+
+    assert(modalEl.querySelector('#bjwt-detail-val-due').textContent.includes('2026-12-31'), '到期日更新後應即時反映於 Modal DOM');
+    assert(modalEl.querySelector('#bjwt-detail-val-labels').textContent.includes('ready'), '標籤更新後應即時反映於 Modal DOM');
+    assert(modalEl.querySelector('#bjwt-detail-val-reporter').textContent.includes('Charlie'), '報告者更新後應即時反映於 Modal DOM');
+    assert(modalEl.querySelector('#bjwt-detail-val-parent').textContent.includes('New Epic'), '上層項目更新後應即時反映於 Modal DOM');
+    assert.strictEqual(modalEl.querySelector('#bjwt-points-badge-val').textContent, '8', 'Story Points 更新後應即時反映於 Modal DOM');
+
+    IssueModalComponent.closeIssueDetailModal(modalEl);
+    QuickEditPopoverComponent.open = prevOpen;
+    global.fetch = prevFetch;
+    global.document.getElementById = origGetElementById;
+    global.document.body = origDocBody;
+    console.log('✓ 卡片編輯模式詳細資訊區全欄位 QuickEditPopover 編輯與 API 更新檢查通過！');
+  }
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');

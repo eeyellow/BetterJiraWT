@@ -180,6 +180,15 @@
       if ('dueDate' in primaryIss && primaryIss.dueDate !== undefined) {
         nextOverrides.dueDate = primaryIss.dueDate;
       }
+      if ('parentKey' in primaryIss && primaryIss.parentKey !== undefined) {
+        nextOverrides.parentKey = primaryIss.parentKey;
+      }
+      if ('parentSummary' in primaryIss && primaryIss.parentSummary !== undefined) {
+        nextOverrides.parentSummary = primaryIss.parentSummary;
+      }
+      if ('labels' in primaryIss && Array.isArray(primaryIss.labels)) {
+        nextOverrides.labels = [...primaryIss.labels];
+      }
 
       userOverridesMap.set(key, nextOverrides);
     }
