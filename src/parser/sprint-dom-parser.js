@@ -9,6 +9,22 @@
     (typeof window !== 'undefined' ? window : global).BetterJira || {};
 
   /**
+   * 檢查元素是否位於本擴充功能自建之 UI 容器內部 (如自定義檢視、側邊欄、篩選列等)，
+   * 防止解析原生 Jira 衝刺標頭時誤將自定義 UI 內的統計徽章或文字重複計入。
+   *
+   * @param {Element|*} el - 欲檢查之 DOM 元素
+   * @returns {boolean} 是否位於擴充功能 UI 內部
+   */
+  function isInsideExtensionUi(el) {
+    if (!el || !(el instanceof Element)) return false;
+    return Boolean(
+      el.closest(
+        '[data-bjwt-custom-view], .bjwt-active-sprint-custom-view, #bjwt-sprint-sidebar, #bjwt-global-filter-toolbar, [data-bjwt-history-branch], [data-bjwt-non-sprint-child]'
+      )
+    );
+  }
+
+  /**
    * 檢查元素是否位於某張卡片內部
    *
    * @param {Element|*} el - 欲檢查之 DOM 元素
@@ -91,7 +107,7 @@
       const toggleBtn = hdr.querySelector(
         '[aria-expanded="false"], button[data-testid*="toggle"], button[data-testid*="expand"], [role="button"][aria-expanded="false"], button[aria-label*="展開"], button[aria-label*="Expand"]'
       );
-      if (toggleBtn && !toggleBtn.hasAttribute('aria-haspopup') && !isInsideCard(toggleBtn)) {
+      if (toggleBtn && !toggleBtn.hasAttribute('aria-haspopup') && !isInsideCard(toggleBtn) && !isInsideExtensionUi(toggleBtn)) {
         return true;
       }
     }
@@ -185,11 +201,21 @@
   function extractSprintMeta(branchEl, sprintEl, headerPartner, index) {
     const { CARD_SELECTORS } = BetterJira.Constants;
     const { cleanSprintTitle } = BetterJira.TextUtils;
-    const searchRoots = [headerPartner, branchEl, sprintEl, sprintEl.parentElement].filter(Boolean);
+    const isSharedHost = (el) =>
+      !el ||
+      (el.getAttribute && el.getAttribute('data-bjwt-layout-host') === 'true') ||
+      (el.querySelectorAll && el.querySelectorAll('[data-bjwt-sprint-branch="true"], [data-bjwt-sprint-container="true"]').length > 1);
+    const parentCandidate =
+      sprintEl && sprintEl.parentElement && !isSharedHost(sprintEl.parentElement)
+        ? sprintEl.parentElement
+        : null;
+    const searchRoots = [headerPartner, branchEl, sprintEl, parentCandidate].filter(
+      (r) => r && !isInsideExtensionUi(r)
+    );
 
     let title = '';
 
-    // 1. 優先從明確的標題 Selector 尋找 (排除卡片內部元素)
+    // 1. 優先從明確的標題 Selector 尋找 (排除卡片與擴充功能 UI 內部元素)
     const explicitSelectors = [
       '[data-testid*="sprint-name"]',
       '[data-testid*="header.title"]',
@@ -212,7 +238,7 @@
       for (const sel of explicitSelectors) {
         const matches = root.querySelectorAll(sel);
         for (const el of matches) {
-          if (isInsideCard(el)) continue;
+          if (isInsideCard(el) || isInsideExtensionUi(el)) continue;
           const candidate = (el.textContent || '').replace(/\s+/g, ' ').trim();
           if (isValidSprintTitleCandidate(candidate)) {
             title = candidate;
@@ -228,7 +254,7 @@
       for (const root of searchRoots) {
         const inputs = root.querySelectorAll('input[type="text"], input:not([type])');
         for (const inp of inputs) {
-          if (isInsideCard(inp)) continue;
+          if (isInsideCard(inp) || isInsideExtensionUi(inp)) continue;
           const val = (inp.value || '').trim();
           if (isValidSprintTitleCandidate(val)) {
             title = val;
@@ -247,7 +273,7 @@
           ...Array.from(root.querySelectorAll('[aria-expanded], [role="region"], [data-testid*="header"]'))
         ];
         for (const node of ariaNodes) {
-          if (!node || !(node instanceof Element) || isInsideCard(node)) continue;
+          if (!node || !(node instanceof Element) || isInsideCard(node) || isInsideExtensionUi(node)) continue;
           const label = (node.getAttribute('aria-label') || '').trim();
           if (isValidSprintTitleCandidate(label)) {
             title = label;
@@ -265,7 +291,7 @@
           acceptNode(node) {
             const parent = node.parentElement;
             if (!parent) return NodeFilter.FILTER_REJECT;
-            if (isInsideCard(parent)) return NodeFilter.FILTER_REJECT;
+            if (isInsideCard(parent) || isInsideExtensionUi(parent)) return NodeFilter.FILTER_REJECT;
             if (parent.closest('button') && !parent.closest('[aria-expanded]')) {
               return NodeFilter.FILTER_REJECT;
             }
@@ -319,32 +345,56 @@
     let headerFilteredCount = null;
     let headerTotalCount = null;
     for (const root of searchRoots) {
-      const headerEl =
-        root.querySelector('[data-testid*="header"], .ghx-backlog-header, header') || root;
-      const headerText = (headerEl.innerText || headerEl.textContent || '').replace(/\s+/g, ' ');
-      const zhSubsetMatch = headerText.match(
-        /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)\s*中的\s*(\d+)\s*個?/i
-      );
-      if (zhSubsetMatch) {
-        headerTotalCount = parseInt(zhSubsetMatch[1], 10);
-        headerFilteredCount = parseInt(zhSubsetMatch[2], 10);
-        break;
+      const headerCandidates = Array.from(
+        root.querySelectorAll(
+          '[data-testid*="header.container"], [data-testid*="header-container"], [data-testid="software-backlog.card-list.header"], .ghx-backlog-header, header'
+        )
+      ).filter((el) => !isInsideCard(el) && !isInsideExtensionUi(el));
+      const candidateEls = [...headerCandidates, root];
+      let matchedInRoot = false;
+      for (const headerEl of candidateEls) {
+        if (!headerEl || isInsideExtensionUi(headerEl)) continue;
+        let headerText = '';
+        if (
+          headerEl.querySelector &&
+          headerEl.querySelector('[data-bjwt-custom-view], .bjwt-active-sprint-custom-view, #bjwt-sprint-sidebar, [data-bjwt-non-sprint-child]')
+        ) {
+          headerText = Array.from(headerEl.children || [])
+            .filter((c) => !isInsideExtensionUi(c) && !isInsideCard(c))
+            .map((c) => c.innerText || c.textContent || '')
+            .join(' ')
+            .replace(/\s+/g, ' ');
+        } else {
+          headerText = (headerEl.innerText || headerEl.textContent || '').replace(/\s+/g, ' ');
+        }
+        const zhSubsetMatch = headerText.match(
+          /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)\s*中的\s*(\d+)\s*個?/i
+        );
+        if (zhSubsetMatch) {
+          headerTotalCount = parseInt(zhSubsetMatch[1], 10);
+          headerFilteredCount = parseInt(zhSubsetMatch[2], 10);
+          matchedInRoot = true;
+          break;
+        }
+        const enSubsetMatch = headerText.match(
+          /(\d+)\s*(?:of|\/)\s*(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i
+        );
+        if (enSubsetMatch) {
+          headerFilteredCount = parseInt(enSubsetMatch[1], 10);
+          headerTotalCount = parseInt(enSubsetMatch[2], 10);
+          matchedInRoot = true;
+          break;
+        }
+        const countMatch = headerText.match(
+          /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i
+        );
+        if (countMatch) {
+          headerTotalCount = parseInt(countMatch[1], 10);
+          matchedInRoot = true;
+          break;
+        }
       }
-      const enSubsetMatch = headerText.match(
-        /(\d+)\s*(?:of|\/)\s*(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i
-      );
-      if (enSubsetMatch) {
-        headerFilteredCount = parseInt(enSubsetMatch[1], 10);
-        headerTotalCount = parseInt(enSubsetMatch[2], 10);
-        break;
-      }
-      const countMatch = headerText.match(
-        /(\d+)\s*(?:個問題|個工作項目|工作項目|issues?|張卡片|cards?|items?)/i
-      );
-      if (countMatch) {
-        headerTotalCount = parseInt(countMatch[1], 10);
-        break;
-      }
+      if (matchedInRoot) break;
     }
 
     const isCollapsed = isNativeSprintCollapsed(branchEl, sprintEl, headerPartner);
@@ -364,10 +414,10 @@
       '';
     if (!sprintId) {
       for (const root of searchRoots) {
-        const foundEl = root.querySelector(
-          '[data-sprint-id], [data-testid*="container-"], [data-testid*="header-"]'
-        );
-        if (foundEl) {
+        const foundEls = Array.from(
+          root.querySelectorAll('[data-sprint-id], [data-testid*="container-"], [data-testid*="header-"]')
+        ).filter((el) => !isInsideExtensionUi(el));
+        for (const foundEl of foundEls) {
           sprintId = foundEl.getAttribute('data-sprint-id') || '';
           if (!sprintId) {
             const m = (foundEl.getAttribute('data-testid') || '').match(/(\d{2,})/);
@@ -375,31 +425,33 @@
           }
           if (sprintId) break;
         }
+        if (sprintId) break;
       }
     }
 
     // 擷取原生標頭上的 Story Points (例如三個數字徽章 [26] [38] [17]，或未開始衝刺單一徽章 [33 點])
+    // 嚴格排除擴充功能自建檢視 (data-bjwt-custom-view) 與側邊欄徽章，避免切換衝刺後重複加總為兩倍
     let headerStoryPoints = 0;
+    const badgeSelector =
+      '[data-testid*="badge"], [data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="storypoint"], [data-testid*="statistic"], [class*="badge"], [class*="estimate"], [class*="statistic"], [aria-label*="estimate" i], [aria-label*="point" i], [aria-label*="點" i], [title*="estimate" i], [title*="point" i], [title*="點" i]';
     for (const root of searchRoots) {
-      const headerContainer =
-        root.querySelector(
-          '[data-testid*="header.container"], [data-testid*="header-container"], [data-testid="software-backlog.card-list.header"], .ghx-backlog-header, header'
-        ) || root;
-      let allBadgeNodes = Array.from(
-        headerContainer.querySelectorAll(
-          '[data-testid*="badge"], [data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="storypoint"], [data-testid*="statistic"], [class*="badge"], [class*="estimate"], [class*="statistic"], [aria-label*="estimate" i], [aria-label*="point" i], [aria-label*="點" i], [title*="estimate" i], [title*="point" i], [title*="點" i]'
+      const headerCandidates = Array.from(
+        root.querySelectorAll(
+          '[data-testid*="header.container"], [data-testid*="header-container"], [data-testid="software-backlog.card-list.header"], [data-testid*="card-list.header"], .ghx-backlog-header, header'
         )
+      ).filter((el) => !isInsideCard(el) && !isInsideExtensionUi(el));
+      const headerContainer = headerCandidates[0] || root;
+      let allBadgeNodes = Array.from(headerContainer.querySelectorAll(badgeSelector)).filter(
+        (b) => !isInsideCard(b) && !isInsideExtensionUi(b)
       );
       if (allBadgeNodes.length === 0 && headerContainer !== root) {
-        allBadgeNodes = Array.from(
-          root.querySelectorAll(
-            '[data-testid*="badge"], [data-testid*="estimate"], [data-testid*="story-point"], [data-testid*="storypoint"], [data-testid*="statistic"], [class*="badge"], [class*="estimate"], [class*="statistic"], [aria-label*="estimate" i], [aria-label*="point" i], [aria-label*="點" i], [title*="estimate" i], [title*="point" i], [title*="點" i]'
-          )
+        allBadgeNodes = Array.from(root.querySelectorAll(badgeSelector)).filter(
+          (b) => !isInsideCard(b) && !isInsideExtensionUi(b)
         );
       }
       // 避免重複計算父子嵌套節點 (若節點 A 包含節點 B，僅保留內層葉節點)
       const leafBadges = allBadgeNodes.filter(
-        (b) => !isInsideCard(b) && !allBadgeNodes.some((other) => other !== b && b.contains(other))
+        (b) => !allBadgeNodes.some((other) => other !== b && b.contains(other))
       );
 
       let sum = 0;
@@ -455,7 +507,7 @@
       if (!root) continue;
       const btns = Array.from(
         root.querySelectorAll('button, [role="button"], a, input[type="button"], input[type="submit"]')
-      );
+      ).filter((b) => !isInsideCard(b) && !isInsideExtensionUi(b));
       const hasComplete = btns.some((b) => {
         const txt = (b.textContent || b.value || '').trim();
         const testid = b.getAttribute('data-testid') || '';
@@ -551,6 +603,7 @@
   }
 
   BetterJira.SprintDomParser = {
+    isInsideExtensionUi,
     isInsideCard,
     findSprintContainers,
     isValidSprintTitleCandidate,

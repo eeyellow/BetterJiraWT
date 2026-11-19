@@ -3994,6 +3994,110 @@ console.log('--- 測試 14: Jira API 衝刺卡片請求去重、快取與冷卻�
     console.log('✓ 卡片編輯模式詳細資訊區全欄位 QuickEditPopover 編輯與 API 更新檢查通過！');
   }
 
+  console.log('--- 測試 34: 多次切換衝刺後未開始衝刺點數不可重複加總成兩倍 ---');
+  {
+    const { SprintDomParser, SprintStatsService, IssueStore } = BetterJira;
+
+    // 1. 模擬未開始衝刺在切換點擊後，branch 內同時存在原生標頭與自定義檢視 (.bjwt-active-sprint-custom-view)
+    const sprintsHost = new MockElement('div');
+    sprintsHost.setAttribute('data-bjwt-layout-host', 'true');
+
+    const sidebarEl = new MockElement('aside');
+    sidebarEl.setAttribute('id', 'bjwt-sprint-sidebar');
+    const sidebarBadge = new MockElement('span');
+    sidebarBadge.className = 'bjwt-sprint-tab-badge';
+    sidebarBadge.setAttribute('title', '未開始衝刺 A：共 33 點 Story Points (10 個工作項目)');
+    sidebarBadge.textContent = '33';
+    sidebarEl.appendChild(sidebarBadge);
+    sprintsHost.appendChild(sidebarEl);
+
+    const futureBranch = new MockElement('div');
+    futureBranch.setAttribute('data-sprint-id', '601');
+    futureBranch.setAttribute('data-bjwt-sprint-branch', 'true');
+    const h2 = new MockElement('h2');
+    h2.textContent = '2026-W50 未開始衝刺 A';
+    futureBranch.appendChild(h2);
+    const startBtn = new MockElement('button');
+    startBtn.setAttribute('data-testid', 'software-backlog.card-list.header.actions.start-sprint-button');
+    startBtn.textContent = '開始衝刺';
+    futureBranch.appendChild(startBtn);
+    const nativeCountSpan = new MockElement('span');
+    nativeCountSpan.textContent = '(10 個工作項目)';
+    futureBranch.appendChild(nativeCountSpan);
+    const nativePtBadge = new MockElement('span');
+    nativePtBadge.setAttribute('data-testid', 'software-backlog.card-list.header.estimate');
+    nativePtBadge.textContent = '33 點';
+    futureBranch.appendChild(nativePtBadge);
+
+    // 模擬已點擊過該未開始衝刺後，寫入 branch 內的自定義檢視與三色點數膠囊
+    const customView = new MockElement('div');
+    customView.className = 'bjwt-active-sprint-custom-view';
+    customView.setAttribute('data-bjwt-custom-view', 'true');
+    const statusCounters = new MockElement('span');
+    statusCounters.className = 'bjwt-history-status-counters';
+    statusCounters.setAttribute('title', 'Story Points (待辦 / 進行中 / 完成)');
+    const pillTodo = new MockElement('span');
+    pillTodo.className = 'bjwt-counter-pill counter-todo';
+    pillTodo.setAttribute('title', '待辦: 25 點 (8 個工作項目)');
+    pillTodo.textContent = '25';
+    const pillProg = new MockElement('span');
+    pillProg.className = 'bjwt-counter-pill counter-inprogress';
+    pillProg.setAttribute('title', '進行中: 8 點 (2 個工作項目)');
+    pillProg.textContent = '8';
+    const pillDone = new MockElement('span');
+    pillDone.className = 'bjwt-counter-pill counter-done';
+    pillDone.setAttribute('title', '完成: 0 點 (0 個工作項目)');
+    pillDone.textContent = '0';
+    statusCounters.appendChild(pillTodo);
+    statusCounters.appendChild(pillProg);
+    statusCounters.appendChild(pillDone);
+    customView.appendChild(statusCounters);
+    futureBranch.appendChild(customView);
+
+    sprintsHost.appendChild(futureBranch);
+
+    // 連續重複解析多次 (模擬反覆切換衝刺)，確認不會把 customView 的點數再加一次變成 66
+    for (let i = 0; i < 5; i++) {
+      const meta = SprintDomParser.extractSprintMeta(futureBranch, futureBranch, null, 1);
+      assert.strictEqual(meta.sprintState, 'future', '應判定為未開始衝刺 (future)');
+      assert.strictEqual(meta.headerStoryPoints, 33, `第 ${i + 1} 次解析 headerStoryPoints 應維持 33，不可因包含自定義檢視而變成 66`);
+      assert.strictEqual(meta.storyPoints, 33, `第 ${i + 1} 次解析 storyPoints 應維持 33`);
+      assert.strictEqual(meta.headerTotalCount, 10, 'headerTotalCount 應維持為 10');
+    }
+
+    // 2. 測試 SprintStatsService.calculateSprintStatistics 對重複 key 卡片之去重防護
+    const dupStats = SprintStatsService.calculateSprintStatistics([
+      { key: 'WMC-901', statusCategory: 'new', storyPoints: 13 },
+      { key: 'wmc-901', statusCategory: 'new', storyPoints: 13 },
+      { key: 'WMC-902', statusCategory: 'indeterminate', storyPoints: 20 }
+    ]);
+    assert.strictEqual(dupStats.totalIssues, 2, '相同 key 的重複卡片不應重複計數');
+    assert.strictEqual(dupStats.totalPoints, 33, '相同 key 的重複卡片點數不應加倍為 46');
+
+    // 3. 測試未帶 Story Points 欄位的 API 降級回應不可覆蓋既有 DOM 解析出之點數
+    IssueStore.mergeAndCacheIssue({
+      key: 'WMC-903',
+      summary: 'Future Card',
+      statusName: '待辦事項',
+      statusCategory: 'new',
+      storyPoints: 13,
+      fromDom: true,
+      _isFromDom: true
+    });
+    const afterBaseApi = IssueStore.normalizeJiraIssue({
+      id: '903',
+      key: 'WMC-903',
+      fields: {
+        summary: 'Future Card',
+        status: { name: '待辦事項', statusCategory: { key: 'new' } },
+        issuetype: { name: 'Story' }
+      }
+    });
+    assert.strictEqual(afterBaseApi.storyPoints, 13, '缺少估算欄位的 API 降級回應不應將既有 DOM 點數覆寫成 null');
+
+    console.log('✓ 多次切換衝刺後未開始衝刺點數防重複加總測試通過！');
+  }
+
   console.log('============================================');
   console.log('🎉 所有單元與整合測試全部通過！功能完全一致且無退化！');
   console.log('============================================');

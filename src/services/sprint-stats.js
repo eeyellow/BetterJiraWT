@@ -48,13 +48,19 @@
     let inProgressPoints = 0;
     let todoPoints = 0;
 
-    // 嚴格排除子任務，衝刺工作項目數與點數統計僅採計標準頂層卡片
+    // 嚴格排除子任務並依 key 去重，衝刺工作項目數與點數統計僅採計唯一標準頂層卡片
     const TextUtils = BetterJira.TextUtils;
+    const seenKeys = new Set();
     const targetIssues = issues.filter((iss) => {
       if (!iss) return false;
       if (iss.isSubtask === true || iss.subtask === true) return false;
       if (iss.issueTypeName && TextUtils && typeof TextUtils.isSubtaskTypeName === 'function') {
         if (TextUtils.isSubtaskTypeName(iss.issueTypeName)) return false;
+      }
+      if (iss.key) {
+        const normKey = String(iss.key).toUpperCase();
+        if (seenKeys.has(normKey)) return false;
+        seenKeys.add(normKey);
       }
       return true;
     });

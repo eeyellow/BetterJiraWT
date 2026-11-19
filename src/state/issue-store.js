@@ -200,6 +200,7 @@
         assigneeTokens: Array.from(new Set(primaryIss.assigneeTokens || []))
       };
       delete copy.isUserEdit;
+      delete copy._storyPointsFieldPresent;
       issueMetadataMap.set(key, copy);
       syncMergedIssueToSprintCaches(key, copy);
       return copy;
@@ -366,9 +367,15 @@
       ? (primaryIss.prioritySvg || '')
       : (primaryIss.prioritySvg !== undefined ? primaryIss.prioritySvg : existing.prioritySvg);
 
-    // Story Points 欄位：支援非 DOM 明確傳入 null 清空點數
+    // Story Points 欄位：支援非 DOM 明確傳入 null 清空點數 (但若為未包含估算欄位的 API 降級回應，保留既有 DOM 點數)
+    const canClearStoryPoints = primaryIss._storyPointsFieldPresent !== false;
     let resolvedStoryPoints;
-    if (!primaryIss.fromDom && 'storyPoints' in primaryIss && primaryIss.storyPoints !== undefined) {
+    if (
+      !primaryIss.fromDom &&
+      'storyPoints' in primaryIss &&
+      primaryIss.storyPoints !== undefined &&
+      (primaryIss.storyPoints !== null || canClearStoryPoints)
+    ) {
       resolvedStoryPoints = primaryIss.storyPoints;
     } else if (primaryIss.storyPoints !== null && primaryIss.storyPoints !== undefined) {
       resolvedStoryPoints = primaryIss.storyPoints;
@@ -423,6 +430,7 @@
       id: primaryIss.id || existing.id || primaryIss.key
     };
     delete merged.isUserEdit;
+    delete merged._storyPointsFieldPresent;
 
     // 若使用者曾透過 UI 明確編輯過此卡片的欄位，套用 userOverridesMap 防止被背景未刷新的原生 DOM 覆蓋
     const userOverrides = userOverridesMap.get(key);
@@ -513,6 +521,22 @@
       }
     }
 
+    const knownSpKeys = [
+      cachedStoryPointsFieldId,
+      'customfield_10016',
+      'customfield_10026',
+      'customfield_10004',
+      'customfield_10008',
+      'customfield_10028',
+      'customfield_10024',
+      'story_points',
+      'storyPoints'
+    ].filter(Boolean);
+    const storyPointsFieldPresent =
+      knownSpKeys.some((k) => k in fields) ||
+      Boolean(raw.estimateStatistic && raw.estimateStatistic.statFieldValue) ||
+      rawStoryPoints !== null;
+
     let cleanStatus = cleanStatusText(statusObj.name || '未知狀態');
 
     const rawAssigneeName = assigneeObj
@@ -563,7 +587,8 @@
       dueDate: cleanDueDateText(fields.duedate || ''),
       storyPoints,
       isSubtask,
-      _isFromApi: true
+      _isFromApi: true,
+      _storyPointsFieldPresent: storyPointsFieldPresent
     };
 
     return mergeAndCacheIssue(issueObj);

@@ -741,7 +741,7 @@
     let sprintId = item.meta.sprintId || (item.sprintEl && item.sprintEl.getAttribute('data-sprint-id'));
     const cleanTitle = TextUtils.cleanSprintTitle(item.meta.title);
     const itemKey = item.meta.key || `${cleanTitle}`;
-    const targetCacheKey = sprintId ? `sprint_${sprintId}` : `title_${cleanTitle}`;
+    const targetCacheKey = sprintId ? `sprint_${sprintId}` : `title_${cleanTitle.toLowerCase()}`;
 
     const now = Date.now();
 
@@ -848,30 +848,38 @@
         }
 
         for (const jql of jqlCandidates) {
-          const searchEndpoints = [
-            `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`,
-            `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${baseFields.join(',')}`
-          ];
+          for (const fields of [fullFields.join(','), baseFields.join(',')]) {
+            const searchEndpoints = [
+              `${window.location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fields}`,
+              `${window.location.origin}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=${fields}`
+            ];
 
-          for (const ep of searchEndpoints) {
-            try {
-              const res = await fetch(ep, {
-                credentials: 'include',
-                headers: { Accept: 'application/json' }
-              });
-              if (res.ok) {
-                const data = await res.json();
-                if (data && Array.isArray(data.issues)) {
-                  const issues = data.issues.map(IssueStore.normalizeJiraIssue).filter((iss) => !iss.isSubtask);
-                  sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
-                  sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
-                  sprintFailedCooldownMap.delete(effectiveKey);
-                  sprintFailedCooldownMap.delete(itemKey);
-                  return issues;
+            let got400 = false;
+            for (const ep of searchEndpoints) {
+              try {
+                const res = await fetch(ep, {
+                  credentials: 'include',
+                  headers: { Accept: 'application/json' }
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data && Array.isArray(data.issues)) {
+                    const issues = data.issues.map(IssueStore.normalizeJiraIssue).filter((iss) => !iss.isSubtask);
+                    sprintActiveApiCache.set(effectiveKey, { data: issues, timestamp: Date.now() });
+                    sprintActiveApiCache.set(itemKey, { data: issues, timestamp: Date.now() });
+                    sprintFailedCooldownMap.delete(effectiveKey);
+                    sprintFailedCooldownMap.delete(itemKey);
+                    return issues;
+                  }
+                } else if (res.status === 400) {
+                  got400 = true;
                 }
+              } catch {
+                // ignore
               }
-            } catch {
-              // ignore
+            }
+            if (!got400) {
+              break;
             }
           }
         }
